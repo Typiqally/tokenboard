@@ -92,7 +92,13 @@ public final class SQLiteConnection {
     }
 
     public var userVersion: Int32 {
-        (try? queryStrings("PRAGMA user_version;").first.flatMap(Int32.init)) ?? 0
+        get throws {
+            let rows = try queryStrings("PRAGMA user_version;")
+            guard rows.count == 1, let version = Int32(rows[0]) else {
+                throw SQLiteFailure(code: SQLITE_CORRUPT, message: "invalid user_version")
+            }
+            return version
+        }
     }
 
     public func setUserVersion(_ version: Int32) throws {

@@ -27,13 +27,16 @@ public struct DatabaseMigrator {
 
     public func migrate() throws {
         try connection.execute("CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY, name TEXT NOT NULL, checksum TEXT NOT NULL, applied_at TEXT NOT NULL);")
-        try verifyAppliedMigrationChecksums()
+        let currentVersion = try connection.userVersion
+        try validateMigrationDefinitions()
+        try verifyAppliedMigrationState(upTo: currentVersion)
 
         let pending = migrations
-            .filter { $0.version > connection.userVersion }
+            .filter { $0.version > currentVersion }
             .sorted { $0.version < $1.version }
-        if connection.userVersion > 0, !pending.isEmpty {
+        if currentVersion > 0, !pending.isEmpty {
             try createBackup()
+            try retainNewestTwoBackups()
         }
 
         for migration in pending {
@@ -47,11 +50,34 @@ public struct DatabaseMigrator {
             }
         }
 
-        try retainNewestTwoBackups()
     }
 
-    private func verifyAppliedMigrationChecksums() throws {
-        for migration in migrations where migration.version <= connection.userVersion {
+    private func validateMigrationDefinitions() throws {
+        let versions = migrations.map(\.version).sorted()
+        for (offset, version) in versions.enumerated() where version != Int32(offset + 1) {
+            throw SQLiteFailure(code: SQLITE_CORRUPT, message: "migration versions must be unique and contiguous from 1")
+        }
+    }
+
+    private func verifyAppliedMigrationState(upTo currentVersion: Int32) throws {
+        guard currentVersion >= 0 else {
+            throw SQLiteFailure(code: SQLITE_CORRUPT, message: "invalid user_version")
+        }
+        guard currentVersion <= Int32(migrations.count) else {
+            throw SQLiteFailure(code: SQLITE_CORRUPT, message: "database schema is newer than this application")
+        }
+
+        let appliedVersions = try connection.queryStrings(
+            "SELECT version FROM schema_migrations ORDER BY version;"
+        ).compactMap(Int32.init)
+        let expectedVersions: [Int32] = currentVersion == 0
+            ? []
+            : (1...currentVersion).map { $0 }
+        guard appliedVersions == expectedVersions else {
+            throw SQLiteFailure(code: SQLITE_CORRUPT, message: "persisted migration versions do not match user_version")
+        }
+
+        for migration in migrations where migration.version <= currentVersion {
             let rows = try connection.queryStrings(
                 "SELECT checksum FROM schema_migrations WHERE version = \(migration.version);"
             )
@@ -67,8 +93,15 @@ public struct DatabaseMigrator {
     private func createBackup() throws {
         try FileManager.default.createDirectory(at: backupDirectory, withIntermediateDirectories: true)
         let target = backupDirectory.appending(
-            path: "ledger-v\(connection.userVersion)-\(Int(Date().timeIntervalSince1970)).sqlite"
+            path: "ledger-v\(try connection.userVersion)-\(Int(Date().timeIntervalSince1970)).sqlite"
         )
+        var completed = false
+        defer {
+            if !completed {
+                try? FileManager.default.removeItem(at: target)
+            }
+        }
+
         var destination: OpaquePointer?
         let openResult = sqlite3_open(target.path, &destination)
         guard openResult == SQLITE_OK, let destination else {
@@ -77,20 +110,30 @@ public struct DatabaseMigrator {
             }
             throw SQLiteFailure(code: openResult, message: "unable to create migration backup")
         }
-        defer {
-            sqlite3_close(destination)
-        }
 
         guard let backup = sqlite3_backup_init(destination, "main", connection.handle, "main") else {
-            throw SQLiteFailure(code: sqlite3_errcode(destination), message: String(cString: sqlite3_errmsg(destination)))
-        }
-        defer {
-            sqlite3_backup_finish(backup)
+            let backupCode = sqlite3_errcode(destination)
+            let message = String(cString: sqlite3_errmsg(destination))
+            let closeResult = sqlite3_close(destination)
+            guard closeResult == SQLITE_OK else {
+                throw SQLiteFailure(code: closeResult, message: "unable to close failed migration backup")
+            }
+            throw SQLiteFailure(code: backupCode, message: message)
         }
 
-        guard sqlite3_backup_step(backup, -1) == SQLITE_DONE else {
-            throw SQLiteFailure(code: sqlite3_errcode(destination), message: String(cString: sqlite3_errmsg(destination)))
+        let stepResult = sqlite3_backup_step(backup, -1)
+        let finishResult = sqlite3_backup_finish(backup)
+        let closeResult = sqlite3_close(destination)
+        guard stepResult == SQLITE_DONE else {
+            throw SQLiteFailure(code: stepResult, message: "unable to complete migration backup")
         }
+        guard finishResult == SQLITE_OK else {
+            throw SQLiteFailure(code: finishResult, message: "unable to finalize migration backup")
+        }
+        guard closeResult == SQLITE_OK else {
+            throw SQLiteFailure(code: closeResult, message: "unable to close migration backup")
+        }
+        completed = true
     }
 
     private func retainNewestTwoBackups() throws {
