@@ -1,0 +1,83 @@
+public enum Migrations {
+    public static let v1 = Migration(
+        version: 1,
+        name: "initial ledger schema",
+        sql: """
+        CREATE TABLE IF NOT EXISTS schema_migrations(
+          version INTEGER PRIMARY KEY,
+          name TEXT NOT NULL,
+          checksum TEXT NOT NULL,
+          applied_at TEXT NOT NULL
+        );
+        CREATE TABLE daily_usage(
+          local_day TEXT NOT NULL,
+          time_zone TEXT NOT NULL,
+          provider TEXT NOT NULL,
+          observed_model_id TEXT NOT NULL,
+          metric TEXT NOT NULL,
+          aggregation TEXT NOT NULL,
+          quantity INTEGER NOT NULL CHECK(quantity >= 0),
+          PRIMARY KEY(local_day, time_zone, provider, observed_model_id, metric)
+        );
+        CREATE INDEX daily_usage_day_idx ON daily_usage(local_day, provider);
+        CREATE TABLE source_checkpoints(
+          fingerprint TEXT PRIMARY KEY,
+          provider TEXT NOT NULL,
+          parser_version INTEGER NOT NULL,
+          byte_offset INTEGER NOT NULL CHECK(byte_offset >= 0),
+          file_size INTEGER NOT NULL CHECK(file_size >= 0),
+          modification_time TEXT,
+          last_usage_identity_hash TEXT,
+          last_committed_line_hash TEXT,
+          cumulative_metrics_json TEXT NOT NULL,
+          adapter_state_json TEXT NOT NULL
+        );
+        CREATE TABLE skipped_records(
+          source_fingerprint TEXT NOT NULL,
+          byte_offset INTEGER NOT NULL,
+          record_hash TEXT NOT NULL,
+          parser_version INTEGER NOT NULL,
+          reason TEXT NOT NULL,
+          PRIMARY KEY(source_fingerprint, byte_offset, record_hash)
+        );
+        CREATE TABLE price_rates(
+          provider TEXT NOT NULL,
+          canonical_model_id TEXT NOT NULL,
+          metric TEXT NOT NULL,
+          usd_per_million TEXT NOT NULL,
+          effective_from TEXT NOT NULL,
+          effective_to TEXT,
+          provenance_url TEXT NOT NULL,
+          verified_at TEXT NOT NULL,
+          catalog_id TEXT NOT NULL,
+          PRIMARY KEY(provider, canonical_model_id, metric, effective_from)
+        );
+        CREATE INDEX price_rate_lookup_idx ON price_rates(provider, canonical_model_id, metric, effective_from, effective_to);
+        CREATE TABLE model_aliases(
+          provider TEXT NOT NULL,
+          observed_model_id TEXT NOT NULL,
+          canonical_model_id TEXT NOT NULL,
+          effective_from TEXT NOT NULL,
+          effective_to TEXT,
+          catalog_id TEXT NOT NULL,
+          PRIMARY KEY(provider, observed_model_id, effective_from)
+        );
+        CREATE INDEX model_alias_lookup_idx ON model_aliases(provider, observed_model_id, effective_from, effective_to);
+        CREATE TABLE catalog_imports(
+          catalog_id TEXT PRIMARY KEY,
+          schema_version INTEGER NOT NULL,
+          origin TEXT NOT NULL,
+          imported_at TEXT NOT NULL,
+          applied INTEGER NOT NULL CHECK(applied IN (0, 1)),
+          validation_summary TEXT NOT NULL,
+          canonical_json TEXT NOT NULL
+        );
+        CREATE TABLE app_metadata(
+          key TEXT PRIMARY KEY,
+          value BLOB NOT NULL
+        );
+        """
+    )
+
+    public static let all = [v1]
+}
