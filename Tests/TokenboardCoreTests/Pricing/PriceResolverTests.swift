@@ -55,14 +55,16 @@ final class PriceResolverTests: XCTestCase {
         let rows = [
             row(day: "2026-08-05", model: "gpt-observed", metric: .inputUnclassified, quantity: 11),
             row(day: "2026-08-05", model: "gpt-observed", metric: .inputCacheRead, quantity: 13),
-            row(day: "2026-08-05", model: "gpt-observed", metric: .inputCacheWrite, quantity: 17)
+            row(day: "2026-08-05", model: "gpt-observed", metric: .inputCacheWrite, quantity: 17),
+            row(day: "2026-08-05", model: "gpt-observed", metric: .inputCacheWrite5m, quantity: 19),
+            row(day: "2026-08-05", model: "gpt-observed", metric: .inputCacheWrite1h, quantity: 23)
         ]
 
         let result = try PriceResolver().resolve(rows: rows, pricing: snapshot)
 
-        XCTAssertEqual(result.tokenTotal, 41)
+        XCTAssertEqual(result.tokenTotal, 83)
         XCTAssertEqual(result.knownUSD, .zero)
-        XCTAssertEqual(result.unpricedTokens, 41)
+        XCTAssertEqual(result.unpricedTokens, 83)
     }
 
     func testRateGapLeavesTokensUnpricedAtExclusiveEnd() throws {
@@ -157,6 +159,29 @@ final class PriceResolverTests: XCTestCase {
             XCTFail("expected negative quantity to throw")
         } catch let error as PriceResolverError {
             XCTAssertEqual(error, .negativeQuantity)
+        }
+    }
+
+    func testDecimalOverflowThrowsInsteadOfReturningAnInexactCost() throws {
+        let overflowingRate = StoredPriceRate(
+            provider: .codex,
+            canonicalModelID: "gpt-canonical",
+            metric: .output,
+            usdPerMillion: .greatestFiniteMagnitude,
+            effectiveFrom: "2026-01-01",
+            effectiveTo: nil,
+            provenanceURL: URL(string: "https://openai.com/api/pricing/")!,
+            verifiedAt: "2026-08-05"
+        )
+
+        do {
+            _ = try PriceResolver().resolve(
+                rows: [row(day: "2026-08-05", model: "gpt-observed", metric: .output, quantity: 2)],
+                pricing: pricing(aliases: [alias(model: "gpt-observed")], rates: [overflowingRate])
+            )
+            XCTFail("expected decimal overflow to throw")
+        } catch let error as PriceResolverError {
+            XCTAssertEqual(error, .decimalArithmeticFailure)
         }
     }
 
