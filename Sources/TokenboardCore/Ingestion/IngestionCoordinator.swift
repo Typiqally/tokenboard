@@ -150,6 +150,7 @@ public actor IngestionCoordinator {
     private let discovery: any LogDiscovering
     private let calendar: Calendar
     private let drainEntryHook: (@Sendable () async -> Void)?
+    private let eventTimerCompletionHook: (@Sendable () -> Void)?
     private var roots: [Provider: URL] = [:]
     private var eventTask: Task<Void, Never>?
     private var debounceTask: Task<Void, Never>?
@@ -188,7 +189,8 @@ public actor IngestionCoordinator {
             clock: clock,
             discovery: discovery,
             calendar: calendar,
-            drainEntryHook: nil
+            drainEntryHook: nil,
+            eventTimerCompletionHook: nil
         )
     }
 
@@ -198,7 +200,8 @@ public actor IngestionCoordinator {
         clock: any IngestionClock,
         discovery: any LogDiscovering,
         calendar: Calendar,
-        drainEntryHook: (@Sendable () async -> Void)?
+        drainEntryHook: (@Sendable () async -> Void)?,
+        eventTimerCompletionHook: (@Sendable () -> Void)? = nil
     ) {
         let (stream, continuation) = AsyncStream<IngestionBatchResult>.makeStream(
             bufferingPolicy: .bufferingNewest(1)
@@ -209,6 +212,7 @@ public actor IngestionCoordinator {
         self.discovery = discovery
         self.calendar = calendar
         self.drainEntryHook = drainEntryHook
+        self.eventTimerCompletionHook = eventTimerCompletionHook
         resultStream = stream
         resultContinuation = continuation
     }
@@ -336,7 +340,9 @@ public actor IngestionCoordinator {
         debounceGeneration &+= 1
         let generation = debounceGeneration
         debounceTask?.cancel()
-        debounceTask = Task { [weak self, clock] in
+        let eventTimerCompletionHook = self.eventTimerCompletionHook
+        debounceTask = Task { [weak self, clock, eventTimerCompletionHook] in
+            defer { eventTimerCompletionHook?() }
             do {
                 try await clock.sleep(for: Self.eventDebounceDelay)
                 guard !Task.isCancelled else { return }
@@ -351,7 +357,8 @@ public actor IngestionCoordinator {
         if maximumLatencyTask == nil {
             eventWindowGeneration &+= 1
             let window = eventWindowGeneration
-            maximumLatencyTask = Task { [weak self, clock] in
+            maximumLatencyTask = Task { [weak self, clock, eventTimerCompletionHook] in
+                defer { eventTimerCompletionHook?() }
                 do {
                     try await clock.sleep(for: Self.maximumEventLatency)
                     guard !Task.isCancelled else { return }
@@ -580,8 +587,9 @@ public actor IngestionCoordinator {
     }
 
     private func enqueueFollowUpEventIfNeeded(runID: UInt64) {
-        guard activeRunID == runID,
-              !followUpDirtyProviders.isEmpty,
+        guard activeRunID == runID else { return }
+        absorbPendingEventSignalsIntoFollowUp()
+        guard !followUpDirtyProviders.isEmpty,
               pendingBatches.isEmpty else {
             return
         }
@@ -600,6 +608,21 @@ public actor IngestionCoordinator {
             inputs: inputs,
             failedProviders: failedProviders
         )
+    }
+
+    private func absorbPendingEventSignalsIntoFollowUp() {
+        debounceTask?.cancel()
+        maximumLatencyTask?.cancel()
+        debounceTask = nil
+        maximumLatencyTask = nil
+        debounceGeneration &+= 1
+        eventWindowGeneration &+= 1
+        let paths = pendingEventPaths.union(
+            pendingEventRootProviders.compactMap { roots[$0] }
+        )
+        pendingEventPaths.removeAll()
+        pendingEventRootProviders.removeAll()
+        markFollowUpDirtyProviders(for: paths)
     }
 
     private nonisolated static func executeBatch(

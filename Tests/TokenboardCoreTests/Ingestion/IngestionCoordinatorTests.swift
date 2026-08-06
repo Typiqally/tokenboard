@@ -530,6 +530,7 @@ final class IngestionCoordinatorTests: XCTestCase {
         let clock = ManualIngestionClock()
         let discovery = ChunkedLogicalDiscovery(counts: [:])
         let scanner = ChunkCountingScanner()
+        let gate = CancellableDiscoveryGate()
         let coordinator = IngestionCoordinator(
             scanner: scanner,
             watcher: watcher,
@@ -538,34 +539,42 @@ final class IngestionCoordinatorTests: XCTestCase {
             calendar: calendar
         )
         let initial = try await coordinator.start(roots: setup.roots)
-        let gate = CancellableDiscoveryGate()
         discovery.configure(
             counts: ["claude": 10_000, "codex": 10_000],
             gate: gate
         )
         discovery.resetMetrics()
         await scanner.reset()
-
-        let stoppedRunWasStreamed = TimedAsyncFlag()
-        let firstStreamedResult = Task { () -> IngestionBatchResult? in
-            let stream = await coordinator.results()
-            for await result in stream {
-                if result.runID == initial.runID {
-                    await stoppedRunWasStreamed.set()
-                }
-                return result
+        let recorder = IngestionResultRecorder()
+        let consumerFinished = TimedAsyncFlag()
+        let stream = await coordinator.results()
+        let consumer = Task {
+            for await result in stream { await recorder.append(result) }
+            await consumerFinished.set()
+        }
+        defer {
+            consumer.cancel()
+            Task {
+                await gate.release()
+                await clock.resumeAll(for: .milliseconds(750))
+                await clock.resumeAll(for: IngestionCoordinator.maximumEventLatency)
+                await coordinator.stop()
             }
-            return nil
         }
         watcher.emit([setup.claudeRoot, setup.codexRoot])
-        await clock.waitForSleepStartCount(1)
+        try await requireEventually("root event debounce was not acknowledged") {
+            await clock.hasStartedSleep(count: 1, duration: .milliseconds(750))
+        }
         await clock.advancePastDebounce()
-        await gate.waitUntilEntered()
+        try await requireEventually("gated discovery did not start") {
+            await gate.hasEntered
+        }
         var refreshes: [Task<IngestionBatchResult, Never>] = []
+        defer { refreshes.forEach { $0.cancel() } }
         for _ in 0..<32 {
             refreshes.append(Task { await coordinator.refreshAll() })
         }
-        await waitUntil {
+        try await requireEventually("manual refresh callers did not coalesce") {
             await coordinator.diagnostics().inventoryWaiterCount == 32
         }
         let stopFinished = TimedAsyncFlag()
@@ -575,6 +584,9 @@ final class IngestionCoordinatorTests: XCTestCase {
         }
         let stoppedBeforeRelease = await stopFinished.wait(for: .milliseconds(200))
         if !stoppedBeforeRelease { await gate.release() }
+        try await requireEventually("stop did not settle after gate cancellation") {
+            await stopFinished.isSet
+        }
         await stop.value
         var stoppedResults: [IngestionBatchResult] = []
         for refresh in refreshes { stoppedResults.append(await refresh.value) }
@@ -582,36 +594,51 @@ final class IngestionCoordinatorTests: XCTestCase {
         let stoppedDiscovery = discovery.snapshot()
         let stoppedScans = await scanner.snapshot()
         let discoveryWasCancelled = await gate.wasCancelled
-        let stoppedResultDelivered = await stoppedRunWasStreamed.wait(
-            for: .milliseconds(50)
-        )
+        let stoppedStreamValues = await recorder.snapshot()
+
+        discovery.configure(counts: [:], gate: nil)
+        discovery.resetMetrics()
+        let restarted = try await startCoordinator(coordinator, roots: setup.roots)
+        let later = setup.codexRoot.appending(path: "later.jsonl")
+        try Data().write(to: later)
+        watcher.emit([later])
+        try await requireEventually("restart event debounce was not acknowledged") {
+            await clock.hasStartedSleep(count: 2, duration: .milliseconds(750))
+        }
+        await clock.advancePastDebounce()
+        try await requireEventually("restart event result did not arrive") {
+            await recorder.count == 1
+        }
+        try await requireEventually("restart event work did not become quiescent") {
+            let diagnostics = await coordinator.diagnostics()
+            return !diagnostics.isDraining && diagnostics.pendingBatchCount == 0
+        }
+        let values = await recorder.snapshot()
+        consumer.cancel()
+        try await requireEventually("result consumer did not stop") {
+            await consumerFinished.isSet
+        }
+        _ = await consumer.value
+        try await stopCoordinator(coordinator)
+
         XCTAssertTrue(stoppedBeforeRelease)
         XCTAssertTrue(discoveryWasCancelled)
-        XCTAssertFalse(stoppedResultDelivered)
+        XCTAssertEqual(stoppedStreamValues, [])
         XCTAssertEqual(stoppedDiscovery.synchronousArrayCalls, 0)
         XCTAssertEqual(stoppedDiscovery.generatedFiles, 0)
         XCTAssertEqual(stoppedScans.totalScans, 0)
         XCTAssertEqual(Set(stoppedResults.map(\.runID)), [initial.runID])
         XCTAssertEqual(Set(stoppedResults.map(\.sequence)), [3])
-
-        discovery.configure(counts: [:], gate: nil)
-        discovery.resetMetrics()
-        let restarted = try await coordinator.start(roots: setup.roots)
         XCTAssertNotEqual(restarted.runID, initial.runID)
         XCTAssertEqual(restarted.sequence, 1)
-        let later = setup.codexRoot.appending(path: "later.jsonl")
-        try Data().write(to: later)
-        watcher.emit([later])
-        await clock.waitForSleepStartCount(2)
-        await clock.advancePastDebounce()
-        let laterResult = await firstStreamedResult.value
-        XCTAssertEqual(laterResult?.runID, restarted.runID)
-        XCTAssertEqual(laterResult?.sequence, 2)
+        XCTAssertEqual(values.count, 1)
+        guard let laterResult = values.first else { return }
+        XCTAssertEqual(laterResult.runID, restarted.runID)
+        XCTAssertEqual(laterResult.sequence, 2)
         XCTAssertEqual(
-            laterResult?.providers[.codex],
+            laterResult.providers[.codex],
             .success(discoveredFiles: 1, scannedFiles: 1)
         )
-        await coordinator.stop()
     }
 
     func testStopBeforeScheduledDrainEntryPreventsWorkerCreationAndSettlesWaitersOnce() async throws {
@@ -631,35 +658,86 @@ final class IngestionCoordinatorTests: XCTestCase {
             drainEntryHook: { await drainEntry.wait() }
         )
         let stream = await coordinator.results()
-        let firstStreamedResult = Task { () -> IngestionBatchResult? in
-            for await result in stream { return result }
-            return nil
+        let recorder = IngestionResultRecorder()
+        let consumerFinished = TimedAsyncFlag()
+        let consumer = Task {
+            for await result in stream { await recorder.append(result) }
+            await consumerFinished.set()
         }
-
-        let start = Task { try await coordinator.start(roots: setup.roots) }
-        await drainEntry.waitUntilEntered()
+        let startRecorder = IngestionStartRecorder()
+        let start = Task {
+            do {
+                await startRecorder.succeed(
+                    try await coordinator.start(roots: setup.roots)
+                )
+            } catch is CancellationError {
+                await startRecorder.cancel()
+            } catch {
+                await startRecorder.fail()
+            }
+        }
+        defer {
+            consumer.cancel()
+            start.cancel()
+            Task {
+                await drainEntry.release()
+                await clock.resumeAll(for: .milliseconds(750))
+                await clock.resumeAll(for: IngestionCoordinator.maximumEventLatency)
+                await coordinator.stop()
+            }
+        }
+        try await requireEventually("scheduled drain did not reach its entry gate") {
+            await drainEntry.hasEntered
+        }
         var refreshes: [Task<IngestionBatchResult, Never>] = []
+        defer { refreshes.forEach { $0.cancel() } }
         for _ in 0..<16 {
             refreshes.append(Task { await coordinator.refreshAll() })
         }
-        await waitUntil {
+        try await requireEventually("manual refresh callers did not coalesce") {
             await coordinator.diagnostics().inventoryWaiterCount == 17
         }
 
-        await coordinator.stop()
+        try await stopCoordinator(coordinator)
         await drainEntry.release()
-        do {
-            _ = try await start.value
-            XCTFail("stopped start should be cancelled")
-        } catch is CancellationError {
-            // Expected: stop invalidated the start after settling its inventory waiter.
+        try await requireEventually("stopped start did not settle") {
+            await startRecorder.hasCompleted
         }
+        _ = await start.value
         var stoppedResults: [IngestionBatchResult] = []
         for refresh in refreshes { stoppedResults.append(await refresh.value) }
 
         let stoppedDiscovery = discovery.snapshot()
         let stoppedScans = await scanner.snapshot()
         let drainWasCancelled = await drainEntry.wasCancelled
+        let stoppedDiagnostics = await coordinator.diagnostics()
+
+        discovery.resetMetrics()
+        await scanner.reset()
+        let restarted = try await startCoordinator(coordinator, roots: setup.roots)
+        let later = setup.codexRoot.appending(path: "later-after-entry-stop.jsonl")
+        try Data().write(to: later)
+        watcher.emit([later])
+        try await requireEventually("restart event debounce was not acknowledged") {
+            await clock.hasStartedSleep(count: 1, duration: .milliseconds(750))
+        }
+        await clock.advancePastDebounce()
+        try await requireEventually("restart event result did not arrive") {
+            await recorder.count == 1
+        }
+        try await requireEventually("restart event work did not become quiescent") {
+            let diagnostics = await coordinator.diagnostics()
+            return !diagnostics.isDraining && diagnostics.pendingBatchCount == 0
+        }
+        let values = await recorder.snapshot()
+        consumer.cancel()
+        try await requireEventually("result consumer did not stop") {
+            await consumerFinished.isSet
+        }
+        _ = await consumer.value
+        try await stopCoordinator(coordinator)
+
+        let startWasCancelled = await startRecorder.wasCancelled
         XCTAssertTrue(drainWasCancelled)
         XCTAssertEqual(stoppedDiscovery.enumerationCalls, 0)
         XCTAssertEqual(stoppedDiscovery.generatedFiles, 0)
@@ -667,27 +745,20 @@ final class IngestionCoordinatorTests: XCTestCase {
         XCTAssertEqual(stoppedResults.count, 16)
         XCTAssertEqual(Set(stoppedResults.map(\.runID)).count, 1)
         XCTAssertEqual(Set(stoppedResults.map(\.sequence)), [1])
-        let stoppedDiagnostics = await coordinator.diagnostics()
         XCTAssertEqual(stoppedDiagnostics.inventoryWaiterCount, 0)
         XCTAssertEqual(stoppedDiagnostics.pendingBatchCount, 0)
-
-        discovery.resetMetrics()
-        await scanner.reset()
-        let restarted = try await coordinator.start(roots: setup.roots)
-        XCTAssertNotEqual(restarted.runID, stoppedResults[0].runID)
-        let later = setup.codexRoot.appending(path: "later-after-entry-stop.jsonl")
-        try Data().write(to: later)
-        watcher.emit([later])
-        await clock.waitForSleepStartCount(1)
-        await clock.advancePastDebounce()
-        let laterResult = await firstStreamedResult.value
-        XCTAssertEqual(laterResult?.runID, restarted.runID)
-        XCTAssertEqual(laterResult?.sequence, 2)
+        XCTAssertTrue(startWasCancelled)
+        XCTAssertFalse(stoppedResults.isEmpty)
+        let stoppedRunIDs = Set(stoppedResults.map(\.runID))
+        XCTAssertFalse(stoppedRunIDs.contains(restarted.runID))
+        XCTAssertEqual(values.count, 1)
+        guard let laterResult = values.first else { return }
+        XCTAssertEqual(laterResult.runID, restarted.runID)
+        XCTAssertEqual(laterResult.sequence, 2)
         XCTAssertEqual(
-            laterResult?.providers[.codex],
+            laterResult.providers[.codex],
             ProviderIngestionResult.success(discoveredFiles: 1, scannedFiles: 1)
         )
-        await coordinator.stop()
     }
 
     func testEventsDuringChunkedRootDiscoveryCollapseToOneTwoProviderFollowUp() async throws {
@@ -697,6 +768,7 @@ final class IngestionCoordinatorTests: XCTestCase {
         let clock = ManualIngestionClock()
         let discovery = ChunkedLogicalDiscovery(counts: [:])
         let scanner = ChunkCountingScanner()
+        let gate = CancellableDiscoveryGate()
         let coordinator = IngestionCoordinator(
             scanner: scanner,
             watcher: watcher,
@@ -705,7 +777,6 @@ final class IngestionCoordinatorTests: XCTestCase {
             calendar: calendar
         )
         _ = try await coordinator.start(roots: setup.roots)
-        let gate = CancellableDiscoveryGate()
         discovery.configure(
             counts: ["claude": 130, "codex": 129],
             gate: gate
@@ -713,39 +784,67 @@ final class IngestionCoordinatorTests: XCTestCase {
         discovery.resetMetrics()
         await scanner.reset()
         let stream = await coordinator.results()
-        let received = Task { () -> [IngestionBatchResult] in
-            var values: [IngestionBatchResult] = []
-            for await result in stream {
-                values.append(result)
-                if values.count == 2 { return values }
+        let recorder = IngestionResultRecorder()
+        let consumerFinished = TimedAsyncFlag()
+        let consumer = Task {
+            for await result in stream { await recorder.append(result) }
+            await consumerFinished.set()
+        }
+        defer {
+            consumer.cancel()
+            Task {
+                await gate.release()
+                await clock.resumeAll(for: .milliseconds(750))
+                await clock.resumeAll(for: IngestionCoordinator.maximumEventLatency)
+                await coordinator.stop()
             }
-            return values
         }
 
         watcher.emit([setup.claudeRoot, setup.codexRoot])
-        await clock.waitForSleepStartCount(1)
+        try await requireEventually("root event debounce was not acknowledged") {
+            await clock.hasStartedSleep(count: 1, duration: .milliseconds(750))
+        }
         await clock.advancePastDebounce()
-        await gate.waitUntilEntered()
+        try await requireEventually("root discovery did not reach its gate") {
+            await gate.hasEntered
+        }
         for index in 0..<12 {
             let root = index.isMultiple(of: 2) ? setup.claudeRoot : setup.codexRoot
             watcher.emit([root.appending(path: "burst-\(index).jsonl")])
-            await clock.waitForSleepStartCount(index + 2)
+            try await requireEventually("burst debounce was not acknowledged") {
+                await clock.hasStartedSleep(
+                    count: index + 2,
+                    duration: .milliseconds(750)
+                )
+            }
             await clock.advancePastDebounce()
         }
         let duringDiscovery = await coordinator.diagnostics()
-        XCTAssertEqual(duringDiscovery.followUpDirtyProviderCount, 2)
-        XCTAssertEqual(duringDiscovery.pendingEventBatchCount, 0)
 
         await gate.release()
-        let values = await received.value
-        await waitUntil {
+        try await requireEventually("two event results did not arrive") {
+            await recorder.count >= 2
+        }
+        try await requireEventually("root follow-up work did not become quiescent") {
             let diagnostics = await coordinator.diagnostics()
             return !diagnostics.isDraining && diagnostics.pendingBatchCount == 0
         }
-
+        await clock.resumeAll(for: .milliseconds(750))
+        await clock.resumeAll(for: IngestionCoordinator.maximumEventLatency)
+        let values = await recorder.snapshot()
         let discoverySnapshot = discovery.snapshot()
         let scannerSnapshot = await scanner.snapshot()
+        consumer.cancel()
+        try await requireEventually("result consumer did not stop") {
+            await consumerFinished.isSet
+        }
+        _ = await consumer.value
+        try await stopCoordinator(coordinator)
+
+        XCTAssertEqual(duringDiscovery.followUpDirtyProviderCount, 2)
+        XCTAssertEqual(duringDiscovery.pendingEventBatchCount, 0)
         XCTAssertEqual(values.count, 2)
+        guard values.count == 2 else { return }
         for value in values {
             XCTAssertEqual(
                 value.providers[.claudeCode],
@@ -763,7 +862,6 @@ final class IngestionCoordinatorTests: XCTestCase {
         XCTAssertEqual(discoverySnapshot.generatedFiles, 518)
         XCTAssertEqual(scannerSnapshot.totalScans, 518)
         XCTAssertEqual(scannerSnapshot.maximumActiveScans, 1)
-        await coordinator.stop()
     }
 
     func testEventsDuringActiveInventoryCollapseToExactlyOneRootFollowUp() async throws {
@@ -790,46 +888,101 @@ final class IngestionCoordinatorTests: XCTestCase {
         )
         let stream = await coordinator.results()
         let recorder = IngestionResultRecorder()
+        let consumerFinished = TimedAsyncFlag()
         let consumer = Task {
             for await result in stream { await recorder.append(result) }
+            await consumerFinished.set()
         }
-
-        let start = Task { try await coordinator.start(roots: setup.roots) }
-        await gate.waitUntilEntered()
+        let startRecorder = IngestionStartRecorder()
+        let start = Task {
+            do {
+                await startRecorder.succeed(
+                    try await coordinator.start(roots: setup.roots)
+                )
+            } catch is CancellationError {
+                await startRecorder.cancel()
+            } catch {
+                await startRecorder.fail()
+            }
+        }
+        defer {
+            consumer.cancel()
+            start.cancel()
+            Task {
+                await gate.release()
+                await clock.resumeAll(for: .milliseconds(750))
+                await clock.resumeAll(for: IngestionCoordinator.maximumEventLatency)
+                await coordinator.stop()
+            }
+        }
+        try await requireEventually("inventory discovery did not reach its gate") {
+            await gate.hasEntered
+        }
         let early = setup.claudeRoot.appending(path: "early.jsonl")
         try Data().write(to: early)
         watcher.emit([early])
-        await clock.waitForSleepStartCount(1)
+        try await requireEventually("early event debounce was not acknowledged") {
+            await clock.hasStartedSleep(count: 1, duration: .milliseconds(750))
+        }
         await clock.advancePastDebounce()
         for index in 0..<3 {
             let root = index.isMultiple(of: 2) ? setup.codexRoot : setup.claudeRoot
             watcher.emit([root.appending(path: "later-\(index).jsonl")])
-            await clock.waitForSleepStartCount(index + 2)
+            try await requireEventually("later event debounce was not acknowledged") {
+                await clock.hasStartedSleep(
+                    count: index + 2,
+                    duration: .milliseconds(750)
+                )
+            }
             await clock.advancePastDebounce()
         }
         watcher.emit([setup.claudeRoot, setup.codexRoot])
-        await clock.waitForSleepStartCount(5)
+        try await requireEventually("root fallback debounce was not acknowledged") {
+            await clock.hasStartedSleep(count: 5, duration: .milliseconds(750))
+        }
         await clock.advancePastDebounce()
 
         let whileInventoryIsGated = await coordinator.diagnostics()
-        XCTAssertEqual(whileInventoryIsGated.pendingEventBatchCount, 0)
-        XCTAssertEqual(whileInventoryIsGated.followUpDirtyProviderCount, 2)
-        XCTAssertTrue(whileInventoryIsGated.pendingBatchCount <= 1)
 
         await gate.release()
-        let initial = try await start.value
-        await waitUntil {
-            let diagnostics = await coordinator.diagnostics()
-            return !diagnostics.isDraining && diagnostics.pendingBatchCount == 0
+        try await requireEventually("startup inventory did not settle") {
+            await startRecorder.hasCompleted
         }
-        await waitUntil { await recorder.count == 1 }
+        guard let initial = await startRecorder.success else {
+            throw AsyncTestTimeout.failed("startup inventory failed")
+        }
+        _ = await start.value
+        try await requireEventually("inventory follow-up did not become quiescent") {
+            let diagnostics = await coordinator.diagnostics()
+            return !diagnostics.isDraining
+                && diagnostics.pendingBatchCount == 0
+                && diagnostics.pendingEventPathCount == 0
+                && diagnostics.followUpDirtyProviderCount == 0
+        }
+        try await requireEventually("inventory follow-up result did not arrive") {
+            await recorder.count == 1
+        }
+        await clock.resumeAll(for: .milliseconds(750))
+        await clock.resumeAll(for: IngestionCoordinator.maximumEventLatency)
+        try await requireEventually("event timers did not settle") {
+            await clock.waiterCount == 0
+        }
         let values = await recorder.snapshot()
         consumer.cancel()
+        try await requireEventually("result consumer did not stop") {
+            await consumerFinished.isSet
+        }
         _ = await consumer.value
 
         let discoverySnapshot = discovery.snapshot()
         let scannerSnapshot = await scanner.snapshot()
+        try await stopCoordinator(coordinator)
+
+        XCTAssertEqual(whileInventoryIsGated.pendingEventBatchCount, 0)
+        XCTAssertEqual(whileInventoryIsGated.followUpDirtyProviderCount, 2)
+        XCTAssertTrue(whileInventoryIsGated.pendingBatchCount <= 1)
         XCTAssertEqual(values.count, 1)
+        guard values.count == 1 else { return }
         XCTAssertEqual(values[0].runID, initial.runID)
         XCTAssertEqual(values[0].sequence, initial.sequence + 1)
         XCTAssertEqual(values[0].scope, .incremental)
@@ -849,7 +1002,172 @@ final class IngestionCoordinatorTests: XCTestCase {
         XCTAssertEqual(scannerSnapshot.scansByProvider[.codex], 132)
         XCTAssertEqual(scannerSnapshot.totalScans, 262)
         XCTAssertEqual(scannerSnapshot.maximumActiveScans, 1)
+    }
+
+    func testBatchCompletionAbsorbsHeldDebounceIntoUnionFollowUpWithoutSwallowingLaterEvent() async throws {
+        let setup = try makeSetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let watcher = FakeSourceEventWatcher()
+        let clock = ManualIngestionClock()
+        let gate = CallIndexedDiscoveryGate(blockedCalls: [1, 3])
+        let discovery = ChunkedLogicalDiscovery(
+            counts: ["claude": 65, "codex": 66],
+            indexedGate: gate
+        )
+        let scanner = ChunkCountingScanner()
+        let timerCompletions = SynchronousCountRecorder()
+        let coordinator = IngestionCoordinator(
+            scanner: scanner,
+            watcher: watcher,
+            clock: clock,
+            discovery: discovery,
+            calendar: calendar,
+            drainEntryHook: nil,
+            eventTimerCompletionHook: { timerCompletions.record() }
+        )
+        let stream = await coordinator.results()
+        let recorder = IngestionResultRecorder()
+        let consumerFinished = TimedAsyncFlag()
+        let consumer = Task {
+            for await result in stream { await recorder.append(result) }
+            await consumerFinished.set()
+        }
+        let startRecorder = IngestionStartRecorder()
+        let start = Task {
+            do {
+                await startRecorder.succeed(
+                    try await coordinator.start(roots: setup.roots)
+                )
+            } catch is CancellationError {
+                await startRecorder.cancel()
+            } catch {
+                await startRecorder.fail()
+            }
+        }
+        defer {
+            consumer.cancel()
+            start.cancel()
+            Task {
+                await gate.releaseAll()
+                await clock.resumeAll(for: .milliseconds(750))
+                await clock.resumeAll(for: IngestionCoordinator.maximumEventLatency)
+                await coordinator.stop()
+            }
+        }
+
+        try await requireEventually("inventory discovery did not enter call 1") {
+            await gate.hasEntered(call: 1)
+        }
+        watcher.emit([setup.claudeRoot])
+        try await requireEventually("event A debounce was not acknowledged") {
+            await clock.hasStartedSleep(count: 1, duration: .milliseconds(750))
+        }
+        await clock.advancePastDebounce()
+        try await requireEventually("event A did not enter dirty state") {
+            await coordinator.diagnostics().followUpDirtyProviderCount == 1
+        }
+
+        watcher.emit([setup.codexRoot])
+        try await requireEventually("event B debounce was not acknowledged") {
+            await clock.hasStartedSleep(count: 2, duration: .milliseconds(750))
+        }
+        let beforeInventoryRelease = await coordinator.diagnostics()
+        await gate.release(call: 1)
+        try await requireEventually("first follow-up did not enter discovery call 3") {
+            await gate.hasEntered(call: 3)
+        }
+        let atAtomicHandoff = await coordinator.diagnostics()
+
+        await clock.advancePastDebounce()
+        try await requireEventually("event B timer did not finish") {
+            timerCompletions.count >= 4
+        }
+        let afterOldDebounceRelease = await coordinator.diagnostics()
+
+        watcher.emit([setup.claudeRoot])
+        try await requireEventually("event C debounce was not acknowledged") {
+            await clock.hasStartedSleep(count: 3, duration: .milliseconds(750))
+        }
+        await clock.advancePastDebounce()
+        try await requireEventually("event C did not become the sole next dirty provider") {
+            await coordinator.diagnostics().followUpDirtyProviderCount >= 1
+        }
+        await gate.release(call: 3)
+
+        try await requireEventually("startup inventory did not settle") {
+            await startRecorder.hasCompleted
+        }
+        guard let initial = await startRecorder.success else {
+            throw AsyncTestTimeout.failed("startup inventory failed")
+        }
+        try await requireEventually("two legitimate follow-up results did not arrive") {
+            await recorder.count >= 2
+        }
+        try await requireEventually("coordinator did not become quiescent") {
+            let diagnostics = await coordinator.diagnostics()
+            return !diagnostics.isDraining
+                && diagnostics.pendingBatchCount == 0
+                && diagnostics.pendingEventPathCount == 0
+                && diagnostics.followUpDirtyProviderCount == 0
+        }
+        await clock.resumeAll(for: .milliseconds(750))
+        await clock.resumeAll(for: IngestionCoordinator.maximumEventLatency)
+        try await requireEventually("event timer tasks did not all settle") {
+            timerCompletions.count >= 6
+        }
+        try await ContinuousClock().sleep(for: .milliseconds(50))
+        let finalDiagnostics = await coordinator.diagnostics()
+        let values = await recorder.snapshot()
+        let discoverySnapshot = discovery.snapshot()
+        let scannerSnapshot = await scanner.snapshot()
+
+        consumer.cancel()
+        try await requireEventually("result consumer did not stop") {
+            await consumerFinished.wait(for: .zero)
+        }
+        _ = await consumer.value
         await coordinator.stop()
+        await gate.releaseAll()
+        _ = await start.value
+
+        XCTAssertEqual(beforeInventoryRelease.pendingEventPathCount, 1)
+        XCTAssertEqual(atAtomicHandoff.pendingEventPathCount, 0)
+        XCTAssertEqual(atAtomicHandoff.followUpDirtyProviderCount, 0)
+        XCTAssertTrue(atAtomicHandoff.pendingEventBatchCount <= 1)
+        XCTAssertEqual(afterOldDebounceRelease.pendingEventPathCount, 0)
+        XCTAssertEqual(afterOldDebounceRelease.followUpDirtyProviderCount, 0)
+        XCTAssertEqual(finalDiagnostics.pendingBatchCount, 0)
+        XCTAssertEqual(finalDiagnostics.followUpDirtyProviderCount, 0)
+        XCTAssertEqual(values.count, 2)
+        guard values.count == 2 else { return }
+        XCTAssertEqual(values[0].runID, initial.runID)
+        XCTAssertEqual(values[0].sequence, initial.sequence + 1)
+        XCTAssertEqual(values[0].scope, .incremental)
+        XCTAssertEqual(
+            values[0].providers[.claudeCode],
+            .success(discoveredFiles: 65, scannedFiles: 65)
+        )
+        XCTAssertEqual(
+            values[0].providers[.codex],
+            .success(discoveredFiles: 66, scannedFiles: 66)
+        )
+        XCTAssertEqual(values[1].sequence, values[0].sequence + 1)
+        XCTAssertEqual(values[1].scope, .incremental)
+        XCTAssertEqual(
+            values[1].providers,
+            [.claudeCode: .success(discoveredFiles: 65, scannedFiles: 65)]
+        )
+        XCTAssertEqual(
+            discoverySnapshot.rootNames,
+            ["claude", "codex", "claude", "codex", "claude"]
+        )
+        XCTAssertEqual(discoverySnapshot.maximumChunkSize, 64)
+        XCTAssertEqual(discoverySnapshot.maximumActiveConsumers, 1)
+        XCTAssertEqual(discoverySnapshot.generatedFiles, 327)
+        XCTAssertEqual(scannerSnapshot.scansByProvider[.claudeCode], 195)
+        XCTAssertEqual(scannerSnapshot.scansByProvider[.codex], 132)
+        XCTAssertEqual(scannerSnapshot.totalScans, 327)
+        XCTAssertEqual(scannerSnapshot.maximumActiveScans, 1)
     }
 
     func testEventDuringScanSchedulesOneFollowUpPassWithoutOverlap() async throws {
@@ -997,10 +1315,68 @@ final class IngestionCoordinatorTests: XCTestCase {
         }
         XCTFail("condition was not met", file: file, line: line)
     }
+
+    private func requireEventually(
+        _ message: String,
+        timeout: Duration = .seconds(1),
+        condition: @escaping @Sendable () async -> Bool
+    ) async throws {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while clock.now < deadline {
+            if await condition() { return }
+            try? await clock.sleep(for: .milliseconds(1))
+        }
+        throw AsyncTestTimeout.failed(message)
+    }
+
+    private func startCoordinator(
+        _ coordinator: IngestionCoordinator,
+        roots: [Provider: URL]
+    ) async throws -> IngestionBatchResult {
+        let recorder = IngestionStartRecorder()
+        let task = Task {
+            do {
+                await recorder.succeed(try await coordinator.start(roots: roots))
+            } catch is CancellationError {
+                await recorder.cancel()
+            } catch {
+                await recorder.fail()
+            }
+        }
+        defer { task.cancel() }
+        try await requireEventually("coordinator start timed out") {
+            await recorder.hasCompleted
+        }
+        guard let result = await recorder.success else {
+            throw AsyncTestTimeout.failed("coordinator start failed")
+        }
+        _ = await task.value
+        return result
+    }
+
+    private func stopCoordinator(_ coordinator: IngestionCoordinator) async throws {
+        let finished = TimedAsyncFlag()
+        let task = Task {
+            await coordinator.stop()
+            await finished.set()
+        }
+        defer { task.cancel() }
+        try await requireEventually("coordinator stop timed out") {
+            await finished.isSet
+        }
+        _ = await task.value
+    }
+}
+
+private enum AsyncTestTimeout: Error {
+    case failed(String)
 }
 
 private actor TimedAsyncFlag {
     private var current = false
+
+    var isSet: Bool { current }
 
     func set() { current = true }
 
@@ -1026,6 +1402,37 @@ private actor IngestionResultRecorder {
 
     func snapshot() -> [IngestionBatchResult] {
         values
+    }
+}
+
+private actor IngestionStartRecorder {
+    private(set) var success: IngestionBatchResult?
+    private(set) var hasCompleted = false
+    private(set) var wasCancelled = false
+
+    func succeed(_ result: IngestionBatchResult) {
+        success = result
+        hasCompleted = true
+    }
+
+    func cancel() {
+        wasCancelled = true
+        hasCompleted = true
+    }
+
+    func fail() {
+        hasCompleted = true
+    }
+}
+
+private final class SynchronousCountRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+
+    var count: Int { lock.withLock { value } }
+
+    func record() {
+        lock.withLock { value += 1 }
     }
 }
 
@@ -1202,6 +1609,7 @@ private actor ChunkCountingScanner: IngestionScanning {
 
 private final class ChunkedLogicalDiscovery: LogDiscovering, @unchecked Sendable {
     struct Snapshot {
+        let rootNames: [String]
         let synchronousArrayCalls: Int
         let enumerationCalls: Int
         let generatedFiles: Int
@@ -1211,6 +1619,7 @@ private final class ChunkedLogicalDiscovery: LogDiscovering, @unchecked Sendable
     }
 
     private let lock = NSLock()
+    private let indexedGate: CallIndexedDiscoveryGate?
     private var counts: [String: Int]
     private var gate: CancellableDiscoveryGate?
     private var synchronousArrayCalls = 0
@@ -1220,9 +1629,14 @@ private final class ChunkedLogicalDiscovery: LogDiscovering, @unchecked Sendable
     private var activeConsumers = 0
     private var maximumActiveConsumers = 0
     private var cancellationCount = 0
+    private var rootNames: [String] = []
 
-    init(counts: [String: Int]) {
+    init(
+        counts: [String: Int],
+        indexedGate: CallIndexedDiscoveryGate? = nil
+    ) {
         self.counts = counts
+        self.indexedGate = indexedGate
     }
 
     func configure(counts: [String: Int], gate: CancellableDiscoveryGate? = nil) {
@@ -1241,12 +1655,14 @@ private final class ChunkedLogicalDiscovery: LogDiscovering, @unchecked Sendable
             activeConsumers = 0
             maximumActiveConsumers = 0
             cancellationCount = 0
+            rootNames = []
         }
     }
 
     func snapshot() -> Snapshot {
         lock.withLock {
             Snapshot(
+                rootNames: rootNames,
                 synchronousArrayCalls: synchronousArrayCalls,
                 enumerationCalls: enumerationCalls,
                 generatedFiles: generatedFiles,
@@ -1272,15 +1688,27 @@ private final class ChunkedLogicalDiscovery: LogDiscovering, @unchecked Sendable
         maximumChunkSize: Int,
         consume: @escaping @Sendable ([URL]) async throws -> Void
     ) async throws {
-        let configuration = lock.withLock { () -> (Int, CancellableDiscoveryGate?) in
+        let configuration = lock.withLock { () -> (
+            count: Int,
+            gate: CancellableDiscoveryGate?,
+            call: Int
+        ) in
             enumerationCalls += 1
-            return (counts[root.lastPathComponent, default: 0], gate)
+            rootNames.append(root.lastPathComponent)
+            return (
+                counts[root.lastPathComponent, default: 0],
+                gate,
+                enumerationCalls
+            )
         }
         do {
-            if let gate = configuration.1 { try await gate.wait() }
+            if let indexedGate {
+                try await indexedGate.enter(call: configuration.call)
+            }
+            if let gate = configuration.gate { try await gate.wait() }
             var chunk: [URL] = []
             chunk.reserveCapacity(maximumChunkSize)
-            for index in 0..<configuration.0 {
+            for index in 0..<configuration.count {
                 try Task.checkCancellation()
                 chunk.append(
                     root.appending(path: "logical-\(index).jsonl").standardizedFileURL
@@ -1317,12 +1745,64 @@ private final class ChunkedLogicalDiscovery: LogDiscovering, @unchecked Sendable
     }
 }
 
+private actor CallIndexedDiscoveryGate {
+    private let blockedCalls: Set<Int>
+    private var enteredCalls: Set<Int> = []
+    private var releasedCalls: Set<Int> = []
+    private var continuations: [Int: CheckedContinuation<Void, Error>] = [:]
+
+    init(blockedCalls: Set<Int>) {
+        self.blockedCalls = blockedCalls
+    }
+
+    func enter(call: Int) async throws {
+        enteredCalls.insert(call)
+        guard blockedCalls.contains(call), !releasedCalls.contains(call) else { return }
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation {
+                (continuation: CheckedContinuation<Void, Error>) in
+                if releasedCalls.contains(call) || Task.isCancelled {
+                    continuation.resume(throwing: CancellationError())
+                } else {
+                    continuations[call] = continuation
+                }
+            }
+        } onCancel: {
+            Task { await self.cancel(call: call) }
+        }
+    }
+
+    func hasEntered(call: Int) -> Bool {
+        enteredCalls.contains(call)
+    }
+
+    func release(call: Int) {
+        releasedCalls.insert(call)
+        continuations.removeValue(forKey: call)?.resume()
+    }
+
+    func releaseAll() {
+        releasedCalls.formUnion(blockedCalls)
+        let pending = continuations.values
+        continuations.removeAll()
+        pending.forEach { $0.resume() }
+    }
+
+    private func cancel(call: Int) {
+        continuations.removeValue(forKey: call)?.resume(
+            throwing: CancellationError()
+        )
+    }
+}
+
 private actor CancellableDiscoveryGate {
     private var entered = false
     private var released = false
     private(set) var wasCancelled = false
     private var continuation: CheckedContinuation<Void, Error>?
     private var enteredWaiters: [CheckedContinuation<Void, Never>] = []
+
+    var hasEntered: Bool { entered }
 
     func wait() async throws {
         entered = true
@@ -1369,6 +1849,8 @@ private actor CancellableDrainEntryGate {
     private(set) var wasCancelled = false
     private var continuation: CheckedContinuation<Void, Never>?
     private var enteredWaiters: [CheckedContinuation<Void, Never>] = []
+
+    var hasEntered: Bool { entered }
 
     func wait() async {
         entered = true
@@ -1478,6 +1960,10 @@ private actor ManualIngestionClock: IngestionClock {
 
     func hasRequested(_ duration: Duration) -> Bool {
         requestedDurations.contains(duration)
+    }
+
+    func hasStartedSleep(count: Int, duration: Duration) -> Bool {
+        sleepStartCounts[duration, default: 0] >= count
     }
 
     func requestCount(for duration: Duration) -> Int {
