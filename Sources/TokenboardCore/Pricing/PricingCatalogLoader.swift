@@ -3,6 +3,7 @@ import Foundation
 public enum PricingCatalogLoadingError: Error, Equatable, Sendable {
     case documentTooLarge
     case documentTooDeep
+    case duplicateObjectMember(String)
     case invalidJSON
     case invalidStructure(String)
 }
@@ -14,6 +15,8 @@ public struct PricingCatalogLoader: Sendable {
         guard data.count <= 1_048_576 else {
             throw PricingCatalogLoadingError.documentTooLarge
         }
+        var scanner = StrictJSONScanner(data: data, maximumContainerDepth: 16)
+        try scanner.validate()
 
         let object: Any
         do {
@@ -21,30 +24,12 @@ public struct PricingCatalogLoader: Sendable {
         } catch {
             throw PricingCatalogLoadingError.invalidJSON
         }
-        try validateDepth(of: object, depth: 1)
         try validateKeys(in: object)
 
         do {
             return try JSONDecoder().decode(PricingCatalog.self, from: data)
         } catch {
             throw error
-        }
-    }
-
-    private func validateDepth(of value: Any, depth: Int) throws {
-        switch value {
-        case let dictionary as [String: Any]:
-            guard depth <= 16 else { throw PricingCatalogLoadingError.documentTooDeep }
-            for child in dictionary.values {
-                try validateDepth(of: child, depth: depth + 1)
-            }
-        case let array as [Any]:
-            guard depth <= 16 else { throw PricingCatalogLoadingError.documentTooDeep }
-            for child in array {
-                try validateDepth(of: child, depth: depth + 1)
-            }
-        default:
-            return
         }
     }
 

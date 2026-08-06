@@ -102,10 +102,12 @@ public struct PricingCatalogValidator: Sendable {
             ))
         }
 
-        for (key, intervals) in aliasIntervals {
+        for key in aliasIntervals.keys.sorted(by: Self.aliasKeyOrder) {
+            let intervals = aliasIntervals[key, default: []]
             try validate(intervals: intervals, label: "\(key.provider.rawValue)/\(key.observedModelID)")
         }
-        for (key, intervals) in rateIntervals {
+        for key in rateIntervals.keys.sorted(by: Self.rateKeyOrder) {
+            let intervals = rateIntervals[key, default: []]
             try validate(
                 intervals: intervals,
                 label: "\(key.provider.rawValue)/\(key.canonicalModelID)/\(key.metric.rawValue)"
@@ -138,14 +140,14 @@ public struct PricingCatalogValidator: Sendable {
     }
 
     private func validateOrigin(_ origin: CatalogOrigin) throws {
-        let url = try validatedURL(origin.url)
-        let host = url.host?.lowercased() ?? ""
+        let components = try validatedURLComponents(origin.url)
+        let host = components.host?.lowercased() ?? ""
         switch origin.kind {
         case .tokenboardRepository:
-            guard host == "raw.githubusercontent.com",
-                  url.path.hasPrefix("/Typiqally/tokenboard/") else {
+            guard host == "raw.githubusercontent.com" else {
                 throw PricingCatalogValidationError.invalidOrigin
             }
+            try validateRepositoryPath(components.percentEncodedPath)
         case .officialResearch:
             guard Self.allOfficialHosts.contains(host) else {
                 throw PricingCatalogValidationError.invalidOrigin
@@ -154,16 +156,50 @@ public struct PricingCatalogValidator: Sendable {
     }
 
     private func validatedURL(_ value: String) throws -> URL {
+        let components = try validatedURLComponents(value)
+        guard let url = components.url else {
+            throw PricingCatalogValidationError.invalidURL(value)
+        }
+        return url
+    }
+
+    private func validatedURLComponents(_ value: String) throws -> URLComponents {
         guard let components = URLComponents(string: value),
               components.scheme?.lowercased() == "https",
               components.host != nil,
               components.user == nil,
               components.password == nil,
               components.port == nil,
-              let url = components.url else {
+              components.url != nil else {
             throw PricingCatalogValidationError.invalidURL(value)
         }
-        return url
+        return components
+    }
+
+    private func validateRepositoryPath(_ percentEncodedPath: String) throws {
+        let encodedComponents = percentEncodedPath.split(separator: "/", omittingEmptySubsequences: false)
+        guard encodedComponents.first == "", encodedComponents.count >= 4 else {
+            throw PricingCatalogValidationError.invalidOrigin
+        }
+        var decodedComponents: [String] = []
+        for encoded in encodedComponents.dropFirst() {
+            guard !encoded.isEmpty,
+                  let decoded = String(encoded).removingPercentEncoding,
+                  !decoded.isEmpty,
+                  decoded != ".",
+                  decoded != "..",
+                  !decoded.contains("/"),
+                  !decoded.contains("\\"),
+                  decoded.unicodeScalars.allSatisfy({ $0.value >= 0x20 && $0.value != 0x7F }) else {
+                throw PricingCatalogValidationError.invalidOrigin
+            }
+            decodedComponents.append(decoded)
+        }
+        guard decodedComponents.count >= 3,
+              decodedComponents[0] == "Typiqally",
+              decodedComponents[1] == "tokenboard" else {
+            throw PricingCatalogValidationError.invalidOrigin
+        }
     }
 
     private func validateInterval(from: String, to: String?) throws {
@@ -291,6 +327,15 @@ public struct PricingCatalogValidator: Sendable {
     private static func rateOrder(_ lhs: ValidatedCatalogRate, _ rhs: ValidatedCatalogRate) -> Bool {
         (lhs.effectiveFrom, lhs.effectiveTo ?? "", lhs.provenanceURL.absoluteString, lhs.verifiedAt)
             < (rhs.effectiveFrom, rhs.effectiveTo ?? "", rhs.provenanceURL.absoluteString, rhs.verifiedAt)
+    }
+
+    private static func aliasKeyOrder(_ lhs: AliasKey, _ rhs: AliasKey) -> Bool {
+        (lhs.provider.rawValue, lhs.observedModelID) < (rhs.provider.rawValue, rhs.observedModelID)
+    }
+
+    private static func rateKeyOrder(_ lhs: RateKey, _ rhs: RateKey) -> Bool {
+        (lhs.provider.rawValue, lhs.canonicalModelID, lhs.metric.rawValue)
+            < (rhs.provider.rawValue, rhs.canonicalModelID, rhs.metric.rawValue)
     }
 
     private static let allowedMetrics: Set<UsageMetric> = [

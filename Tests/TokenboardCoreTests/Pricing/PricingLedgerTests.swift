@@ -3,97 +3,212 @@ import XCTest
 @testable import TokenboardCore
 
 final class PricingLedgerTests: XCTestCase {
-    private let valid = #"""
-    {"schemaVersion":1,"catalogID":"catalog-a","generatedAt":"2026-08-05T12:00:00Z","origin":{"kind":"official_research","url":"https://openai.com/api/pricing/"},"models":[{"provider":"codex","canonicalModelID":"gpt-test","aliases":[{"observedModelID":"gpt-test","effectiveFrom":"2026-01-01","effectiveTo":null}],"rates":[{"effectiveFrom":"2026-01-01","effectiveTo":null,"prices":{"input_uncached":"5.00","output":"30.00"},"provenanceURL":"https://openai.com/api/pricing/","verifiedAt":"2026-08-05"}]}]}
-    """#
-
-    func testApplyingTwiceIsIdempotentAndSemanticConflictsRollBack() async throws {
+    func testApplyingSameCatalogIsIdempotentAndChangedContentForSameIDConflicts() async throws {
         let ledger = try makeLedger()
         try await ledger.migrate()
-        let first = try validated(valid)
+        let first = try catalog(id: "catalog-a", models: [model()])
 
-        try await ledger.applyPricingCatalog(
-            first,
-            canonicalJSON: first.canonicalJSON,
-            origin: "test",
-            validationSummary: "valid"
-        )
+        try await apply(first, to: ledger)
         let afterFirst = try await ledger.pricingSnapshot()
-        try await ledger.applyPricingCatalog(
+        try await apply(
             first,
-            canonicalJSON: first.canonicalJSON,
-            origin: "ignored-on-idempotent-retry",
-            validationSummary: "valid"
+            to: ledger,
+            origin: PricingImportMetadata.bundledRepositoryOrigin
         )
-        let afterSecond = try await ledger.pricingSnapshot()
-        XCTAssertEqual(afterSecond, afterFirst)
+        let afterRetry = try await snapshot(from: ledger)
+        XCTAssertEqual(afterRetry, afterFirst)
 
-        let conflictJSON = valid
-            .replacingOccurrences(of: "catalog-a", with: "catalog-b")
-            .replacingOccurrences(of: #""5.00""#, with: #""7.00""#)
-        let conflicting = try validated(conflictJSON)
-        await XCTAssertThrowsErrorAsync {
-            try await ledger.applyPricingCatalog(
-                conflicting,
-                canonicalJSON: conflicting.canonicalJSON,
-                origin: "test",
-                validationSummary: "valid"
-            )
+        let changed = try catalog(id: "catalog-a", models: [model(inputPrice: 7)])
+        await assertPricingError(.catalogIDConflict("catalog-a")) {
+            try await self.apply(changed, to: ledger)
         }
-        let afterConflict = try await ledger.pricingSnapshot()
+        let afterConflict = try await snapshot(from: ledger)
         XCTAssertEqual(afterConflict, afterFirst)
     }
 
-    func testCatalogIDWithDifferentCanonicalContentConflicts() async throws {
+    func testFullHistoryImportDeduplicatesExactRowsAndAppendsLaterOpenIntervals() async throws {
         let ledger = try makeLedger()
         try await ledger.migrate()
-        let first = try validated(valid)
-        try await ledger.applyPricingCatalog(first, canonicalJSON: first.canonicalJSON, origin: "test", validationSummary: "valid")
+        let first = try catalog(id: "catalog-a", models: [model()])
+        try await apply(first, to: ledger)
 
-        let changed = try validated(valid.replacingOccurrences(of: #""5.00""#, with: #""7.00""#))
-        await XCTAssertThrowsErrorAsync {
-            try await ledger.applyPricingCatalog(changed, canonicalJSON: changed.canonicalJSON, origin: "test", validationSummary: "valid")
-        }
-        let snapshot = try await ledger.pricingSnapshot()
-        XCTAssertEqual(snapshot.catalogIDs, ["catalog-a"])
-    }
-
-    func testLaterOpenEndedHistoryAppendsWithoutClosingOlderRows() async throws {
-        let ledger = try makeLedger()
-        try await ledger.migrate()
-        let first = try validated(valid)
-        try await ledger.applyPricingCatalog(first, canonicalJSON: first.canonicalJSON, origin: "test", validationSummary: "valid")
-
-        let laterJSON = valid
-            .replacingOccurrences(of: "catalog-a", with: "catalog-b")
-            .replacingOccurrences(of: "2026-01-01", with: "2026-07-01")
-            .replacingOccurrences(of: #""5.00""#, with: #""6.00""#)
-        let later = try validated(laterJSON)
-        try await ledger.applyPricingCatalog(later, canonicalJSON: later.canonicalJSON, origin: "test", validationSummary: "valid")
+        let history = try catalog(id: "catalog-b", models: [CatalogModel(
+            provider: .codex,
+            canonicalModelID: "gpt-test",
+            aliases: [
+                alias(from: "2026-01-01", to: nil),
+                alias(from: "2026-07-01", to: nil)
+            ],
+            rates: [
+                rate(from: "2026-01-01", to: nil, inputPrice: 5),
+                rate(from: "2026-07-01", to: nil, inputPrice: 6)
+            ]
+        )])
+        try await apply(history, to: ledger)
 
         let snapshot = try await ledger.pricingSnapshot()
         XCTAssertEqual(snapshot.catalogIDs, ["catalog-a", "catalog-b"])
-        XCTAssertEqual(snapshot.rates.filter { $0.metric == .inputUncached }.map(\.effectiveFrom), ["2026-01-01", "2026-07-01"])
+        XCTAssertEqual(snapshot.aliases.map(\.effectiveFrom), ["2026-01-01", "2026-07-01"])
+        XCTAssertEqual(
+            snapshot.rates.filter { $0.metric == .inputUncached }.map(\.effectiveFrom),
+            ["2026-01-01", "2026-07-01"]
+        )
         XCTAssertNil(snapshot.rates.first { $0.effectiveFrom == "2026-01-01" }?.effectiveTo)
     }
 
-    func testApplicationRejectsCanonicalJSONMismatchAndPrivateImportMetadata() async throws {
+    func testStoredBoundedRateRejectsCandidateStartInsideInterval() async throws {
         let ledger = try makeLedger()
         try await ledger.migrate()
-        let catalog = try validated(valid)
+        let stored = try catalog(id: "catalog-a", models: [model(aliasTo: nil, rateTo: "2026-06-01")])
+        try await apply(stored, to: ledger)
+        let before = try await ledger.pricingSnapshot()
 
-        await XCTAssertThrowsErrorAsync {
-            try await ledger.applyPricingCatalog(catalog, canonicalJSON: Data("{}".utf8), origin: "test", validationSummary: "valid")
+        let overlapping = try catalog(id: "catalog-b", models: [model(
+            aliasFrom: "2026-05-01",
+            aliasTo: nil,
+            rateFrom: "2026-05-01",
+            rateTo: nil,
+            inputPrice: 6
+        )])
+        await assertPricingError(.overlappingInterval("rate codex/gpt-test/input_uncached")) {
+            try await self.apply(overlapping, to: ledger)
         }
-        await XCTAssertThrowsErrorAsync {
+        let afterRejection = try await snapshot(from: ledger)
+        XCTAssertEqual(afterRejection, before)
+    }
+
+    func testStoredBoundedAliasRejectsCandidateStartInsideInterval() async throws {
+        let ledger = try makeLedger()
+        try await ledger.migrate()
+        let stored = try catalog(id: "catalog-a", models: [model(aliasTo: "2026-06-01", rateTo: nil)])
+        try await apply(stored, to: ledger)
+        let before = try await ledger.pricingSnapshot()
+
+        let overlapping = try catalog(id: "catalog-b", models: [model(
+            aliasFrom: "2026-05-01",
+            aliasTo: nil,
+            rateFrom: "2026-05-01",
+            rateTo: nil,
+            inputPrice: 6
+        )])
+        await assertPricingError(.overlappingInterval("alias codex/gpt-test")) {
+            try await self.apply(overlapping, to: ledger)
+        }
+        let afterRejection = try await snapshot(from: ledger)
+        XCTAssertEqual(afterRejection, before)
+    }
+
+    func testStoredExplicitBoundaryAndGapAllowAliasesAndRates() async throws {
+        for candidateStart in ["2026-06-01", "2026-07-01"] {
+            let ledger = try makeLedger()
+            try await ledger.migrate()
+            let stored = try catalog(id: "catalog-a", models: [model(
+                aliasTo: "2026-06-01",
+                rateTo: "2026-06-01"
+            )])
+            try await apply(stored, to: ledger)
+            let candidate = try catalog(id: "catalog-b", models: [model(
+                aliasFrom: candidateStart,
+                rateFrom: candidateStart,
+                inputPrice: 6
+            )])
+
+            try await apply(candidate, to: ledger)
+
+            let snapshot = try await ledger.pricingSnapshot()
+            XCTAssertEqual(snapshot.catalogIDs, ["catalog-a", "catalog-b"])
+            XCTAssertEqual(snapshot.aliases.map(\.effectiveFrom), ["2026-01-01", candidateStart])
+            XCTAssertEqual(snapshot.rates.count, 4)
+        }
+    }
+
+    func testValidNewRowsBeforeLaterOverlapRollBackEntireTransaction() async throws {
+        let ledger = try makeLedger()
+        try await ledger.migrate()
+        let stored = try catalog(id: "catalog-a", models: [model(
+            canonicalModelID: "z-conflict",
+            observedModelID: "z-conflict",
+            aliasTo: "2026-06-01",
+            rateTo: "2026-06-01"
+        )])
+        try await apply(stored, to: ledger)
+        let before = try await ledger.pricingSnapshot()
+
+        let candidate = try catalog(id: "catalog-b", models: [
+            model(canonicalModelID: "a-new", observedModelID: "a-new", inputPrice: 4),
+            model(
+                canonicalModelID: "z-conflict",
+                observedModelID: "z-conflict",
+                aliasFrom: "2026-05-01",
+                rateFrom: "2026-05-01",
+                inputPrice: 6
+            )
+        ])
+        await assertPricingError(.overlappingInterval("alias codex/z-conflict")) {
+            try await self.apply(candidate, to: ledger)
+        }
+
+        let afterRejection = try await snapshot(from: ledger)
+        XCTAssertEqual(afterRejection, before)
+    }
+
+    func testValidNewRowsBeforeLaterSameStartConflictRollBackEntireTransaction() async throws {
+        let ledger = try makeLedger()
+        try await ledger.migrate()
+        let stored = try catalog(id: "catalog-a", models: [model(
+            canonicalModelID: "z-conflict",
+            observedModelID: "z-conflict"
+        )])
+        try await apply(stored, to: ledger)
+        let before = try await ledger.pricingSnapshot()
+
+        let candidate = try catalog(id: "catalog-b", models: [
+            model(canonicalModelID: "a-new", observedModelID: "a-new", inputPrice: 4),
+            model(canonicalModelID: "z-conflict", observedModelID: "z-conflict", inputPrice: 7)
+        ])
+        await assertPricingError(.semanticConflict("rate codex/z-conflict/input_uncached/2026-01-01")) {
+            try await self.apply(candidate, to: ledger)
+        }
+
+        let afterRejection = try await snapshot(from: ledger)
+        XCTAssertEqual(afterRejection, before)
+    }
+
+    func testApplicationRejectsCanonicalMismatchAndClosedMetadataValuesWithoutWrites() async throws {
+        let ledger = try makeLedger()
+        try await ledger.migrate()
+        let candidate = try catalog(id: "catalog-a", models: [model()])
+
+        await assertPricingError(.canonicalContentMismatch) {
             try await ledger.applyPricingCatalog(
-                catalog,
-                canonicalJSON: catalog.canonicalJSON,
-                origin: "/Users/someone/private/catalog.json",
-                validationSummary: "valid"
+                candidate,
+                canonicalJSON: Data("{}".utf8),
+                origin: PricingImportMetadata.agentCandidateOrigin,
+                validationSummary: PricingImportMetadata.schemaV1ValidSummary
             )
         }
-        let snapshot = try await ledger.pricingSnapshot()
+        for invalidOrigin in ["alice", "alice@example.com", "session-123", "project-zeus"] {
+            await assertPricingError(.invalidImportMetadata) {
+                try await ledger.applyPricingCatalog(
+                    candidate,
+                    canonicalJSON: candidate.canonicalJSON,
+                    origin: invalidOrigin,
+                    validationSummary: PricingImportMetadata.schemaV1ValidSummary
+                )
+            }
+        }
+        for invalidSummary in ["alice", "alice@example.com", "session-123", "project-zeus"] {
+            await assertPricingError(.invalidImportMetadata) {
+                try await ledger.applyPricingCatalog(
+                    candidate,
+                    canonicalJSON: candidate.canonicalJSON,
+                    origin: PricingImportMetadata.agentCandidateOrigin,
+                    validationSummary: invalidSummary
+                )
+            }
+        }
+
+        let snapshot = try await snapshot(from: ledger)
         XCTAssertEqual(snapshot, PricingSnapshot(catalogIDs: [], rates: [], aliases: []))
     }
 
@@ -106,21 +221,84 @@ final class PricingLedgerTests: XCTestCase {
         )
     }
 
-    private func validated(_ json: String) throws -> ValidatedPricingCatalog {
-        let decoded = try PricingCatalogLoader().load(Data(json.utf8))
-        return try PricingCatalogValidator().validate(decoded)
+    private func model(
+        canonicalModelID: String = "gpt-test",
+        observedModelID: String = "gpt-test",
+        aliasFrom: String = "2026-01-01",
+        aliasTo: String? = nil,
+        rateFrom: String = "2026-01-01",
+        rateTo: String? = nil,
+        inputPrice: Decimal = 5
+    ) -> CatalogModel {
+        CatalogModel(
+            provider: .codex,
+            canonicalModelID: canonicalModelID,
+            aliases: [alias(observedModelID: observedModelID, from: aliasFrom, to: aliasTo)],
+            rates: [rate(from: rateFrom, to: rateTo, inputPrice: inputPrice)]
+        )
     }
-}
 
-private func XCTAssertThrowsErrorAsync(
-    _ expression: () async throws -> Void,
-    file: StaticString = #filePath,
-    line: UInt = #line
-) async {
-    do {
-        try await expression()
-        XCTFail("expected async expression to throw", file: file, line: line)
-    } catch {
-        return
+    private func alias(
+        observedModelID: String = "gpt-test",
+        from: String,
+        to: String?
+    ) -> CatalogAlias {
+        CatalogAlias(observedModelID: observedModelID, effectiveFrom: from, effectiveTo: to)
+    }
+
+    private func rate(from: String, to: String?, inputPrice: Decimal) -> CatalogRate {
+        CatalogRate(
+            effectiveFrom: from,
+            effectiveTo: to,
+            prices: [
+                UsageMetric.inputUncached.rawValue: DecimalString(decimal: inputPrice),
+                UsageMetric.output.rawValue: DecimalString(decimal: 30)
+            ],
+            provenanceURL: "https://openai.com/api/pricing/",
+            verifiedAt: "2026-08-05"
+        )
+    }
+
+    private func catalog(id: String, models: [CatalogModel]) throws -> ValidatedPricingCatalog {
+        try PricingCatalogValidator().validate(PricingCatalog(
+            schemaVersion: 1,
+            catalogID: id,
+            generatedAt: "2026-08-05T12:00:00Z",
+            origin: CatalogOrigin(kind: .officialResearch, url: "https://openai.com/api/pricing/"),
+            models: models
+        ))
+    }
+
+    private func apply(
+        _ catalog: ValidatedPricingCatalog,
+        to ledger: SQLiteLedger,
+        origin: String = PricingImportMetadata.agentCandidateOrigin
+    ) async throws {
+        try await ledger.applyPricingCatalog(
+            catalog,
+            canonicalJSON: catalog.canonicalJSON,
+            origin: origin,
+            validationSummary: PricingImportMetadata.schemaV1ValidSummary
+        )
+    }
+
+    private func snapshot(from ledger: SQLiteLedger) async throws -> PricingSnapshot {
+        try await ledger.pricingSnapshot()
+    }
+
+    private func assertPricingError(
+        _ expected: PricingLedgerError,
+        file: StaticString = #filePath,
+        line: UInt = #line,
+        operation: () async throws -> Void
+    ) async {
+        do {
+            try await operation()
+            XCTFail("expected \(expected)", file: file, line: line)
+        } catch let error as PricingLedgerError {
+            XCTAssertEqual(error, expected, file: file, line: line)
+        } catch {
+            XCTFail("expected \(expected), received \(error)", file: file, line: line)
+        }
     }
 }
