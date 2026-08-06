@@ -8,7 +8,7 @@ public struct CodexAdapter: StatefulLogAdapter {
 
     public init(stableSourceID: String? = nil, currentModel: String? = nil) {
         self.stableSourceID = stableSourceID
-        self.currentModel = Self.isSafeModelID(currentModel) ? currentModel : nil
+        self.currentModel = currentModel?.isEmpty == false ? currentModel : nil
     }
 
     public var checkpointState: [String: String] {
@@ -31,9 +31,6 @@ public struct CodexAdapter: StatefulLogAdapter {
         case "turn_context":
             guard let model = record.payload?.model, !model.isEmpty else {
                 return .ignored
-            }
-            guard Self.isSafeModelID(model) else {
-                return .skipped(.init(kind: .malformedRecord, message: "Codex model context is invalid"))
             }
             currentModel = model
             return .ignored
@@ -83,7 +80,10 @@ public struct CodexAdapter: StatefulLogAdapter {
         }
 
         let (calculatedTotal, totalOverflow) = last.input.addingReportingOverflow(last.output)
-        if totalOverflow || last.total != calculatedTotal {
+        guard !totalOverflow else {
+            return .skipped(.init(kind: .malformedRecord, message: "Codex token counters overflow"))
+        }
+        if last.total != calculatedTotal {
             diagnostics.append(.init(kind: .inconsistentTotal, message: "Codex total differs from input plus output"))
         }
 
@@ -116,16 +116,6 @@ public struct CodexAdapter: StatefulLogAdapter {
         ]
     }
 
-    private static func isSafeModelID(_ model: String?) -> Bool {
-        guard let model, !model.isEmpty else { return false }
-        if model == "<synthetic>" { return true }
-        return model.unicodeScalars.allSatisfy {
-            ($0.value >= 65 && $0.value <= 90)
-                || ($0.value >= 97 && $0.value <= 122)
-                || ($0.value >= 48 && $0.value <= 57)
-                || $0 == "." || $0 == "_" || $0 == "-"
-        }
-    }
 }
 
 private struct CodexRecord: Decodable {
