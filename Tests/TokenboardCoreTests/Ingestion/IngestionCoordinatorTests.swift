@@ -614,6 +614,82 @@ final class IngestionCoordinatorTests: XCTestCase {
         await coordinator.stop()
     }
 
+    func testStopBeforeScheduledDrainEntryPreventsWorkerCreationAndSettlesWaitersOnce() async throws {
+        let setup = try makeSetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let watcher = FakeSourceEventWatcher()
+        let clock = ManualIngestionClock()
+        let discovery = ChunkedLogicalDiscovery(counts: [:])
+        let scanner = ChunkCountingScanner()
+        let drainEntry = CancellableDrainEntryGate()
+        let coordinator = IngestionCoordinator(
+            scanner: scanner,
+            watcher: watcher,
+            clock: clock,
+            discovery: discovery,
+            calendar: calendar,
+            drainEntryHook: { await drainEntry.wait() }
+        )
+        let stream = await coordinator.results()
+        let firstStreamedResult = Task { () -> IngestionBatchResult? in
+            for await result in stream { return result }
+            return nil
+        }
+
+        let start = Task { try await coordinator.start(roots: setup.roots) }
+        await drainEntry.waitUntilEntered()
+        var refreshes: [Task<IngestionBatchResult, Never>] = []
+        for _ in 0..<16 {
+            refreshes.append(Task { await coordinator.refreshAll() })
+        }
+        await waitUntil {
+            await coordinator.diagnostics().inventoryWaiterCount == 17
+        }
+
+        await coordinator.stop()
+        await drainEntry.release()
+        do {
+            _ = try await start.value
+            XCTFail("stopped start should be cancelled")
+        } catch is CancellationError {
+            // Expected: stop invalidated the start after settling its inventory waiter.
+        }
+        var stoppedResults: [IngestionBatchResult] = []
+        for refresh in refreshes { stoppedResults.append(await refresh.value) }
+
+        let stoppedDiscovery = discovery.snapshot()
+        let stoppedScans = await scanner.snapshot()
+        let drainWasCancelled = await drainEntry.wasCancelled
+        XCTAssertTrue(drainWasCancelled)
+        XCTAssertEqual(stoppedDiscovery.enumerationCalls, 0)
+        XCTAssertEqual(stoppedDiscovery.generatedFiles, 0)
+        XCTAssertEqual(stoppedScans.totalScans, 0)
+        XCTAssertEqual(stoppedResults.count, 16)
+        XCTAssertEqual(Set(stoppedResults.map(\.runID)).count, 1)
+        XCTAssertEqual(Set(stoppedResults.map(\.sequence)), [1])
+        let stoppedDiagnostics = await coordinator.diagnostics()
+        XCTAssertEqual(stoppedDiagnostics.inventoryWaiterCount, 0)
+        XCTAssertEqual(stoppedDiagnostics.pendingBatchCount, 0)
+
+        discovery.resetMetrics()
+        await scanner.reset()
+        let restarted = try await coordinator.start(roots: setup.roots)
+        XCTAssertNotEqual(restarted.runID, stoppedResults[0].runID)
+        let later = setup.codexRoot.appending(path: "later-after-entry-stop.jsonl")
+        try Data().write(to: later)
+        watcher.emit([later])
+        await clock.waitForSleepStartCount(1)
+        await clock.advancePastDebounce()
+        let laterResult = await firstStreamedResult.value
+        XCTAssertEqual(laterResult?.runID, restarted.runID)
+        XCTAssertEqual(laterResult?.sequence, 2)
+        XCTAssertEqual(
+            laterResult?.providers[.codex],
+            ProviderIngestionResult.success(discoveredFiles: 1, scannedFiles: 1)
+        )
+        await coordinator.stop()
+    }
+
     func testEventsDuringChunkedRootDiscoveryCollapseToOneTwoProviderFollowUp() async throws {
         let setup = try makeSetup()
         defer { try? FileManager.default.removeItem(at: setup.directory) }
@@ -690,6 +766,92 @@ final class IngestionCoordinatorTests: XCTestCase {
         await coordinator.stop()
     }
 
+    func testEventsDuringActiveInventoryCollapseToExactlyOneRootFollowUp() async throws {
+        let setup = try makeSetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let watcher = FakeSourceEventWatcher()
+        let clock = ManualIngestionClock()
+        let gate = CancellableDiscoveryGate()
+        let discovery = ChunkedLogicalDiscovery(counts: [
+            "claude": 65,
+            "codex": 66
+        ])
+        discovery.configure(
+            counts: ["claude": 65, "codex": 66],
+            gate: gate
+        )
+        let scanner = ChunkCountingScanner()
+        let coordinator = IngestionCoordinator(
+            scanner: scanner,
+            watcher: watcher,
+            clock: clock,
+            discovery: discovery,
+            calendar: calendar
+        )
+        let stream = await coordinator.results()
+        let recorder = IngestionResultRecorder()
+        let consumer = Task {
+            for await result in stream { await recorder.append(result) }
+        }
+
+        let start = Task { try await coordinator.start(roots: setup.roots) }
+        await gate.waitUntilEntered()
+        let early = setup.claudeRoot.appending(path: "early.jsonl")
+        try Data().write(to: early)
+        watcher.emit([early])
+        await clock.waitForSleepStartCount(1)
+        await clock.advancePastDebounce()
+        for index in 0..<3 {
+            let root = index.isMultiple(of: 2) ? setup.codexRoot : setup.claudeRoot
+            watcher.emit([root.appending(path: "later-\(index).jsonl")])
+            await clock.waitForSleepStartCount(index + 2)
+            await clock.advancePastDebounce()
+        }
+        watcher.emit([setup.claudeRoot, setup.codexRoot])
+        await clock.waitForSleepStartCount(5)
+        await clock.advancePastDebounce()
+
+        let whileInventoryIsGated = await coordinator.diagnostics()
+        XCTAssertEqual(whileInventoryIsGated.pendingEventBatchCount, 0)
+        XCTAssertEqual(whileInventoryIsGated.followUpDirtyProviderCount, 2)
+        XCTAssertTrue(whileInventoryIsGated.pendingBatchCount <= 1)
+
+        await gate.release()
+        let initial = try await start.value
+        await waitUntil {
+            let diagnostics = await coordinator.diagnostics()
+            return !diagnostics.isDraining && diagnostics.pendingBatchCount == 0
+        }
+        await waitUntil { await recorder.count == 1 }
+        let values = await recorder.snapshot()
+        consumer.cancel()
+        _ = await consumer.value
+
+        let discoverySnapshot = discovery.snapshot()
+        let scannerSnapshot = await scanner.snapshot()
+        XCTAssertEqual(values.count, 1)
+        XCTAssertEqual(values[0].runID, initial.runID)
+        XCTAssertEqual(values[0].sequence, initial.sequence + 1)
+        XCTAssertEqual(values[0].scope, .incremental)
+        XCTAssertEqual(
+            values[0].providers[.claudeCode],
+            .success(discoveredFiles: 65, scannedFiles: 65)
+        )
+        XCTAssertEqual(
+            values[0].providers[.codex],
+            .success(discoveredFiles: 66, scannedFiles: 66)
+        )
+        XCTAssertEqual(discoverySnapshot.enumerationCalls, 4)
+        XCTAssertEqual(discoverySnapshot.maximumChunkSize, 64)
+        XCTAssertEqual(discoverySnapshot.maximumActiveConsumers, 1)
+        XCTAssertEqual(discoverySnapshot.generatedFiles, 262)
+        XCTAssertEqual(scannerSnapshot.scansByProvider[.claudeCode], 130)
+        XCTAssertEqual(scannerSnapshot.scansByProvider[.codex], 132)
+        XCTAssertEqual(scannerSnapshot.totalScans, 262)
+        XCTAssertEqual(scannerSnapshot.maximumActiveScans, 1)
+        await coordinator.stop()
+    }
+
     func testEventDuringScanSchedulesOneFollowUpPassWithoutOverlap() async throws {
         let setup = try makeSetup()
         defer { try? FileManager.default.removeItem(at: setup.directory) }
@@ -714,11 +876,11 @@ final class IngestionCoordinatorTests: XCTestCase {
         await clock.advancePastDebounce()
         await scanner.resumeFirstScan()
         _ = try await startTask.value
-        await waitUntil { await scanner.scannedURLs.count == 2 }
+        await waitUntil { await scanner.scannedURLs.count == 3 }
 
         let scannedURLs = await scanner.scannedURLs
         let maximumConcurrentScans = await scanner.maximumConcurrentScans
-        XCTAssertEqual(scannedURLs, [first, followUp])
+        XCTAssertEqual(scannedURLs, [first, first, followUp])
         XCTAssertEqual(maximumConcurrentScans, 1)
         await coordinator.stop()
     }
@@ -850,6 +1012,20 @@ private actor TimedAsyncFlag {
             try? await clock.sleep(for: .milliseconds(1))
         }
         return current
+    }
+}
+
+private actor IngestionResultRecorder {
+    private var values: [IngestionBatchResult] = []
+
+    var count: Int { values.count }
+
+    func append(_ value: IngestionBatchResult) {
+        values.append(value)
+    }
+
+    func snapshot() -> [IngestionBatchResult] {
+        values
     }
 }
 
@@ -1183,6 +1359,50 @@ private actor CancellableDiscoveryGate {
     private func cancel() {
         wasCancelled = true
         continuation?.resume(throwing: CancellationError())
+        continuation = nil
+    }
+}
+
+private actor CancellableDrainEntryGate {
+    private var entered = false
+    private var released = false
+    private(set) var wasCancelled = false
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var enteredWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        entered = true
+        let waiters = enteredWaiters
+        enteredWaiters.removeAll()
+        waiters.forEach { $0.resume() }
+        if released { return }
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if released || wasCancelled || Task.isCancelled {
+                    continuation.resume()
+                } else {
+                    self.continuation = continuation
+                }
+            }
+        } onCancel: {
+            Task { await self.cancel() }
+        }
+    }
+
+    func waitUntilEntered() async {
+        guard !entered else { return }
+        await withCheckedContinuation { enteredWaiters.append($0) }
+    }
+
+    func release() {
+        released = true
+        continuation?.resume()
+        continuation = nil
+    }
+
+    private func cancel() {
+        wasCancelled = true
+        continuation?.resume()
         continuation = nil
     }
 }

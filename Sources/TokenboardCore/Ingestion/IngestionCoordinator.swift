@@ -149,6 +149,7 @@ public actor IngestionCoordinator {
     private let clock: any IngestionClock
     private let discovery: any LogDiscovering
     private let calendar: Calendar
+    private let drainEntryHook: (@Sendable () async -> Void)?
     private var roots: [Provider: URL] = [:]
     private var eventTask: Task<Void, Never>?
     private var debounceTask: Task<Void, Never>?
@@ -181,6 +182,24 @@ public actor IngestionCoordinator {
         discovery: any LogDiscovering = LogDiscovery(),
         calendar: Calendar = .current
     ) {
+        self.init(
+            scanner: scanner,
+            watcher: watcher,
+            clock: clock,
+            discovery: discovery,
+            calendar: calendar,
+            drainEntryHook: nil
+        )
+    }
+
+    init(
+        scanner: any IngestionScanning,
+        watcher: any SourceEventWatching,
+        clock: any IngestionClock,
+        discovery: any LogDiscovering,
+        calendar: Calendar,
+        drainEntryHook: (@Sendable () async -> Void)?
+    ) {
         let (stream, continuation) = AsyncStream<IngestionBatchResult>.makeStream(
             bufferingPolicy: .bufferingNewest(1)
         )
@@ -189,6 +208,7 @@ public actor IngestionCoordinator {
         self.clock = clock
         self.discovery = discovery
         self.calendar = calendar
+        self.drainEntryHook = drainEntryHook
         resultStream = stream
         resultContinuation = continuation
     }
@@ -397,8 +417,7 @@ public actor IngestionCoordinator {
         pendingEventPaths.removeAll()
         pendingEventRootProviders.removeAll()
         guard !paths.isEmpty else { return }
-        if activeBatchScope == .incremental
-            || pendingBatches.contains(where: { $0.scope == .incremental }) {
+        if activeBatchScope != nil || !pendingBatches.isEmpty {
             markFollowUpDirtyProviders(for: paths)
             return
         }
@@ -468,13 +487,25 @@ public actor IngestionCoordinator {
 
     private func startDrainIfNeeded() {
         guard drainTask == nil, !pendingBatches.isEmpty else { return }
-        drainTask = Task { [weak self] in
-            await self?.drainBatches()
+        let drainEntryHook = self.drainEntryHook
+        let expectedRunGeneration = runGeneration
+        drainTask = Task { [weak self, drainEntryHook] in
+            if let drainEntryHook { await drainEntryHook() }
+            await self?.drainBatches(expectedRunGeneration: expectedRunGeneration)
         }
     }
 
-    private func drainBatches() async {
-        while !pendingBatches.isEmpty {
+    private func drainBatches(expectedRunGeneration: UInt64) async {
+        guard canDrain(expectedRunGeneration: expectedRunGeneration) else {
+            drainTask = nil
+            return
+        }
+        while canDrain(expectedRunGeneration: expectedRunGeneration),
+              let currentRunID = activeRunID,
+              pendingBatches.first?.runID == currentRunID {
+            guard canDrain(expectedRunGeneration: expectedRunGeneration) else {
+                break
+            }
             let queued = pendingBatches.removeFirst()
             activeBatchScope = queued.scope
             activeBatchRunID = queued.runID
@@ -482,6 +513,14 @@ public actor IngestionCoordinator {
             let scanner = self.scanner
             let discovery = self.discovery
             let calendar = self.calendar
+            guard canDrain(expectedRunGeneration: expectedRunGeneration),
+                  activeRunID == queued.runID else {
+                pendingBatches.insert(queued, at: 0)
+                activeInventoryContinuations.removeAll()
+                activeBatchScope = nil
+                activeBatchRunID = nil
+                break
+            }
             let workTask = Task.detached(priority: .utility) {
                 await Self.executeBatch(
                     inputs: queued.inputs,
@@ -528,18 +567,22 @@ public actor IngestionCoordinator {
                 )
                 inventoryContinuations.forEach { $0.resume(returning: result) }
             }
-            if queued.scope == .incremental {
-                enqueueFollowUpEventIfNeeded(runID: queued.runID)
-            }
+            enqueueFollowUpEventIfNeeded(runID: queued.runID)
             if Task.isCancelled || execution.wasCancelled { break }
         }
         drainTask = nil
     }
 
+    private func canDrain(expectedRunGeneration: UInt64) -> Bool {
+        !Task.isCancelled
+            && runGeneration == expectedRunGeneration
+            && activeRunID != nil
+    }
+
     private func enqueueFollowUpEventIfNeeded(runID: UInt64) {
         guard activeRunID == runID,
               !followUpDirtyProviders.isEmpty,
-              !pendingBatches.contains(where: { $0.scope == .incremental }) else {
+              pendingBatches.isEmpty else {
             return
         }
         let providers = followUpDirtyProviders
