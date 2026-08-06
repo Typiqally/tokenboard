@@ -83,6 +83,31 @@ final class SQLiteLedgerTests: XCTestCase {
         )
     }
 
+    func testIntegrityCheckAcceptsAMigratedLedger() async throws {
+        let (ledger, _) = try makeLedger()
+        try await ledger.migrate()
+
+        try await ledger.integrityCheck()
+    }
+
+    func testIntegrityCheckRejectsATruncatedLedger() async throws {
+        let (ledger, directory) = try makeLedger()
+        try await ledger.migrate()
+        let database = directory.appending(path: "ledger.sqlite")
+        let connection = try SQLiteConnection(url: database)
+        try connection.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+        let handle = try FileHandle(forWritingTo: database)
+        try handle.truncate(atOffset: 512)
+        try handle.close()
+
+        do {
+            try await ledger.integrityCheck()
+            XCTFail("expected a truncated ledger to fail its integrity check")
+        } catch is SQLiteFailure {
+        } catch is LedgerError {
+        }
+    }
+
     private func assertStorageValidationError(
         _ operation: () async throws -> Void,
         file: StaticString = #filePath,

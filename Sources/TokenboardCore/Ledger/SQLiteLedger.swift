@@ -6,6 +6,7 @@ public enum LedgerError: Error, Equatable {
     case notMigrated
     case quantityOverflow
     case corruptData(String)
+    case integrityCheckFailed(String)
     case randomSaltGenerationFailed(Int32)
 }
 
@@ -47,6 +48,13 @@ public actor SQLiteLedger: LedgerStore {
             migrations: Migrations.all
         ).migrate()
         privacyHasher = try loadOrCreatePrivacyHasher(using: connection)
+    }
+
+    public func integrityCheck() throws {
+        let rows = try requiredConnection().queryStrings("PRAGMA quick_check;")
+        guard rows == ["ok"] else {
+            throw LedgerError.integrityCheckFailed(rows.joined(separator: "; "))
+        }
     }
 
     public func commit(

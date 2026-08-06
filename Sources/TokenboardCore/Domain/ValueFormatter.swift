@@ -23,6 +23,11 @@ public enum ValueFormatter {
         formatter.numberStyle = .currency
         formatter.currencyCode = "USD"
         formatter.currencySymbol = "$"
+        formatter.positivePrefix = "$"
+        formatter.negativePrefix = "-$"
+        formatter.usesGroupingSeparator = true
+        formatter.groupingSeparator = ","
+        formatter.decimalSeparator = "."
         formatter.minimumFractionDigits = 2
         formatter.maximumFractionDigits = 4
         return formatter.string(from: value as NSDecimalNumber)!
@@ -32,6 +37,9 @@ public enum ValueFormatter {
         let formatter = NumberFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.numberStyle = .decimal
+        formatter.usesGroupingSeparator = true
+        formatter.groupingSeparator = ","
+        formatter.groupingSize = 3
         formatter.maximumFractionDigits = 0
         return formatter.string(from: NSNumber(value: value))!
     }
