@@ -176,6 +176,75 @@ final class FSEventWatcherTests: XCTestCase {
         watcher.stop()
     }
 
+    func testRootChangedZeroRetainsHighAcknowledgedCheckpointAcrossReconfiguration() async {
+        let driver = RecordingFSEventStreamDriver(currentEventID: 900)
+        let watcher = FSEventWatcher(driver: driver)
+        let root = URL(fileURLWithPath: "/tmp/claude").standardizedFileURL
+        let stream = watcher.events(for: [root])
+        var iterator = stream.makeAsyncIterator()
+        XCTAssertTrue(driver.emit([
+            FSEventDriverEvent(
+                path: root.appending(path: "before-root-change.jsonl").path,
+                flags: 0,
+                eventID: 901
+            )
+        ]))
+        watcher.acknowledge((await iterator.next())?.checkpoint)
+
+        XCTAssertTrue(driver.emit([
+            FSEventDriverEvent(
+                path: root.path,
+                flags: UInt32(kFSEventStreamEventFlagRootChanged),
+                eventID: 0
+            )
+        ]))
+        let recovered = await iterator.next()
+        XCTAssertEqual(recovered?.paths, [root])
+        XCTAssertEqual(recovered?.checkpoint, SourceEventCheckpoint(eventID: 901))
+        watcher.acknowledge(recovered?.checkpoint)
+
+        let replacement = watcher.events(for: [root])
+        withExtendedLifetime(replacement) {}
+        XCTAssertEqual(driver.configurations.map(\.sinceWhen), [900, 901])
+        watcher.stop()
+    }
+
+    func testLowerNonWrapRecoveryCannotResetHighCheckpoint() async {
+        let driver = RecordingFSEventStreamDriver(currentEventID: 800)
+        let watcher = FSEventWatcher(driver: driver)
+        let root = URL(fileURLWithPath: "/tmp/codex").standardizedFileURL
+        let stream = watcher.events(for: [root])
+        var iterator = stream.makeAsyncIterator()
+        XCTAssertTrue(driver.emit([
+            FSEventDriverEvent(
+                path: root.appending(path: "before-sentinel.jsonl").path,
+                flags: 0,
+                eventID: 801
+            )
+        ]))
+        watcher.acknowledge((await iterator.next())?.checkpoint)
+
+        XCTAssertTrue(driver.emit([
+            FSEventDriverEvent(
+                path: root.path,
+                flags: UInt32(kFSEventStreamEventFlagMustScanSubDirs),
+                eventID: 1
+            )
+        ]))
+        let recovered = await iterator.next()
+        XCTAssertEqual(recovered?.paths, [root])
+        XCTAssertEqual(
+            recovered?.checkpoint,
+            SourceEventCheckpoint(eventID: 1, disposition: .advance)
+        )
+        watcher.acknowledge(recovered?.checkpoint)
+
+        let replacement = watcher.events(for: [root])
+        withExtendedLifetime(replacement) {}
+        XCTAssertEqual(driver.configurations.map(\.sinceWhen), [800, 801])
+        watcher.stop()
+    }
+
     func testWrappedOverflowSurvivesOneSlotDropAndRebasesBeforeReconfiguration() async {
         let driver = RecordingFSEventStreamDriver(currentEventID: UInt64.max - 10)
         let watcher = FSEventWatcher(driver: driver)
@@ -245,12 +314,15 @@ final class FSEventWatcherTests: XCTestCase {
         XCTAssertTrue(driver.emit(FSEventDriverBatch(
             events: [FSEventDriverEvent(
                 path: root.path,
-                flags: UInt32(kFSEventStreamEventFlagEventIdsWrapped),
-                eventID: UInt64.max - 19
+                flags: UInt32(
+                    kFSEventStreamEventFlagRootChanged
+                        | kFSEventStreamEventFlagEventIdsWrapped
+                ),
+                eventID: 0
             )],
             overflowed: false,
-            highestConsumedEventID: UInt64.max - 19,
-            terminalEventID: UInt64.max - 19
+            highestConsumedEventID: 0,
+            terminalEventID: 0
         )))
 
         let recovered = await iterator.next()

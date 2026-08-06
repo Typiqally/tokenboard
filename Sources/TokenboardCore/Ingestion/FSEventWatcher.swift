@@ -340,7 +340,7 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
                     let terminalEventID = eventIDsWrapped
                         ? driver.currentEventID()
                         : batch.terminalEventID
-                    let checkpoint = terminalEventID.map {
+                    let checkpoint = terminalEventID.flatMap {
                         self.checkpoint(
                             eventID: $0,
                             eventIDsWrapped: eventIDsWrapped
@@ -415,15 +415,23 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
     private func checkpoint(
         eventID: UInt64,
         eventIDsWrapped: Bool
-    ) -> SourceEventCheckpoint {
+    ) -> SourceEventCheckpoint? {
         lock.withLock {
             let prior = lastAcknowledgedEventID ?? baselineEventID
-            if eventIDsWrapped || prior.map({ eventID < $0 }) == true {
+            if eventIDsWrapped {
                 checkpointResetPending = true
+            }
+            if checkpointResetPending {
+                guard eventID > 0 else { return nil }
+                return SourceEventCheckpoint(eventID: eventID, disposition: .reset)
+            }
+            guard eventID > 0 else {
+                guard let prior, prior > 0 else { return nil }
+                return SourceEventCheckpoint(eventID: prior)
             }
             return SourceEventCheckpoint(
                 eventID: eventID,
-                disposition: checkpointResetPending ? .reset : .advance
+                disposition: .advance
             )
         }
     }
