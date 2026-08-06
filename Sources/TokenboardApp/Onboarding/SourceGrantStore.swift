@@ -1,18 +1,70 @@
 import Foundation
 import TokenboardCore
 
-enum SourceGrantError: Error {
+enum SourceGrantError: Error, Equatable {
     case accessDenied
+}
+
+struct ResolvedSourceBookmark: Equatable, Sendable {
+    let url: URL
+    let isStale: Bool
+}
+
+protocol SecurityScopedBookmarkAccessing: Sendable {
+    func makeBookmark(for url: URL, options: URL.BookmarkCreationOptions) throws -> Data
+    func resolveBookmark(
+        _ data: Data,
+        options: URL.BookmarkResolutionOptions
+    ) throws -> ResolvedSourceBookmark
+    func startAccessing(_ url: URL) -> Bool
+    func stopAccessing(_ url: URL)
+}
+
+private struct FoundationSecurityScopedBookmarkAccess: SecurityScopedBookmarkAccessing {
+    func makeBookmark(for url: URL, options: URL.BookmarkCreationOptions) throws -> Data {
+        try url.bookmarkData(
+            options: options,
+            includingResourceValuesForKeys: nil,
+            relativeTo: nil
+        )
+    }
+
+    func resolveBookmark(
+        _ data: Data,
+        options: URL.BookmarkResolutionOptions
+    ) throws -> ResolvedSourceBookmark {
+        var isStale = false
+        let url = try URL(
+            resolvingBookmarkData: data,
+            options: options,
+            relativeTo: nil,
+            bookmarkDataIsStale: &isStale
+        )
+        return ResolvedSourceBookmark(url: url, isStale: isStale)
+    }
+
+    func startAccessing(_ url: URL) -> Bool {
+        url.startAccessingSecurityScopedResource()
+    }
+
+    func stopAccessing(_ url: URL) {
+        url.stopAccessingSecurityScopedResource()
+    }
 }
 
 @MainActor
 final class ActiveSourceGrant {
     let root: URL
+    private let access: any SecurityScopedBookmarkAccessing
     private var isAccessing = false
 
-    init(root: URL) throws {
+    init(
+        root: URL,
+        access: any SecurityScopedBookmarkAccessing = FoundationSecurityScopedBookmarkAccess()
+    ) throws {
         self.root = root
-        guard root.startAccessingSecurityScopedResource() else {
+        self.access = access
+        guard access.startAccessing(root) else {
             throw SourceGrantError.accessDenied
         }
         isAccessing = true
@@ -20,13 +72,13 @@ final class ActiveSourceGrant {
 
     deinit {
         if isAccessing {
-            root.stopAccessingSecurityScopedResource()
+            access.stopAccessing(root)
         }
     }
 
     func close() {
         guard isAccessing else { return }
-        root.stopAccessingSecurityScopedResource()
+        access.stopAccessing(root)
         isAccessing = false
     }
 }
@@ -34,25 +86,25 @@ final class ActiveSourceGrant {
 @MainActor
 final class SourceGrantStore {
     private let defaults: UserDefaults
+    private let bookmarkAccess: any SecurityScopedBookmarkAccessing
 
-    init(defaults: UserDefaults = .standard) {
+    init(
+        defaults: UserDefaults = .standard,
+        bookmarkAccess: any SecurityScopedBookmarkAccessing = FoundationSecurityScopedBookmarkAccess()
+    ) {
         self.defaults = defaults
+        self.bookmarkAccess = bookmarkAccess
     }
 
     func grant(for provider: Provider) throws -> URL? {
         guard let data = defaults.data(forKey: bookmarkKey(for: provider)) else { return nil }
-        var isStale = false
-        let url = try URL(
-            resolvingBookmarkData: data,
-            options: .withSecurityScope,
-            relativeTo: nil,
-            bookmarkDataIsStale: &isStale
-        ).standardizedFileURL
-        if isStale {
-            let didAccess = url.startAccessingSecurityScopedResource()
+        let resolved = try bookmarkAccess.resolveBookmark(data, options: .withSecurityScope)
+        let url = resolved.url.standardizedFileURL
+        if resolved.isStale {
+            let didAccess = bookmarkAccess.startAccessing(url)
             guard didAccess else { throw SourceGrantError.accessDenied }
             defer {
-                url.stopAccessingSecurityScopedResource()
+                bookmarkAccess.stopAccessing(url)
             }
             try save(url: url, for: provider)
         }
@@ -60,17 +112,16 @@ final class SourceGrantStore {
     }
 
     func save(url: URL, for provider: Provider) throws {
-        let data = try url.bookmarkData(
-            options: [.withSecurityScope, .securityScopeAllowOnlyReadAccess],
-            includingResourceValuesForKeys: nil,
-            relativeTo: nil
+        let data = try bookmarkAccess.makeBookmark(
+            for: url,
+            options: [.withSecurityScope, .securityScopeAllowOnlyReadAccess]
         )
         defaults.set(data, forKey: bookmarkKey(for: provider))
     }
 
     func openGrant(for provider: Provider) throws -> ActiveSourceGrant? {
         guard let root = try grant(for: provider) else { return nil }
-        return try ActiveSourceGrant(root: root)
+        return try ActiveSourceGrant(root: root, access: bookmarkAccess)
     }
 
     func revoke(_ provider: Provider) {

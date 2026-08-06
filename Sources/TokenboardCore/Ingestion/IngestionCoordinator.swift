@@ -20,6 +20,7 @@ public struct ContinuousIngestionClock: IngestionClock {
 
 public enum IngestionCoordinatorError: Error, Equatable {
     case missingRoot(Provider)
+    case overlappingRoots
 }
 
 public actor IngestionCoordinator {
@@ -62,8 +63,17 @@ public actor IngestionCoordinator {
         for provider in Provider.allCases where suppliedRoots[provider] == nil {
             throw IngestionCoordinatorError.missingRoot(provider)
         }
+        let canonicalRoots = suppliedRoots.mapValues {
+            $0.standardizedFileURL.resolvingSymlinksInPath().standardizedFileURL
+        }
+        guard let claudeRoot = canonicalRoots[.claudeCode],
+              let codexRoot = canonicalRoots[.codex],
+              !Self.contains(claudeRoot, codexRoot),
+              !Self.contains(codexRoot, claudeRoot) else {
+            throw IngestionCoordinatorError.overlappingRoots
+        }
         await stop()
-        roots = suppliedRoots.mapValues(\.standardizedFileURL)
+        roots = canonicalRoots
         let orderedRoots = Provider.allCases.compactMap { roots[$0] }
         let events = watcher.events(for: orderedRoots)
         eventTask = Task { [weak self] in
@@ -161,6 +171,10 @@ public actor IngestionCoordinator {
             .filter { standardized.pathComponents.starts(with: $0.value.pathComponents) }
             .max { $0.value.pathComponents.count < $1.value.pathComponents.count }
             .map { ($0.key, $0.value) }
+    }
+
+    private static func contains(_ root: URL, _ candidate: URL) -> Bool {
+        candidate.pathComponents.starts(with: root.pathComponents)
     }
 
     private func hasNoSymbolicLinkBelowRoot(_ url: URL, root: URL) -> Bool {

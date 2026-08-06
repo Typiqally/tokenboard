@@ -12,6 +12,7 @@ let package = Package(
         .systemLibrary(name: "CSQLite"),
         .target(name: "TokenboardCore", dependencies: ["CSQLite"]),
         .executableTarget(name: "TokenboardApp", dependencies: ["TokenboardCore"]),
-        .testTarget(name: "TokenboardCoreTests", dependencies: ["TokenboardCore"])
+        .testTarget(name: "TokenboardCoreTests", dependencies: ["TokenboardCore"]),
+        .testTarget(name: "TokenboardAppTests", dependencies: ["TokenboardApp", "TokenboardCore"])
     ]
 )

@@ -39,9 +39,13 @@ final class IngestionCoordinatorTests: XCTestCase {
         await waitUntil { await scanner.scannedURLs.count == 2 }
 
         let scannedURLs = await scanner.scannedURLs
+        let scannedProviders = await scanner.scannedProviders
         let maximumConcurrentScans = await scanner.maximumConcurrentScans
+        let requestedDurations = await clock.requestedDurations
         XCTAssertEqual(scannedURLs, [changedA, changedB])
+        XCTAssertEqual(scannedProviders, [.claudeCode, .codex])
         XCTAssertEqual(maximumConcurrentScans, 1)
+        XCTAssertEqual(requestedDurations, [.milliseconds(750), .milliseconds(750)])
         XCTAssertEqual(coordinator.usesPeriodicRefresh, false)
         await coordinator.stop()
     }
@@ -111,6 +115,60 @@ final class IngestionCoordinatorTests: XCTestCase {
         await coordinator.stop()
     }
 
+    func testIdenticalRootsAreRejectedBeforeWatcherOrScannerStarts() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try await assertAmbiguousRootsRejected(
+            [.claudeCode: directory, .codex: directory]
+        )
+    }
+
+    func testClaudeParentAndCodexChildAreRejectedBeforeWatcherOrScannerStarts() async throws {
+        let parent = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let child = parent.appending(path: "nested")
+        try FileManager.default.createDirectory(at: child, withIntermediateDirectories: false)
+        try await assertAmbiguousRootsRejected(
+            [.claudeCode: parent, .codex: child]
+        )
+    }
+
+    func testCodexParentAndClaudeChildAreRejectedBeforeWatcherOrScannerStarts() async throws {
+        let parent = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let child = parent.appending(path: "nested")
+        try FileManager.default.createDirectory(at: child, withIntermediateDirectories: false)
+        try await assertAmbiguousRootsRejected(
+            [.claudeCode: child, .codex: parent]
+        )
+    }
+
+    func testNonOverlappingRootsStartAndAssignProvidersFromContainingRoot() async throws {
+        let setup = try makeSetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let claudeFile = setup.claudeRoot.appending(path: "claude.jsonl")
+        let codexFile = setup.codexRoot.appending(path: "codex.jsonl")
+        try Data().write(to: claudeFile)
+        try Data().write(to: codexFile)
+        let watcher = FakeSourceEventWatcher()
+        let scanner = RecordingScanner()
+        let coordinator = IngestionCoordinator(
+            scanner: scanner,
+            watcher: watcher,
+            clock: ManualIngestionClock(),
+            calendar: calendar
+        )
+
+        try await coordinator.start(roots: setup.roots)
+
+        let scannedURLs = await scanner.scannedURLs
+        let scannedProviders = await scanner.scannedProviders
+        XCTAssertEqual(watcher.eventsRequestCount, 1)
+        XCTAssertEqual(scannedURLs, [claudeFile, codexFile])
+        XCTAssertEqual(scannedProviders, [.claudeCode, .codex])
+        await coordinator.stop()
+    }
+
     private func makeSetup() throws -> (
         directory: URL,
         claudeRoot: URL,
@@ -130,6 +188,32 @@ final class IngestionCoordinatorTests: XCTestCase {
         )
     }
 
+    private func makeDirectory() throws -> URL {
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
+    private func assertAmbiguousRootsRejected(_ roots: [Provider: URL]) async throws {
+        let watcher = FakeSourceEventWatcher()
+        let scanner = RecordingScanner()
+        let coordinator = IngestionCoordinator(
+            scanner: scanner,
+            watcher: watcher,
+            clock: ManualIngestionClock(),
+            calendar: calendar
+        )
+        do {
+            try await coordinator.start(roots: roots)
+            XCTFail("expected ambiguous source roots to be rejected")
+        } catch let error as IngestionCoordinatorError {
+            XCTAssertEqual(error, .overlappingRoots)
+        }
+        let scannedURLs = await scanner.scannedURLs
+        XCTAssertEqual(watcher.eventsRequestCount, 0)
+        XCTAssertEqual(scannedURLs, [])
+    }
+
     private func waitUntil(
         _ condition: @escaping @Sendable () async -> Bool,
         file: StaticString = #filePath,
@@ -147,9 +231,13 @@ private final class FakeSourceEventWatcher: SourceEventWatching, @unchecked Send
     private let lock = NSLock()
     private var continuation: AsyncStream<Set<URL>>.Continuation?
     private(set) var requestedRoots: [URL] = []
+    private(set) var eventsRequestCount = 0
 
     func events(for roots: [URL]) -> AsyncStream<Set<URL>> {
-        lock.withLock { requestedRoots = roots }
+        lock.withLock {
+            requestedRoots = roots
+            eventsRequestCount += 1
+        }
         return AsyncStream { continuation in
             lock.withLock { self.continuation = continuation }
         }
@@ -170,6 +258,7 @@ private final class FakeSourceEventWatcher: SourceEventWatching, @unchecked Send
 
 private actor RecordingScanner: IngestionScanning {
     private(set) var scannedURLs: [URL] = []
+    private(set) var scannedProviders: [Provider] = []
     private(set) var activeScans = 0
     private(set) var maximumConcurrentScans = 0
     private var shouldSuspendFirstScan: Bool
@@ -183,6 +272,7 @@ private actor RecordingScanner: IngestionScanning {
         activeScans += 1
         maximumConcurrentScans = max(maximumConcurrentScans, activeScans)
         scannedURLs.append(file)
+        scannedProviders.append(provider)
         if shouldSuspendFirstScan {
             shouldSuspendFirstScan = false
             await withCheckedContinuation { firstScanContinuation = $0 }
@@ -203,6 +293,7 @@ private actor RecordingScanner: IngestionScanning {
 
     func reset() {
         scannedURLs = []
+        scannedProviders = []
         activeScans = 0
         maximumConcurrentScans = 0
     }
@@ -212,6 +303,7 @@ private actor ManualIngestionClock: IngestionClock {
     private var sleepers: [UUID: CheckedContinuation<Void, Error>] = [:]
     private(set) var cancelledSleepCount = 0
     private var sleepStartCount = 0
+    private(set) var requestedDurations: [Duration] = []
 
     var waiterCount: Int { sleepers.count }
     var debounceRestarted: Bool {
@@ -221,6 +313,7 @@ private actor ManualIngestionClock: IngestionClock {
     func sleep(for duration: Duration) async throws {
         let id = UUID()
         sleepStartCount += 1
+        requestedDurations.append(duration)
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 sleepers[id] = continuation
