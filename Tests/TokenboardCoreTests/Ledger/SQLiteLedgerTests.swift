@@ -284,6 +284,62 @@ final class SQLiteLedgerTests: XCTestCase {
         XCTAssertEqual(try connection.queryStrings("SELECT record_hash FROM skipped_records;"), [])
     }
 
+    func testPrivacyBoundaryRejectsUnsafeCurrentModelValuesWithoutPersistence() async throws {
+        let (ledger, directory) = try makeLedger()
+        try await ledger.migrate()
+        let connection = try SQLiteConnection(url: directory.appending(path: "ledger.sqlite"))
+        let unsafeModels = [
+            "/private/session/path",
+            "../session-a",
+            "https://example.test/repo",
+            "raw prompt words",
+            "<not-synthetic>"
+        ]
+
+        for (index, modelID) in unsafeModels.enumerated() {
+            let fingerprint = String(repeating: String(index), count: 64)
+            await assertStorageValidationError {
+                try await ledger.commit(
+                    [try self.usage()],
+                    skipped: [self.skippedRecord()],
+                    checkpoint: self.checkpoint(
+                        fingerprint: fingerprint,
+                        adapterState: ["current_model": modelID]
+                    ),
+                    calendar: self.calendar
+                )
+            }
+
+            let rows = try await ledger.usageRows(in: nil, calendar: calendar)
+            let checkpoint = try await ledger.checkpoint(for: fingerprint)
+            XCTAssertEqual(rows, [])
+            XCTAssertNil(checkpoint)
+            XCTAssertEqual(try connection.queryStrings("SELECT record_hash FROM skipped_records;"), [])
+        }
+    }
+
+    func testIdentifierShapedCurrentModelsRemainCountable() async throws {
+        let (ledger, _) = try makeLedger()
+        try await ledger.migrate()
+        let models = ["gpt-5.6-sol", "claude-opus-5", "<synthetic>"]
+        let fingerprints = ["e", "f", "0"].map { String(repeating: $0, count: 64) }
+
+        for (modelID, fingerprint) in zip(models, fingerprints) {
+            try await ledger.commit(
+                [try usage(modelID: modelID)],
+                skipped: [],
+                checkpoint: checkpoint(
+                    fingerprint: fingerprint,
+                    adapterState: ["current_model": modelID]
+                ),
+                calendar: calendar
+            )
+        }
+
+        let rows = try await ledger.usageRows(in: nil, calendar: calendar)
+        XCTAssertEqual(Set(rows.map(\.observedModelID)), Set(models))
+    }
+
     func testSaltIsStableAfterReopeningAndProviderFingerprintsAreSeparated() async throws {
         let directory = try makeDirectory()
         let (ledger, _) = try makeLedger(in: directory)

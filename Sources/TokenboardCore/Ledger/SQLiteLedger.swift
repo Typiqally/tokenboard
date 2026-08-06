@@ -251,8 +251,13 @@ public actor SQLiteLedger: LedgerStore {
     }
 
     private func isContentSafeModelID(_ value: String) -> Bool {
-        !value.isEmpty
-            && value.utf8.count <= 256
+        if value == "<synthetic>" {
+            return true
+        }
+        guard (1...256).contains(value.utf8.count), let first = value.utf8.first else {
+            return false
+        }
+        return Self.alphanumericModelIDBytes.contains(first)
             && value.utf8.allSatisfy { Self.allowedModelIDBytes.contains($0) }
     }
 
@@ -511,7 +516,12 @@ private extension SQLiteLedger {
     ]
 
     static let allowedModelIDBytes: Set<UInt8> = {
-        let allowed = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-/:<>"
+        let allowed = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-"
+        return Set(allowed.utf8)
+    }()
+
+    static let alphanumericModelIDBytes: Set<UInt8> = {
+        let allowed = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
         return Set(allowed.utf8)
     }()
 }
