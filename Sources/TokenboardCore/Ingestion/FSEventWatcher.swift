@@ -308,6 +308,12 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
                     | kFSEventStreamCreateFlagNoDefer
             )
             let sinceWhen = lock.withLock { () -> UInt64 in
+                if checkpointResetPending {
+                    let current = driver.currentEventID()
+                    return current > 0
+                        ? current
+                        : UInt64(kFSEventStreamEventIdSinceNow)
+                }
                 if let lastAcknowledgedEventID { return lastAcknowledgedEventID }
                 if let baselineEventID { return baselineEventID }
                 let current = driver.currentEventID()

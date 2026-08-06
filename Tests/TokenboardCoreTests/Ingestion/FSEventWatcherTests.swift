@@ -341,6 +341,116 @@ final class FSEventWatcherTests: XCTestCase {
         watcher.stop()
     }
 
+    func testPendingWrapWithZeroCurrentReconfiguresSinceNowThenRebasesOnLaterEvent() async {
+        let driver = RecordingFSEventStreamDriver(currentEventID: 900)
+        let watcher = FSEventWatcher(driver: driver)
+        let root = URL(fileURLWithPath: "/tmp/claude").standardizedFileURL
+        let initialStream = watcher.events(for: [root])
+        var initialIterator = initialStream.makeAsyncIterator()
+        XCTAssertTrue(driver.emit([
+            FSEventDriverEvent(
+                path: root.appending(path: "before-pending-wrap.jsonl").path,
+                flags: 0,
+                eventID: 901
+            )
+        ]))
+        watcher.acknowledge((await initialIterator.next())?.checkpoint)
+        driver.setCurrentEventID(0)
+        XCTAssertTrue(driver.emit([
+            FSEventDriverEvent(
+                path: root.path,
+                flags: UInt32(
+                    kFSEventStreamEventFlagRootChanged
+                        | kFSEventStreamEventFlagEventIdsWrapped
+                ),
+                eventID: 0
+            )
+        ]))
+        let recovery = await initialIterator.next()
+        XCTAssertEqual(recovery?.paths, [root])
+        XCTAssertNil(recovery?.checkpoint)
+        watcher.acknowledge(recovery?.checkpoint)
+
+        let readsBeforeReconfiguration = driver.currentEventIDReadCount
+        let recoveryStream = watcher.events(for: [root])
+        var recoveryIterator = recoveryStream.makeAsyncIterator()
+        XCTAssertEqual(driver.currentEventIDReadCount, readsBeforeReconfiguration + 1)
+        XCTAssertEqual(
+            driver.configurations.map(\.sinceWhen),
+            [900, UInt64(kFSEventStreamEventIdSinceNow)]
+        )
+
+        driver.setCurrentEventID(7)
+        XCTAssertTrue(driver.emit([
+            FSEventDriverEvent(
+                path: root.appending(path: "after-pending-wrap.jsonl").path,
+                flags: 0,
+                eventID: 7
+            )
+        ]))
+        let postWrap = await recoveryIterator.next()
+        XCTAssertEqual(
+            postWrap?.checkpoint,
+            SourceEventCheckpoint(eventID: 7, disposition: .reset)
+        )
+        watcher.acknowledge(postWrap?.checkpoint)
+
+        let finalStream = watcher.events(for: [root])
+        withExtendedLifetime(finalStream) {}
+        XCTAssertEqual(
+            driver.configurations.map(\.sinceWhen),
+            [900, UInt64(kFSEventStreamEventIdSinceNow), 7]
+        )
+        watcher.stop()
+    }
+
+    func testPendingWrapReconfigurationSamplesNonzeroCurrentOnceAndKeepsResetPending() async {
+        let driver = RecordingFSEventStreamDriver(currentEventID: 700)
+        let watcher = FSEventWatcher(driver: driver)
+        let root = URL(fileURLWithPath: "/tmp/codex").standardizedFileURL
+        let initialStream = watcher.events(for: [root])
+        var initialIterator = initialStream.makeAsyncIterator()
+        XCTAssertTrue(driver.emit([
+            FSEventDriverEvent(
+                path: root.appending(path: "before-direct-sample.jsonl").path,
+                flags: 0,
+                eventID: 701
+            )
+        ]))
+        watcher.acknowledge((await initialIterator.next())?.checkpoint)
+        driver.setCurrentEventID(0)
+        XCTAssertTrue(driver.emit([
+            FSEventDriverEvent(
+                path: root.path,
+                flags: UInt32(kFSEventStreamEventFlagEventIdsWrapped),
+                eventID: 0
+            )
+        ]))
+        let recovery = await initialIterator.next()
+        XCTAssertNil(recovery?.checkpoint)
+
+        driver.setCurrentEventID(5)
+        let readsBeforeReconfiguration = driver.currentEventIDReadCount
+        let recoveryStream = watcher.events(for: [root])
+        var recoveryIterator = recoveryStream.makeAsyncIterator()
+        XCTAssertEqual(driver.currentEventIDReadCount, readsBeforeReconfiguration + 1)
+        XCTAssertEqual(driver.configurations.map(\.sinceWhen), [700, 5])
+
+        XCTAssertTrue(driver.emit([
+            FSEventDriverEvent(
+                path: root.appending(path: "reset-intent-retained.jsonl").path,
+                flags: 0,
+                eventID: 7
+            )
+        ]))
+        let postWrap = await recoveryIterator.next()
+        XCTAssertEqual(
+            postWrap?.checkpoint,
+            SourceEventCheckpoint(eventID: 7, disposition: .reset)
+        )
+        watcher.stop()
+    }
+
     func testDeliverySucceedsBeforeCleanupAndIsRejectedAfterRelease() async {
         let driver = RecordingFSEventStreamDriver()
         let watcher = FSEventWatcher(driver: driver)
@@ -574,6 +684,7 @@ private final class RecordingFSEventStreamDriver: FSEventStreamDriving, @uncheck
     private var recordedOperationCountsAtCallbackRelease: [Int] = []
     private var recordedConfigurations: [FSEventStreamConfiguration] = []
     private var recordedCreateCount = 0
+    private var recordedCurrentEventIDReadCount = 0
 
     init(startResult: Bool = true, currentEventID: UInt64 = 0) {
         self.startResult = startResult
@@ -583,6 +694,7 @@ private final class RecordingFSEventStreamDriver: FSEventStreamDriving, @uncheck
     var configuration: FSEventStreamConfiguration? { lock.withLock { recordedConfigurations.last } }
     var configurations: [FSEventStreamConfiguration] { lock.withLock { recordedConfigurations } }
     var createCount: Int { lock.withLock { recordedCreateCount } }
+    var currentEventIDReadCount: Int { lock.withLock { recordedCurrentEventIDReadCount } }
     var operations: [Operation] { lock.withLock { recordedOperations } }
     var callbackLivenessAtOperation: [Bool] { lock.withLock { recordedCallbackLiveness } }
     var callbackReleaseCount: Int { lock.withLock { recordedCallbackReleaseCount } }
@@ -593,7 +705,12 @@ private final class RecordingFSEventStreamDriver: FSEventStreamDriving, @uncheck
         lock.withLock { handle }?.hasLiveCallbackContext ?? false
     }
 
-    func currentEventID() -> UInt64 { lock.withLock { recordedCurrentEventID } }
+    func currentEventID() -> UInt64 {
+        lock.withLock {
+            recordedCurrentEventIDReadCount += 1
+            return recordedCurrentEventID
+        }
+    }
 
     func setCurrentEventID(_ eventID: UInt64) {
         lock.withLock { recordedCurrentEventID = eventID }
