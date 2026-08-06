@@ -174,6 +174,80 @@ final class PricingLedgerTests: XCTestCase {
         XCTAssertEqual(afterRejection, before)
     }
 
+    func testLaterRateInsertFailureRollsBackEarlierRowsAndCatalogImport() async throws {
+        let setup = try makeLedgerWithDatabase()
+        try await setup.ledger.migrate()
+        try await apply(
+            try catalog(id: "catalog-a", models: [model(
+                canonicalModelID: "m-existing",
+                observedModelID: "m-existing"
+            )]),
+            to: setup.ledger
+        )
+        let before = try await setup.ledger.pricingSnapshot()
+        let database = try SQLiteConnection(url: setup.databaseURL)
+        let beforeDatabaseBytes = try pricingDatabaseBytes(in: database)
+        try database.execute("""
+        CREATE TRIGGER reject_z_trigger_rate
+        BEFORE INSERT ON price_rates
+        FOR EACH ROW WHEN NEW.canonical_model_id = 'z-trigger'
+          AND EXISTS(SELECT 1 FROM price_rates WHERE canonical_model_id = 'a-new')
+        BEGIN
+          SELECT RAISE(ABORT, 'injected rate failure');
+        END;
+        """)
+        let candidate = try catalog(id: "catalog-b", models: [
+            model(canonicalModelID: "a-new", observedModelID: "a-new"),
+            model(canonicalModelID: "z-trigger", observedModelID: "z-trigger")
+        ])
+
+        await assertSQLiteConstraint(containing: "injected rate failure") {
+            try await self.apply(candidate, to: setup.ledger)
+        }
+
+        let afterFailure = try await setup.ledger.pricingSnapshot()
+        XCTAssertEqual(afterFailure, before)
+        XCTAssertEqual(try pricingDatabaseBytes(in: database), beforeDatabaseBytes)
+        try assertOnlyExistingCatalogRows(in: database)
+    }
+
+    func testLaterAliasInsertFailureRollsBackEarlierRowsAndCatalogImport() async throws {
+        let setup = try makeLedgerWithDatabase()
+        try await setup.ledger.migrate()
+        try await apply(
+            try catalog(id: "catalog-a", models: [model(
+                canonicalModelID: "m-existing",
+                observedModelID: "m-existing"
+            )]),
+            to: setup.ledger
+        )
+        let before = try await setup.ledger.pricingSnapshot()
+        let database = try SQLiteConnection(url: setup.databaseURL)
+        let beforeDatabaseBytes = try pricingDatabaseBytes(in: database)
+        try database.execute("""
+        CREATE TRIGGER reject_z_trigger_alias
+        BEFORE INSERT ON model_aliases
+        FOR EACH ROW WHEN NEW.observed_model_id = 'z-trigger'
+          AND EXISTS(SELECT 1 FROM model_aliases WHERE observed_model_id = 'a-new')
+        BEGIN
+          SELECT RAISE(ABORT, 'injected alias failure');
+        END;
+        """)
+        let candidate = try catalog(id: "catalog-b", models: [
+            model(canonicalModelID: "a-new", observedModelID: "a-new"),
+            model(canonicalModelID: "z-trigger", observedModelID: "z-trigger")
+        ])
+
+        await assertSQLiteConstraint(containing: "injected alias failure") {
+            try await self.apply(candidate, to: setup.ledger)
+        }
+
+        let afterFailure = try await setup.ledger.pricingSnapshot()
+        XCTAssertEqual(afterFailure, before)
+        XCTAssertEqual(try pricingDatabaseBytes(in: database), beforeDatabaseBytes)
+        try assertOnlyExistingCatalogRows(in: database)
+    }
+
     func testApplicationRejectsCanonicalMismatchAndClosedMetadataValuesWithoutWrites() async throws {
         let ledger = try makeLedger()
         try await ledger.migrate()
@@ -213,12 +287,67 @@ final class PricingLedgerTests: XCTestCase {
     }
 
     private func makeLedger() throws -> SQLiteLedger {
+        try makeLedgerWithDatabase().ledger
+    }
+
+    private func makeLedgerWithDatabase() throws -> (ledger: SQLiteLedger, databaseURL: URL) {
         let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        return try SQLiteLedger(
-            databaseURL: directory.appending(path: "ledger.sqlite"),
+        let databaseURL = directory.appending(path: "ledger.sqlite")
+        let ledger = try SQLiteLedger(
+            databaseURL: databaseURL,
             backupDirectory: directory.appending(path: "Backups")
         )
+        return (ledger: ledger, databaseURL: databaseURL)
+    }
+
+    private func assertOnlyExistingCatalogRows(
+        in database: SQLiteConnection,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        XCTAssertEqual(
+            try database.queryStrings("SELECT DISTINCT canonical_model_id FROM price_rates ORDER BY canonical_model_id;"),
+            ["m-existing"],
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            try database.queryStrings("SELECT DISTINCT canonical_model_id FROM model_aliases ORDER BY canonical_model_id;"),
+            ["m-existing"],
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            try database.queryStrings("SELECT catalog_id FROM catalog_imports ORDER BY catalog_id;"),
+            ["catalog-a"],
+            file: file,
+            line: line
+        )
+    }
+
+    private func pricingDatabaseBytes(in database: SQLiteConnection) throws -> Data {
+        let rows = try database.queryStrings("""
+        SELECT 'alias|' || quote(provider) || '|' || quote(observed_model_id) || '|'
+               || quote(canonical_model_id) || '|' || quote(effective_from) || '|'
+               || quote(effective_to) || '|' || quote(catalog_id)
+        FROM model_aliases
+        ORDER BY provider, observed_model_id, effective_from;
+        """) + database.queryStrings("""
+        SELECT 'rate|' || quote(provider) || '|' || quote(canonical_model_id) || '|'
+               || quote(metric) || '|' || quote(usd_per_million) || '|' || quote(effective_from) || '|'
+               || quote(effective_to) || '|' || quote(provenance_url) || '|' || quote(verified_at) || '|'
+               || quote(catalog_id)
+        FROM price_rates
+        ORDER BY provider, canonical_model_id, metric, effective_from;
+        """) + database.queryStrings("""
+        SELECT 'import|' || quote(catalog_id) || '|' || quote(schema_version) || '|'
+               || quote(origin) || '|' || quote(imported_at) || '|' || quote(applied) || '|'
+               || quote(validation_summary) || '|' || hex(canonical_json)
+        FROM catalog_imports
+        ORDER BY catalog_id;
+        """)
+        return Data(rows.joined(separator: "\n").utf8)
     }
 
     private func model(
@@ -299,6 +428,23 @@ final class PricingLedgerTests: XCTestCase {
             XCTAssertEqual(error, expected, file: file, line: line)
         } catch {
             XCTFail("expected \(expected), received \(error)", file: file, line: line)
+        }
+    }
+
+    private func assertSQLiteConstraint(
+        containing expectedMessage: String,
+        file: StaticString = #filePath,
+        line: UInt = #line,
+        operation: () async throws -> Void
+    ) async {
+        do {
+            try await operation()
+            XCTFail("expected SQLite constraint failure", file: file, line: line)
+        } catch let error as SQLiteFailure {
+            XCTAssertEqual(error.code, 19, file: file, line: line)
+            XCTAssertTrue(error.message.contains(expectedMessage), file: file, line: line)
+        } catch {
+            XCTFail("expected SQLite constraint failure, received \(error)", file: file, line: line)
         }
     }
 }

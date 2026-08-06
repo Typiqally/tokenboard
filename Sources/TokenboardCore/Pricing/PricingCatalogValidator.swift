@@ -177,27 +177,26 @@ public struct PricingCatalogValidator: Sendable {
     }
 
     private func validateRepositoryPath(_ percentEncodedPath: String) throws {
-        let encodedComponents = percentEncodedPath.split(separator: "/", omittingEmptySubsequences: false)
-        guard encodedComponents.first == "", encodedComponents.count >= 4 else {
+        let rawComponents = percentEncodedPath.split(separator: "/", omittingEmptySubsequences: false)
+        guard rawComponents.first == "", rawComponents.count >= 4 else {
             throw PricingCatalogValidationError.invalidOrigin
         }
-        var decodedComponents: [String] = []
-        for encoded in encodedComponents.dropFirst() {
-            guard !encoded.isEmpty,
-                  let decoded = String(encoded).removingPercentEncoding,
-                  !decoded.isEmpty,
-                  decoded != ".",
-                  decoded != "..",
-                  !decoded.contains("/"),
-                  !decoded.contains("\\"),
-                  decoded.unicodeScalars.allSatisfy({ $0.value >= 0x20 && $0.value != 0x7F }) else {
+        var components: [String] = []
+        for rawComponent in rawComponents.dropFirst() {
+            let component = String(rawComponent)
+            guard !component.isEmpty,
+                  !component.contains("%"),
+                  component != ".",
+                  component != "..",
+                  !component.contains("\\"),
+                  component.unicodeScalars.allSatisfy({ $0.value >= 0x21 && $0.value <= 0x7E }) else {
                 throw PricingCatalogValidationError.invalidOrigin
             }
-            decodedComponents.append(decoded)
+            components.append(component)
         }
-        guard decodedComponents.count >= 3,
-              decodedComponents[0] == "Typiqally",
-              decodedComponents[1] == "tokenboard" else {
+        guard components.count >= 3,
+              components[0] == "Typiqally",
+              components[1] == "tokenboard" else {
             throw PricingCatalogValidationError.invalidOrigin
         }
     }

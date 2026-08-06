@@ -189,13 +189,28 @@ final class PricingCatalogValidatorTests: XCTestCase {
         }
     }
 
-    func testRepositoryOriginRequiresNormalizedSafePathComponents() throws {
+    func testRepositoryOriginRequiresRawASCIISafePathComponents() throws {
         XCTAssertNoThrow(try validateRepositoryOrigin(
             "https://raw.githubusercontent.com/Typiqally/tokenboard/main/Pricing/catalog-v1.json"
         ))
         for invalid in [
             "https://raw.githubusercontent.com/Typiqally/tokenboard/../private/catalog.json",
+            "https://raw.githubusercontent.com/Typiqally/tokenboard/main/./catalog.json",
             "https://raw.githubusercontent.com/Typiqally/tokenboard/%2e%2e/private/catalog.json",
+            "https://raw.githubusercontent.com/Typiqally/tokenboard/%2E%2e/private/catalog.json",
+            "https://raw.githubusercontent.com/Typiqally/tokenboard/%252e%252e/private/catalog.json",
+            "https://raw.githubusercontent.com/Typiqally/tokenboard/%252E%252e/private/catalog.json",
+            "https://raw.githubusercontent.com/Typiqally/tokenboard/%25252e%25252E/private/catalog.json",
+            "https://raw.githubusercontent.com/Typiqally/tokenboard/%2fprivate/catalog.json",
+            "https://raw.githubusercontent.com/Typiqally/tokenboard/%252fprivate/catalog.json",
+            "https://raw.githubusercontent.com/Typiqally/tokenboard/%252Fprivate/catalog.json",
+            "https://raw.githubusercontent.com/Typiqally/tokenboard/%25252fprivate/catalog.json",
+            "https://raw.githubusercontent.com/Typiqally/tokenboard/%5cprivate/catalog.json",
+            "https://raw.githubusercontent.com/Typiqally/tokenboard/%255cprivate/catalog.json",
+            "https://raw.githubusercontent.com/Typiqally/tokenboard/%255Cprivate/catalog.json",
+            "https://raw.githubusercontent.com/Typiqally/tokenboard/%25255Cprivate/catalog.json",
+            "https://raw.githubusercontent.com/Typiqally/tokenboard/main\\private/catalog.json",
+            "https://raw.githubusercontent.com/Typiqally/tokenboard/%6dain/catalog.json",
             "https://raw.githubusercontent.com/Typiqally/tokenboard/main/%2E/catalog.json",
             "https://raw.githubusercontent.com/Typiqally/tokenboard//main/catalog.json",
             "https://raw.githubusercontent.com/Typiqally/tokenboard-evil/main/catalog.json",
