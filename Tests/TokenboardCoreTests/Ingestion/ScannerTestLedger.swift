@@ -3,6 +3,7 @@ import Foundation
 
 enum ScannerTestLedgerError: Error, Equatable {
     case injectedCommitFailure
+    case unsupportedPricing
 }
 
 struct CapturedScannerCommit: Equatable, Sendable {
@@ -52,6 +53,19 @@ actor ScannerTestLedger: LedgerStore {
 
     func recordIdentityHash(_ value: String) -> String {
         hasher.recordHash(value)
+    }
+
+    func pricingSnapshot() throws -> PricingSnapshot {
+        throw ScannerTestLedgerError.unsupportedPricing
+    }
+
+    func applyPricingCatalog(
+        _ catalog: ValidatedPricingCatalog,
+        canonicalJSON: Data,
+        origin: String,
+        validationSummary: String
+    ) throws {
+        throw ScannerTestLedgerError.unsupportedPricing
     }
 
     func seed(checkpoint: SourceCheckpoint) {

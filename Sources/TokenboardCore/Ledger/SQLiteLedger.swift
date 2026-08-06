@@ -21,6 +21,13 @@ public enum LedgerValidationError: Error, Equatable, Sendable {
     case invalidAdapterStateModelID
 }
 
+public enum PricingLedgerError: Error, Equatable, Sendable {
+    case canonicalContentMismatch
+    case catalogIDConflict(String)
+    case semanticConflict(String)
+    case invalidImportMetadata
+}
+
 public actor SQLiteLedger: LedgerStore {
     private var connection: SQLiteConnection?
     private let backupDirectory: URL
@@ -146,6 +153,65 @@ public actor SQLiteLedger: LedgerStore {
         try requiredPrivacyHasher().recordHash(value)
     }
 
+    public func pricingSnapshot() throws -> PricingSnapshot {
+        let connection = try requiredConnection()
+        let catalogIDs = try readCatalogIDs(using: connection)
+        let rates = try readPriceRates(using: connection)
+        let aliases = try readModelAliases(using: connection)
+        return PricingSnapshot(catalogIDs: catalogIDs, rates: rates, aliases: aliases)
+    }
+
+    public func applyPricingCatalog(
+        _ catalog: ValidatedPricingCatalog,
+        canonicalJSON: Data,
+        origin: String,
+        validationSummary: String
+    ) throws {
+        let connection = try requiredConnection()
+        guard canonicalJSON == catalog.canonicalJSON,
+              let canonicalString = String(data: canonicalJSON, encoding: .utf8) else {
+            throw PricingLedgerError.canonicalContentMismatch
+        }
+        guard isSafeImportMetadata(origin, maximumLength: 256),
+              isSafeImportMetadata(validationSummary, maximumLength: 512) else {
+            throw PricingLedgerError.invalidImportMetadata
+        }
+
+        try connection.transaction {
+            if let existing = try importedCanonicalJSON(catalogID: catalog.catalogID, using: connection) {
+                guard existing == canonicalString else {
+                    throw PricingLedgerError.catalogIDConflict(catalog.catalogID)
+                }
+                return
+            }
+
+            for model in catalog.models {
+                for alias in model.aliases {
+                    try insertAliasIfNew(alias, model: model, catalogID: catalog.catalogID, using: connection)
+                }
+                for rate in model.rates {
+                    for (metric, price) in rate.prices {
+                        try insertRateIfNew(
+                            rate,
+                            metric: metric,
+                            price: price,
+                            model: model,
+                            catalogID: catalog.catalogID,
+                            using: connection
+                        )
+                    }
+                }
+            }
+            try insertCatalogImport(
+                catalog,
+                canonicalJSON: canonicalString,
+                origin: origin,
+                validationSummary: validationSummary,
+                using: connection
+            )
+        }
+    }
+
     private func requiredConnection() throws -> SQLiteConnection {
         guard let connection else { throw LedgerError.notMigrated }
         return connection
@@ -154,6 +220,273 @@ public actor SQLiteLedger: LedgerStore {
     private func requiredPrivacyHasher() throws -> PrivacyHasher {
         guard let privacyHasher else { throw LedgerError.notMigrated }
         return privacyHasher
+    }
+
+    private func readCatalogIDs(using connection: SQLiteConnection) throws -> [String] {
+        let statement = try prepare("SELECT catalog_id FROM catalog_imports WHERE applied = 1 ORDER BY catalog_id;", using: connection)
+        defer { sqlite3_finalize(statement) }
+        var values: [String] = []
+        while true {
+            switch sqlite3_step(statement) {
+            case SQLITE_ROW:
+                values.append(try requiredText(statement, at: 0))
+            case SQLITE_DONE:
+                return values
+            default:
+                throw failure(sqlite3_errcode(connection.handle), using: connection)
+            }
+        }
+    }
+
+    private func readPriceRates(using connection: SQLiteConnection) throws -> [StoredPriceRate] {
+        let statement = try prepare(
+            """
+            SELECT provider, canonical_model_id, metric, usd_per_million, effective_from,
+                   effective_to, provenance_url, verified_at
+            FROM price_rates
+            ORDER BY provider, canonical_model_id, metric, effective_from;
+            """,
+            using: connection
+        )
+        defer { sqlite3_finalize(statement) }
+        var values: [StoredPriceRate] = []
+        while true {
+            switch sqlite3_step(statement) {
+            case SQLITE_ROW:
+                let storedPrice = try requiredText(statement, at: 3)
+                let storedProvenance = try requiredText(statement, at: 6)
+                guard let provider = Provider(rawValue: try requiredText(statement, at: 0)),
+                      let metric = UsageMetric(rawValue: try requiredText(statement, at: 2)),
+                      let decimal = Decimal(
+                        string: storedPrice,
+                        locale: Locale(identifier: "en_US_POSIX")
+                      ),
+                      !decimal.isNaN,
+                      decimal >= 0,
+                      decimal <= 100_000,
+                      DecimalString(decimal: decimal).rawValue == storedPrice,
+                      let provenanceComponents = URLComponents(string: storedProvenance),
+                      provenanceComponents.scheme?.lowercased() == "https",
+                      provenanceComponents.host != nil,
+                      let provenanceURL = provenanceComponents.url else {
+                    throw LedgerError.corruptData("stored pricing rate is invalid")
+                }
+                values.append(StoredPriceRate(
+                    provider: provider,
+                    canonicalModelID: try requiredText(statement, at: 1),
+                    metric: metric,
+                    usdPerMillion: decimal,
+                    effectiveFrom: try requiredText(statement, at: 4),
+                    effectiveTo: try optionalText(statement, at: 5),
+                    provenanceURL: provenanceURL,
+                    verifiedAt: try requiredText(statement, at: 7)
+                ))
+            case SQLITE_DONE:
+                return values
+            default:
+                throw failure(sqlite3_errcode(connection.handle), using: connection)
+            }
+        }
+    }
+
+    private func readModelAliases(using connection: SQLiteConnection) throws -> [StoredModelAlias] {
+        let statement = try prepare(
+            """
+            SELECT provider, observed_model_id, canonical_model_id, effective_from, effective_to
+            FROM model_aliases
+            ORDER BY provider, observed_model_id, effective_from;
+            """,
+            using: connection
+        )
+        defer { sqlite3_finalize(statement) }
+        var values: [StoredModelAlias] = []
+        while true {
+            switch sqlite3_step(statement) {
+            case SQLITE_ROW:
+                guard let provider = Provider(rawValue: try requiredText(statement, at: 0)) else {
+                    throw LedgerError.corruptData("stored model alias provider is invalid")
+                }
+                values.append(StoredModelAlias(
+                    provider: provider,
+                    observedModelID: try requiredText(statement, at: 1),
+                    canonicalModelID: try requiredText(statement, at: 2),
+                    effectiveFrom: try requiredText(statement, at: 3),
+                    effectiveTo: try optionalText(statement, at: 4)
+                ))
+            case SQLITE_DONE:
+                return values
+            default:
+                throw failure(sqlite3_errcode(connection.handle), using: connection)
+            }
+        }
+    }
+
+    private func importedCanonicalJSON(catalogID: String, using connection: SQLiteConnection) throws -> String? {
+        let statement = try prepare("SELECT canonical_json FROM catalog_imports WHERE catalog_id = ?;", using: connection)
+        defer { sqlite3_finalize(statement) }
+        try bind(catalogID, to: statement, at: 1, using: connection)
+        switch sqlite3_step(statement) {
+        case SQLITE_ROW:
+            return try requiredText(statement, at: 0)
+        case SQLITE_DONE:
+            return nil
+        default:
+            throw failure(sqlite3_errcode(connection.handle), using: connection)
+        }
+    }
+
+    private func insertAliasIfNew(
+        _ alias: CatalogAlias,
+        model: ValidatedCatalogModel,
+        catalogID: String,
+        using connection: SQLiteConnection
+    ) throws {
+        let select = try prepare(
+            """
+            SELECT canonical_model_id, effective_to FROM model_aliases
+            WHERE provider = ? AND observed_model_id = ? AND effective_from = ?;
+            """,
+            using: connection
+        )
+        defer { sqlite3_finalize(select) }
+        try bind(model.provider.rawValue, to: select, at: 1, using: connection)
+        try bind(alias.observedModelID, to: select, at: 2, using: connection)
+        try bind(alias.effectiveFrom, to: select, at: 3, using: connection)
+        switch sqlite3_step(select) {
+        case SQLITE_ROW:
+            let existingCanonical = try requiredText(select, at: 0)
+            let existingEnd = try optionalText(select, at: 1)
+            guard existingCanonical == model.canonicalModelID, existingEnd == alias.effectiveTo else {
+                throw PricingLedgerError.semanticConflict(
+                    "alias \(model.provider.rawValue)/\(alias.observedModelID)/\(alias.effectiveFrom)"
+                )
+            }
+            return
+        case SQLITE_DONE:
+            break
+        default:
+            throw failure(sqlite3_errcode(connection.handle), using: connection)
+        }
+
+        let insert = try prepare(
+            """
+            INSERT INTO model_aliases(
+              provider, observed_model_id, canonical_model_id, effective_from, effective_to, catalog_id
+            ) VALUES(?, ?, ?, ?, ?, ?);
+            """,
+            using: connection
+        )
+        defer { sqlite3_finalize(insert) }
+        try bind(model.provider.rawValue, to: insert, at: 1, using: connection)
+        try bind(alias.observedModelID, to: insert, at: 2, using: connection)
+        try bind(model.canonicalModelID, to: insert, at: 3, using: connection)
+        try bind(alias.effectiveFrom, to: insert, at: 4, using: connection)
+        try bind(alias.effectiveTo, to: insert, at: 5, using: connection)
+        try bind(catalogID, to: insert, at: 6, using: connection)
+        try stepDone(insert, using: connection)
+    }
+
+    private func insertRateIfNew(
+        _ rate: ValidatedCatalogRate,
+        metric: UsageMetric,
+        price: Decimal,
+        model: ValidatedCatalogModel,
+        catalogID: String,
+        using connection: SQLiteConnection
+    ) throws {
+        let canonicalPrice = DecimalString(decimal: price).rawValue
+        let select = try prepare(
+            """
+            SELECT usd_per_million, effective_to, provenance_url, verified_at FROM price_rates
+            WHERE provider = ? AND canonical_model_id = ? AND metric = ? AND effective_from = ?;
+            """,
+            using: connection
+        )
+        defer { sqlite3_finalize(select) }
+        try bind(model.provider.rawValue, to: select, at: 1, using: connection)
+        try bind(model.canonicalModelID, to: select, at: 2, using: connection)
+        try bind(metric.rawValue, to: select, at: 3, using: connection)
+        try bind(rate.effectiveFrom, to: select, at: 4, using: connection)
+        switch sqlite3_step(select) {
+        case SQLITE_ROW:
+            let existingPrice = try requiredText(select, at: 0)
+            let existingEnd = try optionalText(select, at: 1)
+            let existingURL = try requiredText(select, at: 2)
+            let existingVerifiedAt = try requiredText(select, at: 3)
+            let identical = existingPrice == canonicalPrice
+                && existingEnd == rate.effectiveTo
+                && existingURL == rate.provenanceURL.absoluteString
+                && existingVerifiedAt == rate.verifiedAt
+            guard identical else {
+                throw PricingLedgerError.semanticConflict(
+                    "rate \(model.provider.rawValue)/\(model.canonicalModelID)/\(metric.rawValue)/\(rate.effectiveFrom)"
+                )
+            }
+            return
+        case SQLITE_DONE:
+            break
+        default:
+            throw failure(sqlite3_errcode(connection.handle), using: connection)
+        }
+
+        let insert = try prepare(
+            """
+            INSERT INTO price_rates(
+              provider, canonical_model_id, metric, usd_per_million, effective_from,
+              effective_to, provenance_url, verified_at, catalog_id
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?);
+            """,
+            using: connection
+        )
+        defer { sqlite3_finalize(insert) }
+        try bind(model.provider.rawValue, to: insert, at: 1, using: connection)
+        try bind(model.canonicalModelID, to: insert, at: 2, using: connection)
+        try bind(metric.rawValue, to: insert, at: 3, using: connection)
+        try bind(canonicalPrice, to: insert, at: 4, using: connection)
+        try bind(rate.effectiveFrom, to: insert, at: 5, using: connection)
+        try bind(rate.effectiveTo, to: insert, at: 6, using: connection)
+        try bind(rate.provenanceURL.absoluteString, to: insert, at: 7, using: connection)
+        try bind(rate.verifiedAt, to: insert, at: 8, using: connection)
+        try bind(catalogID, to: insert, at: 9, using: connection)
+        try stepDone(insert, using: connection)
+    }
+
+    private func insertCatalogImport(
+        _ catalog: ValidatedPricingCatalog,
+        canonicalJSON: String,
+        origin: String,
+        validationSummary: String,
+        using connection: SQLiteConnection
+    ) throws {
+        let statement = try prepare(
+            """
+            INSERT INTO catalog_imports(
+              catalog_id, schema_version, origin, imported_at, applied, validation_summary, canonical_json
+            ) VALUES(?, ?, ?, ?, 1, ?, ?);
+            """,
+            using: connection
+        )
+        defer { sqlite3_finalize(statement) }
+        try bind(catalog.catalogID, to: statement, at: 1, using: connection)
+        try bind(Int64(catalog.schemaVersion), to: statement, at: 2, using: connection)
+        try bind(origin, to: statement, at: 3, using: connection)
+        try bind(importTimestamp(), to: statement, at: 4, using: connection)
+        try bind(validationSummary, to: statement, at: 5, using: connection)
+        try bind(canonicalJSON, to: statement, at: 6, using: connection)
+        try stepDone(statement, using: connection)
+    }
+
+    private func isSafeImportMetadata(_ value: String, maximumLength: Int) -> Bool {
+        guard (1...maximumLength).contains(value.utf8.count) else { return false }
+        return value.unicodeScalars.allSatisfy { scalar in
+            scalar.value >= 0x20 && scalar.value <= 0x7E && scalar.value != 0x2F && scalar.value != 0x5C
+        }
+    }
+
+    private func importTimestamp() -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: Date())
     }
 
     private func loadOrCreatePrivacyHasher(using connection: SQLiteConnection) throws -> PrivacyHasher {
