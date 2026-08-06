@@ -26,6 +26,8 @@ public enum PricingInboxError: Error, Equatable, Sendable {
     case insecureManagedDirectory(String)
     case couldNotMonitorInbox(Int32)
     case startInProgress
+    case resolutionInProgress
+    case candidateAlreadyApplied
     case noPendingCandidate
     case candidateUnavailable
     case candidateNotRegularFile
@@ -39,17 +41,21 @@ public enum PricingInboxError: Error, Equatable, Sendable {
 public actor PricingInbox {
     public static let candidateFilename = "tokenboard-pricing.candidate.json"
     public static let temporaryCandidateFilename = "tokenboard-pricing.candidate.json.tmp"
+    static let processingFilenamePrefix = ".candidate-processing-"
+    static let processingFilenameSuffix = ".json"
 
     private let ledger: any LedgerStore
     private let applicationSupportDirectory: URL
     private let bundledCatalogData: Data
+    private let fileSystem: any PricingInboxFileSystem
     private var directorySource: DispatchSourceFileSystemObject?
-    private var pendingRecord: PendingRecord?
+    private var state: CandidateState = .idle
+    private var activeCatalog: ValidatedPricingCatalog?
+    private var activeSnapshot: PricingSnapshot?
     private var started = false
     private var isStarting = false
     private var isDetecting = false
     private var detectionRequested = false
-    private var isResolvingPending = false
 
     public init(
         ledger: any LedgerStore,
@@ -59,10 +65,24 @@ public actor PricingInbox {
         self.ledger = ledger
         self.applicationSupportDirectory = applicationSupportDirectory.standardizedFileURL
         self.bundledCatalogData = bundledCatalogData
+        fileSystem = POSIXPricingInboxFileSystem()
+    }
+
+    init(
+        ledger: any LedgerStore,
+        applicationSupportDirectory: URL,
+        bundledCatalogData: Data,
+        fileSystem: any PricingInboxFileSystem
+    ) {
+        self.ledger = ledger
+        self.applicationSupportDirectory = applicationSupportDirectory.standardizedFileURL
+        self.bundledCatalogData = bundledCatalogData
+        self.fileSystem = fileSystem
     }
 
     deinit {
         directorySource?.cancel()
+        fileSystem.close()
     }
 
     public static func applicationSupport(
@@ -87,331 +107,421 @@ public actor PricingInbox {
         guard !isStarting else { throw PricingInboxError.startInProgress }
         isStarting = true
         defer { isStarting = false }
-        try createManagedDirectories()
 
-        let activeData = try await ledger.latestAppliedPricingCatalogJSON() ?? bundledCatalogData
-        let activeCatalog = try validate(activeData)
-        try writeAtomically(activeCatalog.canonicalJSON, to: currentCatalogURL)
+        do {
+            guard applicationSupportDirectory.isFileURL,
+                  applicationSupportDirectory.path.hasPrefix("/") else {
+                throw PricingInboxError.invalidApplicationSupportDirectory
+            }
+            try fileSystem.open(rootPath: applicationSupportDirectory.path)
+            let latestData = try await ledger.latestAppliedPricingCatalogJSON()
+            let active = try validate(latestData ?? bundledCatalogData)
+            activeCatalog = active
+            activeSnapshot = snapshot(from: active)
+            try fileSystem.replaceCanonical(
+                active.canonicalJSON,
+                in: .pricing,
+                name: Self.currentCatalogFilename
+            )
+            try reconcileProcessingResidue(latestAppliedData: latestData)
 
-        let descriptor = open(inboxURL.path, O_EVTONLY | O_NOFOLLOW | O_CLOEXEC)
-        guard descriptor >= 0 else {
-            throw PricingInboxError.couldNotMonitorInbox(errno)
+            let descriptor = try fileSystem.duplicateInboxDescriptor()
+            let source = DispatchSource.makeFileSystemObjectSource(
+                fileDescriptor: descriptor,
+                eventMask: [.write, .rename],
+                queue: DispatchQueue(label: "com.tokenboard.pricing-inbox")
+            )
+            source.setCancelHandler { Darwin.close(descriptor) }
+            source.setEventHandler { [weak self] in
+                Task { await self?.requestCandidateDetection() }
+            }
+            directorySource = source
+            started = true
+            source.resume()
+            await requestCandidateDetection()
+        } catch {
+            directorySource?.cancel()
+            directorySource = nil
+            fileSystem.close()
+            activeCatalog = nil
+            activeSnapshot = nil
+            state = .idle
+            throw error
         }
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: descriptor,
-            eventMask: [.write, .rename],
-            queue: DispatchQueue(label: "com.tokenboard.pricing-inbox")
-        )
-        source.setCancelHandler { close(descriptor) }
-        source.setEventHandler { [weak self] in
-            Task { await self?.requestCandidateDetection() }
+    }
+
+    public func stop() throws {
+        switch state {
+        case .resolving:
+            throw PricingInboxError.resolutionInProgress
+        case .committed:
+            throw PricingInboxError.candidateAlreadyApplied
+        case .idle, .pending:
+            break
         }
-        directorySource = source
-        started = true
-        source.resume()
-        await requestCandidateDetection()
+        guard started || isStarting else { return }
+        directorySource?.cancel()
+        directorySource = nil
+        fileSystem.close()
+        started = false
+        activeCatalog = nil
+        activeSnapshot = nil
+        state = .idle
     }
 
     public func pendingCandidate() -> PendingPricingCandidate? {
-        pendingRecord?.preview
+        guard case let .pending(record) = state else { return nil }
+        return record.preview
     }
 
     public func applyPending() async throws {
-        guard var record = pendingRecord else {
+        switch state {
+        case .resolving:
+            throw PricingInboxError.resolutionInProgress
+        case let .committed(committed):
+            try finalizeCommitted(committed)
+            return
+        case .idle:
             throw PricingInboxError.noPendingCandidate
-        }
-        isResolvingPending = true
-        defer {
-            isResolvingPending = false
-            if detectionRequested {
-                Task { await self.requestCandidateDetection() }
-            }
-        }
-
-        let processingURL = try moveToProcessing(record: record)
-        record.processingURL = processingURL
-        pendingRecord = record
-        do {
-            try verify(record: record, at: processingURL)
-            try await ledger.applyPricingCatalog(
-                record.preview.catalog,
-                canonicalJSON: record.preview.canonicalJSON,
-                origin: PricingImportMetadata.agentCandidateOrigin,
-                validationSummary: PricingImportMetadata.schemaV1ValidSummary
-            )
-            try writeAtomically(record.preview.canonicalJSON, to: currentCatalogURL)
-            try archive(
-                processingURL,
-                as: appliedURL.appending(path: "\(record.preview.catalog.catalogID).json"),
-                canonicalJSON: record.preview.canonicalJSON
-            )
-            pendingRecord = nil
-        } catch {
-            if restoreProcessingFile(processingURL) {
-                record.processingURL = nil
-                pendingRecord = record
-            }
-            if error as? PricingInboxError == .candidateChanged {
-                pendingRecord = nil
-            }
-            throw error
+        case let .pending(pending):
+            try await apply(pending)
         }
     }
 
     public func rejectPending() async throws {
-        guard var record = pendingRecord else {
+        let pending: PendingRecord
+        switch state {
+        case .resolving:
+            throw PricingInboxError.resolutionInProgress
+        case .committed:
+            throw PricingInboxError.candidateAlreadyApplied
+        case .idle:
             throw PricingInboxError.noPendingCandidate
-        }
-        isResolvingPending = true
-        defer {
-            isResolvingPending = false
-            if detectionRequested {
-                Task { await self.requestCandidateDetection() }
-            }
+        case let .pending(record):
+            pending = record
         }
 
-        let processingURL = try moveToProcessing(record: record)
-        record.processingURL = processingURL
-        pendingRecord = record
+        state = .resolving(pending)
         do {
-            try verify(record: record, at: processingURL)
-            try archive(
-                processingURL,
-                as: rejectedURL.appending(path: "\(record.preview.catalog.catalogID).json"),
-                canonicalJSON: record.preview.canonicalJSON
+            let isolated = try isolateAndVerify(pending)
+            state = .resolving(isolated)
+            try installArchive(
+                isolated.preview.canonicalJSON,
+                catalogID: isolated.preview.catalog.catalogID,
+                directory: .rejected
             )
-            pendingRecord = nil
+            try fileSystem.removeInbox(name: isolated.location.processingName)
+            state = .idle
+            requestDetectionAfterResolution()
         } catch {
-            if restoreProcessingFile(processingURL) {
-                record.processingURL = nil
-                pendingRecord = record
-            }
-            if error as? PricingInboxError == .candidateChanged {
-                pendingRecord = nil
-            }
+            restorePreCommitCandidate(pendingRecordFromState(fallback: pending))
             throw error
         }
     }
 
-    private func requestCandidateDetection() async {
-        detectionRequested = true
-        guard !isDetecting,
-              !isResolvingPending,
-              pendingRecord?.processingURL == nil else { return }
-        isDetecting = true
-        repeat {
-            detectionRequested = false
-            await detectCandidate()
-        } while detectionRequested && !isResolvingPending
-        isDetecting = false
-    }
-
-    private func detectCandidate() async {
+    private func apply(_ pending: PendingRecord) async throws {
+        state = .resolving(pending)
+        let isolated: PendingRecord
         do {
-            let opened = try readCandidate(at: candidateURL)
-            let catalog = try validate(opened.data)
-            let snapshot = try await ledger.pricingSnapshot()
-            let preview = PendingPricingCandidate(
-                catalog: catalog,
-                canonicalJSON: catalog.canonicalJSON,
-                diff: CatalogDiff.compare(candidate: catalog, against: snapshot),
-                sourceURL: candidateURL
-            )
-            pendingRecord = PendingRecord(preview: preview, identity: opened.identity, processingURL: nil)
+            isolated = try isolateAndVerify(pending)
+            state = .resolving(isolated)
         } catch {
-            pendingRecord = nil
+            restorePreCommitCandidate(pendingRecordFromState(fallback: pending))
+            throw error
         }
+
+        do {
+            try await ledger.applyPricingCatalog(
+                isolated.preview.catalog,
+                canonicalJSON: isolated.preview.canonicalJSON,
+                origin: PricingImportMetadata.agentCandidateOrigin,
+                validationSummary: PricingImportMetadata.schemaV1ValidSummary
+            )
+        } catch {
+            restorePreCommitCandidate(isolated)
+            throw error
+        }
+
+        let committed = CommittedRecord(
+            preview: isolated.preview,
+            processingName: isolated.location.processingName
+        )
+        activeCatalog = isolated.preview.catalog
+        activeSnapshot = snapshot(from: isolated.preview.catalog)
+        state = .committed(committed)
+        try finalizeCommitted(committed)
     }
 
-    private func moveToProcessing(record: PendingRecord) throws -> URL {
-        if let processingURL = record.processingURL {
-            return processingURL
+    private func finalizeCommitted(_ committed: CommittedRecord) throws {
+        guard case .committed = state else {
+            throw PricingInboxError.noPendingCandidate
         }
-        let processingURL = pricingURL.appending(path: ".candidate-processing-\(UUID().uuidString).tmp")
-        guard rename(candidateURL.path, processingURL.path) == 0 else {
+        try fileSystem.replaceCanonical(
+            committed.preview.canonicalJSON,
+            in: .pricing,
+            name: Self.currentCatalogFilename
+        )
+        try installArchive(
+            committed.preview.canonicalJSON,
+            catalogID: committed.preview.catalog.catalogID,
+            directory: .applied
+        )
+        try fileSystem.removeInbox(name: committed.processingName)
+        state = .idle
+        requestDetectionAfterResolution()
+    }
+
+    private func isolateAndVerify(_ record: PendingRecord) throws -> PendingRecord {
+        var isolated = record
+        switch record.location {
+        case .candidate:
+            let processing = Self.processingFilename()
+            try fileSystem.moveInbox(from: Self.candidateFilename, to: processing, exclusive: true)
+            isolated.location = .processing(processing)
+            state = .resolving(isolated)
+        case .processing:
+            break
+        }
+        guard let opened = try fileSystem.readIfPresent(
+            in: .inbox,
+            name: isolated.location.processingName
+        ) else {
             throw PricingInboxError.candidateUnavailable
         }
-        return processingURL
-    }
-
-    private func verify(record: PendingRecord, at url: URL) throws {
-        let opened = try readCandidate(at: url)
-        guard opened.identity == record.identity else {
+        guard opened.identity == isolated.identity else {
             throw PricingInboxError.candidateChanged
         }
         let catalog = try validate(opened.data)
-        guard catalog.canonicalJSON == record.preview.canonicalJSON else {
+        guard catalog.canonicalJSON == isolated.preview.canonicalJSON else {
             throw PricingInboxError.candidateChanged
+        }
+        return isolated
+    }
+
+    private func restorePreCommitCandidate(_ record: PendingRecord) {
+        var restored = record
+        if case let .processing(name) = record.location {
+            do {
+                try fileSystem.moveInbox(from: name, to: Self.candidateFilename, exclusive: true)
+                restored.location = .candidate
+            } catch {
+                restored.location = .processing(name)
+            }
+        }
+        do {
+            let name = restored.location.filename
+            guard let opened = try fileSystem.readIfPresent(in: .inbox, name: name),
+                  opened.identity == restored.identity,
+                  try validate(opened.data).canonicalJSON == restored.preview.canonicalJSON else {
+                state = .idle
+                requestDetectionAfterResolution()
+                return
+            }
+            state = .pending(restored)
+            requestDetectionAfterResolution()
+        } catch {
+            state = .idle
+            requestDetectionAfterResolution()
         }
     }
 
-    private func archive(_ source: URL, as destination: URL, canonicalJSON: Data) throws {
-        if FileManager.default.fileExists(atPath: destination.path) {
-            let existing = try readCandidate(at: destination)
-            let catalog = try validate(existing.data)
-            guard catalog.canonicalJSON == canonicalJSON else {
-                throw PricingInboxError.archiveConflict(destination.lastPathComponent)
-            }
-            do {
-                try FileManager.default.removeItem(at: source)
-            } catch {
-                throw PricingInboxError.fileOperationFailed("could not remove duplicate candidate")
-            }
+    private func pendingRecordFromState(fallback: PendingRecord) -> PendingRecord {
+        guard case let .resolving(record) = state else { return fallback }
+        return record
+    }
+
+    private func requestDetectionAfterResolution() {
+        guard detectionRequested else { return }
+        Task { await self.requestCandidateDetection() }
+    }
+
+    private func requestCandidateDetection() async {
+        detectionRequested = true
+        guard !isDetecting, state.allowsDetection else { return }
+        isDetecting = true
+        repeat {
+            detectionRequested = false
+            detectCandidate()
+        } while detectionRequested && state.allowsDetection
+        isDetecting = false
+    }
+
+    private func detectCandidate() {
+        guard let activeSnapshot else {
+            state = .idle
             return
         }
         do {
-            try FileManager.default.moveItem(at: source, to: destination)
+            guard let opened = try fileSystem.readIfPresent(in: .inbox, name: Self.candidateFilename) else {
+                state = .idle
+                return
+            }
+            let catalog = try validate(opened.data)
+            let preview = PendingPricingCandidate(
+                catalog: catalog,
+                canonicalJSON: catalog.canonicalJSON,
+                diff: CatalogDiff.compare(candidate: catalog, against: activeSnapshot),
+                sourceURL: candidateURL
+            )
+            state = .pending(PendingRecord(
+                preview: preview,
+                identity: opened.identity,
+                location: .candidate
+            ))
         } catch {
-            throw PricingInboxError.fileOperationFailed("could not archive candidate")
+            state = .idle
         }
     }
 
-    @discardableResult
-    private func restoreProcessingFile(_ processingURL: URL) -> Bool {
-        guard FileManager.default.fileExists(atPath: processingURL.path),
-              !FileManager.default.fileExists(atPath: candidateURL.path) else { return false }
-        do {
-            try FileManager.default.moveItem(at: processingURL, to: candidateURL)
-            return true
-        } catch {
-            return false
+    private func reconcileProcessingResidue(latestAppliedData: Data?) throws {
+        let latestApplied = try latestAppliedData.map(validate)
+        var restoredUncommitted = false
+        for name in try fileSystem.listInbox() where Self.isProcessingFilename(name) {
+            guard let opened = try? fileSystem.readIfPresent(in: .inbox, name: name),
+                  let catalog = try? validate(opened.data) else {
+                continue
+            }
+            if let latestApplied,
+               catalog.canonicalJSON == latestApplied.canonicalJSON {
+                try installArchive(
+                    latestApplied.canonicalJSON,
+                    catalogID: latestApplied.catalogID,
+                    directory: .applied
+                )
+                try fileSystem.removeInbox(name: name)
+            } else if !restoredUncommitted {
+                do {
+                    try fileSystem.moveInbox(from: name, to: Self.candidateFilename, exclusive: true)
+                    restoredUncommitted = true
+                } catch {
+                    continue
+                }
+            }
         }
+    }
+
+    private func installArchive(
+        _ canonicalJSON: Data,
+        catalogID: String,
+        directory: PricingInboxDirectory
+    ) throws {
+        let name = "\(catalogID).json"
+        if try fileSystem.installCanonicalIfAbsent(canonicalJSON, in: directory, name: name) {
+            return
+        }
+        guard let existing = try fileSystem.readIfPresent(in: directory, name: name) else {
+            throw PricingInboxError.archiveConflict(name)
+        }
+        let existingCatalog = try validate(existing.data)
+        guard existingCatalog.canonicalJSON == canonicalJSON else {
+            throw PricingInboxError.archiveConflict(name)
+        }
+    }
+
+    private func snapshot(from catalog: ValidatedPricingCatalog) -> PricingSnapshot {
+        var rates: [StoredPriceRate] = []
+        var aliases: [StoredModelAlias] = []
+        for model in catalog.models {
+            aliases.append(contentsOf: model.aliases.map {
+                StoredModelAlias(
+                    provider: model.provider,
+                    observedModelID: $0.observedModelID,
+                    canonicalModelID: model.canonicalModelID,
+                    effectiveFrom: $0.effectiveFrom,
+                    effectiveTo: $0.effectiveTo
+                )
+            })
+            for rate in model.rates {
+                rates.append(contentsOf: rate.prices.map { metric, price in
+                    StoredPriceRate(
+                        provider: model.provider,
+                        canonicalModelID: model.canonicalModelID,
+                        metric: metric,
+                        usdPerMillion: price,
+                        effectiveFrom: rate.effectiveFrom,
+                        effectiveTo: rate.effectiveTo,
+                        provenanceURL: rate.provenanceURL,
+                        verifiedAt: rate.verifiedAt
+                    )
+                })
+            }
+        }
+        return PricingSnapshot(catalogIDs: [catalog.catalogID], rates: rates, aliases: aliases)
     }
 
     private func validate(_ data: Data) throws -> ValidatedPricingCatalog {
         try PricingCatalogValidator().validate(PricingCatalogLoader().load(data))
     }
 
-    private func readCandidate(at url: URL) throws -> OpenedCandidate {
-        var pathStatus = stat()
-        guard lstat(url.path, &pathStatus) == 0 else {
-            throw PricingInboxError.candidateUnavailable
-        }
-        guard pathStatus.st_mode & S_IFMT == S_IFREG else {
-            throw PricingInboxError.candidateNotRegularFile
-        }
-        guard pathStatus.st_nlink == 1 else {
-            throw PricingInboxError.candidateHasMultipleLinks
-        }
-        guard pathStatus.st_size >= 0, pathStatus.st_size <= 1_048_576 else {
-            throw PricingInboxError.candidateTooLarge
-        }
-
-        let descriptor = open(url.path, O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC)
-        guard descriptor >= 0 else {
-            throw PricingInboxError.candidateUnavailable
-        }
-        defer { close(descriptor) }
-
-        var status = stat()
-        guard fstat(descriptor, &status) == 0 else {
-            throw PricingInboxError.candidateUnavailable
-        }
-        guard status.st_mode & S_IFMT == S_IFREG else {
-            throw PricingInboxError.candidateNotRegularFile
-        }
-        guard status.st_nlink == 1 else {
-            throw PricingInboxError.candidateHasMultipleLinks
-        }
-        guard status.st_size >= 0, status.st_size <= 1_048_576 else {
-            throw PricingInboxError.candidateTooLarge
-        }
-
-        var data = Data()
-        data.reserveCapacity(Int(status.st_size))
-        var buffer = [UInt8](repeating: 0, count: 64 * 1024)
-        while true {
-            let count = read(descriptor, &buffer, buffer.count)
-            if count == 0 { break }
-            if count < 0 {
-                if errno == EINTR { continue }
-                throw PricingInboxError.candidateUnavailable
-            }
-            guard data.count + count <= 1_048_576 else {
-                throw PricingInboxError.candidateTooLarge
-            }
-            data.append(buffer, count: count)
-        }
-        return OpenedCandidate(
-            data: data,
-            identity: FileIdentity(device: UInt64(status.st_dev), inode: UInt64(status.st_ino))
-        )
+    private static func processingFilename() -> String {
+        "\(processingFilenamePrefix)\(UUID().uuidString)\(processingFilenameSuffix)"
     }
 
-    private func createManagedDirectories() throws {
-        guard applicationSupportDirectory.isFileURL,
-              applicationSupportDirectory.path.hasPrefix("/") else {
-            throw PricingInboxError.invalidApplicationSupportDirectory
-        }
-        try ensureDirectory(applicationSupportDirectory, create: true)
-        try ensureDirectory(pricingURL, create: true)
-        try ensureDirectory(inboxURL, create: true)
-        try ensureDirectory(appliedURL, create: true)
-        try ensureDirectory(rejectedURL, create: true)
+    private static func isProcessingFilename(_ name: String) -> Bool {
+        name.hasPrefix(processingFilenamePrefix)
+            && name.hasSuffix(processingFilenameSuffix)
+            && name.count > processingFilenamePrefix.count + processingFilenameSuffix.count
     }
 
-    private func ensureDirectory(_ url: URL, create: Bool) throws {
-        if create, !FileManager.default.fileExists(atPath: url.path) {
-            do {
-                try FileManager.default.createDirectory(at: url, withIntermediateDirectories: false)
-            } catch {
-                throw PricingInboxError.fileOperationFailed("could not create managed directory")
-            }
-        }
-        var status = stat()
-        guard lstat(url.path, &status) == 0,
-              status.st_mode & S_IFMT == S_IFDIR else {
-            throw PricingInboxError.insecureManagedDirectory(url.lastPathComponent)
-        }
-    }
+    private static let currentCatalogFilename = "current-tokenboard-pricing.json"
 
-    private func writeAtomically(_ data: Data, to destination: URL) throws {
-        let temporary = destination.deletingLastPathComponent()
-            .appending(path: ".\(destination.lastPathComponent).\(UUID().uuidString).tmp")
-        do {
-            try data.write(to: temporary, options: .withoutOverwriting)
-            guard rename(temporary.path, destination.path) == 0 else {
-                throw PricingInboxError.fileOperationFailed("could not replace active catalog")
-            }
-        } catch {
-            try? FileManager.default.removeItem(at: temporary)
-            if let inboxError = error as? PricingInboxError { throw inboxError }
-            throw PricingInboxError.fileOperationFailed("could not write active catalog")
-        }
-    }
-
-    private var pricingURL: URL {
-        applicationSupportDirectory.appending(path: "Pricing", directoryHint: .isDirectory)
-    }
-    private var inboxURL: URL {
-        pricingURL.appending(path: "Inbox", directoryHint: .isDirectory)
-    }
-    private var appliedURL: URL {
-        pricingURL.appending(path: "Applied", directoryHint: .isDirectory)
-    }
-    private var rejectedURL: URL {
-        pricingURL.appending(path: "Rejected", directoryHint: .isDirectory)
-    }
-    private var currentCatalogURL: URL {
-        pricingURL.appending(path: "current-tokenboard-pricing.json")
-    }
     private var candidateURL: URL {
-        inboxURL.appending(path: Self.candidateFilename)
+        applicationSupportDirectory
+            .appending(path: "Pricing/Inbox", directoryHint: .isDirectory)
+            .appending(path: Self.candidateFilename)
+    }
+}
+
+private enum CandidateState: Sendable {
+    case idle
+    case pending(PendingRecord)
+    case resolving(PendingRecord)
+    case committed(CommittedRecord)
+
+    var allowsDetection: Bool {
+        switch self {
+        case .idle:
+            true
+        case let .pending(record):
+            record.location.isCandidate
+        case .resolving, .committed:
+            false
+        }
     }
 }
 
 private struct PendingRecord: Sendable {
     let preview: PendingPricingCandidate
-    let identity: FileIdentity
-    var processingURL: URL?
+    let identity: PricingInboxFileIdentity
+    var location: CandidateLocation
 }
 
-private struct OpenedCandidate: Sendable {
-    let data: Data
-    let identity: FileIdentity
+private struct CommittedRecord: Sendable {
+    let preview: PendingPricingCandidate
+    let processingName: String
 }
 
-private struct FileIdentity: Equatable, Sendable {
-    let device: UInt64
-    let inode: UInt64
+private enum CandidateLocation: Sendable {
+    case candidate
+    case processing(String)
+
+    var filename: String {
+        switch self {
+        case .candidate: PricingInbox.candidateFilename
+        case let .processing(name): name
+        }
+    }
+
+    var processingName: String {
+        switch self {
+        case .candidate: PricingInbox.candidateFilename
+        case let .processing(name): name
+        }
+    }
+
+    var isCandidate: Bool {
+        if case .candidate = self { return true }
+        return false
+    }
+
 }
