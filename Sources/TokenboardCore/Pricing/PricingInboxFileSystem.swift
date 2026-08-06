@@ -18,6 +18,19 @@ struct PricingInboxOpenedFile: Sendable {
     let identity: PricingInboxFileIdentity
 }
 
+enum PricingInboxMutation: Equatable, Sendable {
+    case moveInbox(from: String, to: String)
+    case replaceCanonical(directory: PricingInboxDirectory, name: String)
+    case installCanonical(directory: PricingInboxDirectory, name: String)
+    case removeInbox(name: String)
+}
+
+struct PricingInboxMutationError: Error, Equatable, Sendable {
+    let mutation: PricingInboxMutation
+    let mutationCompleted: Bool
+    let failure: PricingInboxError
+}
+
 protocol PricingInboxFileSystem: AnyObject, Sendable {
     func open(rootPath: String) throws
     func close()
@@ -43,7 +56,12 @@ final class POSIXPricingInboxFileSystem: PricingInboxFileSystem, @unchecked Send
     }
 
     private let lock = NSLock()
+    private let directorySync: @Sendable (Int32) -> Int32
     private var handles: Handles?
+
+    init(directorySync: @escaping @Sendable (Int32) -> Int32 = { Darwin.fsync($0) }) {
+        self.directorySync = directorySync
+    }
 
     deinit { close() }
 
@@ -198,7 +216,10 @@ final class POSIXPricingInboxFileSystem: PricingInboxFileSystem, @unchecked Send
             result = renameat(inbox, from, inbox, to)
         }
         guard result == 0 else { throw PricingInboxError.candidateUnavailable }
-        try sync(directory: inbox)
+        try sync(
+            directory: inbox,
+            after: .moveInbox(from: from, to: to)
+        )
     }
 
     func replaceCanonical(_ data: Data, in directory: PricingInboxDirectory, name: String) throws {
@@ -212,7 +233,10 @@ final class POSIXPricingInboxFileSystem: PricingInboxFileSystem, @unchecked Send
             throw PricingInboxError.fileOperationFailed("could not replace canonical file")
         }
         installed = true
-        try sync(directory: directoryDescriptor)
+        try sync(
+            directory: directoryDescriptor,
+            after: .replaceCanonical(directory: directory, name: name)
+        )
     }
 
     func installCanonicalIfAbsent(
@@ -232,22 +256,36 @@ final class POSIXPricingInboxFileSystem: PricingInboxFileSystem, @unchecked Send
             name,
             UInt32(RENAME_EXCL)
         )
-        if result != 0, errno == EEXIST { return false }
+        if result != 0, errno == EEXIST {
+            guard unlinkat(directoryDescriptor, temporary, 0) == 0 else {
+                throw PricingInboxError.fileOperationFailed("could not remove canonical temporary file")
+            }
+            installed = true
+            try sync(directory: directoryDescriptor)
+            return false
+        }
         guard result == 0 else {
             throw PricingInboxError.fileOperationFailed("could not install canonical file")
         }
         installed = true
-        try sync(directory: directoryDescriptor)
+        try sync(
+            directory: directoryDescriptor,
+            after: .installCanonical(directory: directory, name: name)
+        )
         return true
     }
 
     func removeInbox(name: String) throws {
         try validate(name: name)
         let inbox = try descriptor(for: .inbox)
-        if unlinkat(inbox, name, 0) != 0, errno != ENOENT {
+        if unlinkat(inbox, name, 0) != 0 {
+            if errno == ENOENT {
+                try sync(directory: inbox)
+                return
+            }
             throw PricingInboxError.fileOperationFailed("could not remove processed candidate")
         }
-        try sync(directory: inbox)
+        try sync(directory: inbox, after: .removeInbox(name: name))
     }
 
     private func createAndOpenDirectory(parent: Int32, name: String) throws -> Int32 {
@@ -340,8 +378,18 @@ final class POSIXPricingInboxFileSystem: PricingInboxFileSystem, @unchecked Send
         return name
     }
 
+    private func sync(directory: Int32, after mutation: PricingInboxMutation) throws {
+        guard directorySync(directory) == 0 else {
+            throw PricingInboxMutationError(
+                mutation: mutation,
+                mutationCompleted: true,
+                failure: .fileOperationFailed("could not sync managed directory")
+            )
+        }
+    }
+
     private func sync(directory: Int32) throws {
-        guard fsync(directory) == 0 else {
+        guard directorySync(directory) == 0 else {
             throw PricingInboxError.fileOperationFailed("could not sync managed directory")
         }
     }

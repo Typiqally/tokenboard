@@ -276,7 +276,19 @@ public actor PricingInbox {
         switch record.location {
         case .candidate:
             let processing = Self.processingFilename()
-            try fileSystem.moveInbox(from: Self.candidateFilename, to: processing, exclusive: true)
+            do {
+                try fileSystem.moveInbox(from: Self.candidateFilename, to: processing, exclusive: true)
+            } catch {
+                if Self.completedMove(
+                    error,
+                    from: Self.candidateFilename,
+                    to: processing
+                ) {
+                    isolated.location = .processing(processing)
+                    state = .resolving(isolated)
+                }
+                throw error
+            }
             isolated.location = .processing(processing)
             state = .resolving(isolated)
         case .processing:
@@ -305,7 +317,11 @@ public actor PricingInbox {
                 try fileSystem.moveInbox(from: name, to: Self.candidateFilename, exclusive: true)
                 restored.location = .candidate
             } catch {
-                restored.location = .processing(name)
+                restored.location = Self.completedMove(
+                    error,
+                    from: name,
+                    to: Self.candidateFilename
+                ) ? .candidate : .processing(name)
             }
         }
         do {
@@ -394,7 +410,11 @@ public actor PricingInbox {
                     try fileSystem.moveInbox(from: name, to: Self.candidateFilename, exclusive: true)
                     restoredUncommitted = true
                 } catch {
-                    continue
+                    if Self.completedMove(error, from: name, to: Self.candidateFilename) {
+                        restoredUncommitted = true
+                    } else {
+                        continue
+                    }
                 }
             }
         }
@@ -455,6 +475,12 @@ public actor PricingInbox {
 
     private static func processingFilename() -> String {
         "\(processingFilenamePrefix)\(UUID().uuidString)\(processingFilenameSuffix)"
+    }
+
+    private static func completedMove(_ error: Error, from: String, to: String) -> Bool {
+        guard let mutationError = error as? PricingInboxMutationError else { return false }
+        return mutationError.mutationCompleted
+            && mutationError.mutation == .moveInbox(from: from, to: to)
     }
 
     private static func isProcessingFilename(_ name: String) -> Bool {

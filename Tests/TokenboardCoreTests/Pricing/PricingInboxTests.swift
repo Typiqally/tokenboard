@@ -258,6 +258,88 @@ final class PricingInboxTests: XCTestCase {
         XCTAssertEqual(applyCalls, 2)
     }
 
+    func testIsolationSyncFailureRestoresPendingCandidateForSameRunRetry() async throws {
+        let root = try makeRoot(label: "IsolationSync")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let candidateURL = root.appending(path: "Pricing/Inbox/\(PricingInbox.candidateFilename)")
+        try candidateData(id: "isolation-sync").write(to: candidateURL)
+        let ledger = PricingInboxTestLedger(latestApplied: nil)
+        let sync = DirectorySyncFailureInjector()
+        let fileSystem = POSIXPricingInboxFileSystem(directorySync: { sync.call($0) })
+        let inbox = PricingInbox(
+            ledger: ledger,
+            applicationSupportDirectory: root,
+            bundledCatalogData: bundledData(),
+            fileSystem: fileSystem
+        )
+        try await inbox.start()
+        sync.fail(atAttempt: 1)
+
+        do {
+            try await inbox.applyPending()
+            XCTFail("expected post-isolation sync failure")
+        } catch let error as PricingInboxMutationError {
+            XCTAssertTrue(error.mutationCompleted)
+            guard case let .moveInbox(from, to) = error.mutation else {
+                return XCTFail("expected completed inbox move")
+            }
+            XCTAssertEqual(from, PricingInbox.candidateFilename)
+            XCTAssertTrue(to.hasPrefix(PricingInbox.processingFilenamePrefix))
+        } catch {
+            XCTFail("expected structured mutation error, got \(error)")
+        }
+
+        let restored = await inbox.pendingCandidate()
+        let firstApplyCalls = await ledger.applyCallCountValue()
+        XCTAssertEqual(restored?.catalog.catalogID, "isolation-sync")
+        XCTAssertEqual(firstApplyCalls, 0)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: candidateURL.path))
+        XCTAssertEqual(try processingNames(in: root), [])
+
+        try await inbox.applyPending()
+
+        let cleared = await inbox.pendingCandidate()
+        let finalApplyCalls = await ledger.applyCallCountValue()
+        XCTAssertNil(cleared)
+        XCTAssertEqual(finalApplyCalls, 1)
+        XCTAssertEqual(try processingNames(in: root), [])
+    }
+
+    func testRestorationSyncFailureRevalidatesCandidateForSameRunRetry() async throws {
+        let root = try makeRoot(label: "RestorationSync")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let candidateURL = root.appending(path: "Pricing/Inbox/\(PricingInbox.candidateFilename)")
+        try candidateData(id: "restoration-sync").write(to: candidateURL)
+        let ledger = FailOncePricingLedger()
+        let sync = DirectorySyncFailureInjector()
+        let fileSystem = POSIXPricingInboxFileSystem(directorySync: { sync.call($0) })
+        let inbox = PricingInbox(
+            ledger: ledger,
+            applicationSupportDirectory: root,
+            bundledCatalogData: bundledData(),
+            fileSystem: fileSystem
+        )
+        try await inbox.start()
+        sync.fail(atAttempt: 2)
+
+        await XCTAssertThrowsErrorAsync { try await inbox.applyPending() }
+
+        let restored = await inbox.pendingCandidate()
+        let firstApplyCalls = await ledger.applyCallCountValue()
+        XCTAssertEqual(restored?.catalog.catalogID, "restoration-sync")
+        XCTAssertEqual(firstApplyCalls, 1)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: candidateURL.path))
+        XCTAssertEqual(try processingNames(in: root), [])
+
+        try await inbox.applyPending()
+
+        let cleared = await inbox.pendingCandidate()
+        let finalApplyCalls = await ledger.applyCallCountValue()
+        XCTAssertNil(cleared)
+        XCTAssertEqual(finalApplyCalls, 2)
+        XCTAssertEqual(try processingNames(in: root), [])
+    }
+
     func testPreCommitProcessingCandidateIsNotOverwrittenByAReplacementEvent() async throws {
         let root = try makeRoot(label: "PreCommitReplacement")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -338,6 +420,153 @@ final class PricingInboxTests: XCTestCase {
         try await inbox.applyPending()
         let applyCalls = await ledger.applyCallCountValue()
         XCTAssertEqual(applyCalls, 1)
+    }
+
+    func testPostCommitExportSyncFailureRemainsFinalizationOnlyUntilSameRunRetry() async throws {
+        let root = try makeRoot(label: "PostCommitExportSync")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try candidateData(id: "postcommit-export-sync").write(
+            to: root.appending(path: "Pricing/Inbox/\(PricingInbox.candidateFilename)")
+        )
+        let ledger = PricingInboxTestLedger(latestApplied: nil)
+        let sync = DirectorySyncFailureInjector()
+        let fileSystem = POSIXPricingInboxFileSystem(directorySync: { sync.call($0) })
+        let inbox = PricingInbox(
+            ledger: ledger,
+            applicationSupportDirectory: root,
+            bundledCatalogData: bundledData(),
+            fileSystem: fileSystem
+        )
+        try await inbox.start()
+        sync.fail(atAttempt: 2)
+
+        await XCTAssertThrowsErrorAsync { try await inbox.applyPending() }
+
+        let pending = await inbox.pendingCandidate()
+        let firstApplyCalls = await ledger.applyCallCountValue()
+        XCTAssertNil(pending)
+        XCTAssertEqual(firstApplyCalls, 1)
+        await assertInboxError(.candidateAlreadyApplied) { try await inbox.rejectPending() }
+        XCTAssertEqual(
+            try PricingCatalogLoader().load(
+                Data(contentsOf: root.appending(path: "Pricing/current-tokenboard-pricing.json"))
+            ).catalogID,
+            "postcommit-export-sync"
+        )
+        XCTAssertEqual(try processingNames(in: root).count, 1)
+
+        try await inbox.applyPending()
+
+        let finalApplyCalls = await ledger.applyCallCountValue()
+        XCTAssertEqual(finalApplyCalls, 1)
+        XCTAssertEqual(try processingNames(in: root), [])
+    }
+
+    func testPostCommitArchiveSyncFailureRetriesCleanupWithoutReapplying() async throws {
+        let root = try makeRoot(label: "PostCommitArchiveSync")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try candidateData(id: "postcommit-archive-sync").write(
+            to: root.appending(path: "Pricing/Inbox/\(PricingInbox.candidateFilename)")
+        )
+        let ledger = PricingInboxTestLedger(latestApplied: nil)
+        let sync = DirectorySyncFailureInjector()
+        let fileSystem = POSIXPricingInboxFileSystem(directorySync: { sync.call($0) })
+        let inbox = PricingInbox(
+            ledger: ledger,
+            applicationSupportDirectory: root,
+            bundledCatalogData: bundledData(),
+            fileSystem: fileSystem
+        )
+        try await inbox.start()
+        sync.fail(atAttempt: 3)
+
+        await XCTAssertThrowsErrorAsync { try await inbox.applyPending() }
+
+        let pending = await inbox.pendingCandidate()
+        let firstApplyCalls = await ledger.applyCallCountValue()
+        XCTAssertNil(pending)
+        XCTAssertEqual(firstApplyCalls, 1)
+        await assertInboxError(.candidateAlreadyApplied) { try await inbox.rejectPending() }
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: root.appending(path: "Pricing/Applied/postcommit-archive-sync.json").path
+        ))
+        XCTAssertEqual(try processingNames(in: root).count, 1)
+
+        try await inbox.applyPending()
+
+        let finalApplyCalls = await ledger.applyCallCountValue()
+        XCTAssertEqual(finalApplyCalls, 1)
+        XCTAssertEqual(try processingNames(in: root), [])
+    }
+
+    func testRejectedArchiveSyncFailureRestoresPendingCandidateForRetry() async throws {
+        let root = try makeRoot(label: "RejectedArchiveSync")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let candidateURL = root.appending(path: "Pricing/Inbox/\(PricingInbox.candidateFilename)")
+        try candidateData(id: "rejected-archive-sync").write(to: candidateURL)
+        let ledger = PricingInboxTestLedger(latestApplied: nil)
+        let sync = DirectorySyncFailureInjector()
+        let fileSystem = POSIXPricingInboxFileSystem(directorySync: { sync.call($0) })
+        let inbox = PricingInbox(
+            ledger: ledger,
+            applicationSupportDirectory: root,
+            bundledCatalogData: bundledData(),
+            fileSystem: fileSystem
+        )
+        try await inbox.start()
+        sync.fail(atAttempt: 2)
+
+        await XCTAssertThrowsErrorAsync { try await inbox.rejectPending() }
+
+        let restored = await inbox.pendingCandidate()
+        XCTAssertEqual(restored?.catalog.catalogID, "rejected-archive-sync")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: candidateURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: root.appending(path: "Pricing/Rejected/rejected-archive-sync.json").path
+        ))
+        XCTAssertEqual(try processingNames(in: root), [])
+
+        try await inbox.rejectPending()
+
+        let cleared = await inbox.pendingCandidate()
+        let applyCalls = await ledger.applyCallCountValue()
+        XCTAssertNil(cleared)
+        XCTAssertEqual(applyCalls, 0)
+        XCTAssertTrue(!FileManager.default.fileExists(atPath: candidateURL.path))
+        XCTAssertEqual(try processingNames(in: root), [])
+    }
+
+    func testPostCommitCleanupSyncFailureRetriesWithoutReapplyingOrOrphaning() async throws {
+        let root = try makeRoot(label: "PostCommitCleanupSync")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try candidateData(id: "postcommit-cleanup-sync").write(
+            to: root.appending(path: "Pricing/Inbox/\(PricingInbox.candidateFilename)")
+        )
+        let ledger = PricingInboxTestLedger(latestApplied: nil)
+        let sync = DirectorySyncFailureInjector()
+        let fileSystem = POSIXPricingInboxFileSystem(directorySync: { sync.call($0) })
+        let inbox = PricingInbox(
+            ledger: ledger,
+            applicationSupportDirectory: root,
+            bundledCatalogData: bundledData(),
+            fileSystem: fileSystem
+        )
+        try await inbox.start()
+        sync.fail(atAttempt: 4)
+
+        await XCTAssertThrowsErrorAsync { try await inbox.applyPending() }
+
+        let pending = await inbox.pendingCandidate()
+        let firstApplyCalls = await ledger.applyCallCountValue()
+        XCTAssertNil(pending)
+        XCTAssertEqual(firstApplyCalls, 1)
+        XCTAssertEqual(try processingNames(in: root), [])
+
+        try await inbox.applyPending()
+
+        let finalApplyCalls = await ledger.applyCallCountValue()
+        XCTAssertEqual(finalApplyCalls, 1)
+        XCTAssertEqual(try processingNames(in: root), [])
     }
 
     func testRelaunchFinalizesCommittedProcessingResidueWithoutPresentingItForRejection() async throws {
@@ -548,6 +777,12 @@ final class PricingInboxTests: XCTestCase {
         try FileManager.default.createDirectory(at: root.appending(path: "Pricing/Inbox"), withIntermediateDirectories: true)
         return root
     }
+
+    private func processingNames(in root: URL) throws -> [String] {
+        try FileManager.default.contentsOfDirectory(
+            atPath: root.appending(path: "Pricing/Inbox").path
+        ).filter { $0.hasPrefix(PricingInbox.processingFilenamePrefix) }.sorted()
+    }
 }
 
 private final class InboxSetup: @unchecked Sendable {
@@ -712,6 +947,29 @@ private enum RecordedPricingFileSystemOperation: Equatable {
     case replaceCanonical(PricingInboxDirectory, String)
     case installCanonical(PricingInboxDirectory, String)
     case removeInbox(String)
+}
+
+private final class DirectorySyncFailureInjector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var attempt = 0
+    private var failureAttempt: Int?
+
+    func fail(atAttempt attempt: Int) {
+        lock.withLock {
+            self.attempt = 0
+            failureAttempt = attempt
+        }
+    }
+
+    func call(_ descriptor: Int32) -> Int32 {
+        let shouldFail = lock.withLock { () -> Bool in
+            attempt += 1
+            guard failureAttempt == attempt else { return false }
+            failureAttempt = nil
+            return true
+        }
+        return shouldFail ? -1 : Darwin.fsync(descriptor)
+    }
 }
 
 private final class RecordingPricingInboxFileSystem: PricingInboxFileSystem, @unchecked Sendable {
