@@ -25,8 +25,17 @@ public struct LocalDay: Hashable, Codable, Sendable {
     public let timeZoneIdentifier: String
 
     public init(date: Date, calendar: Calendar) {
-        let components = calendar.dateComponents([.year, .month, .day], from: date)
-        self.value = String(format: "%04d-%02d-%02d", components.year!, components.month!, components.day!)
+        var gregorian = Calendar(identifier: .gregorian)
+        gregorian.locale = Locale(identifier: "en_US_POSIX")
+        gregorian.timeZone = calendar.timeZone
+        let components = gregorian.dateComponents([.year, .month, .day], from: date)
+        self.value = String(
+            format: "%04d-%02d-%02d",
+            locale: Locale(identifier: "en_US_POSIX"),
+            components.year!,
+            components.month!,
+            components.day!
+        )
         self.timeZoneIdentifier = calendar.timeZone.identifier
     }
 }

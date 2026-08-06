@@ -27,6 +27,21 @@ public enum PriceResolverError: Error, Equatable, Sendable {
         metric: UsageMetric,
         effectiveFrom: String
     )
+    case invalidEffectiveDate(String)
+    case invalidEffectiveInterval(from: String, to: String)
+    case overlappingAliasIntervals(
+        provider: Provider,
+        observedModelID: String,
+        earlierEffectiveFrom: String,
+        laterEffectiveFrom: String
+    )
+    case overlappingRateIntervals(
+        provider: Provider,
+        canonicalModelID: String,
+        metric: UsageMetric,
+        earlierEffectiveFrom: String,
+        laterEffectiveFrom: String
+    )
     case decimalArithmeticFailure
 }
 
@@ -85,6 +100,7 @@ public struct PriceResolver: Sendable {
     ) throws -> [AliasKey: [StoredModelAlias]] {
         var result: [AliasKey: [StoredModelAlias]] = [:]
         for alias in aliases {
+            try validateInterval(from: alias.effectiveFrom, to: alias.effectiveTo)
             let key = AliasKey(provider: alias.provider, observedModelID: alias.observedModelID)
             if result[key, default: []].contains(where: { $0.effectiveFrom == alias.effectiveFrom }) {
                 throw PriceResolverError.duplicateAliasEffectiveStart(
@@ -97,6 +113,19 @@ public struct PriceResolver: Sendable {
         }
         for key in result.keys {
             result[key]!.sort { $0.effectiveFrom < $1.effectiveFrom }
+            let records = result[key]!
+            for index in records.indices where index > records.startIndex {
+                let earlier = records[records.index(before: index)]
+                let later = records[index]
+                if let end = earlier.effectiveTo, end > later.effectiveFrom {
+                    throw PriceResolverError.overlappingAliasIntervals(
+                        provider: earlier.provider,
+                        observedModelID: earlier.observedModelID,
+                        earlierEffectiveFrom: earlier.effectiveFrom,
+                        laterEffectiveFrom: later.effectiveFrom
+                    )
+                }
+            }
         }
         return result
     }
@@ -106,6 +135,7 @@ public struct PriceResolver: Sendable {
     ) throws -> [RateKey: [StoredPriceRate]] {
         var result: [RateKey: [StoredPriceRate]] = [:]
         for rate in rates {
+            try validateInterval(from: rate.effectiveFrom, to: rate.effectiveTo)
             let key = RateKey(
                 provider: rate.provider,
                 canonicalModelID: rate.canonicalModelID,
@@ -123,8 +153,69 @@ public struct PriceResolver: Sendable {
         }
         for key in result.keys {
             result[key]!.sort { $0.effectiveFrom < $1.effectiveFrom }
+            let records = result[key]!
+            for index in records.indices where index > records.startIndex {
+                let earlier = records[records.index(before: index)]
+                let later = records[index]
+                if let end = earlier.effectiveTo, end > later.effectiveFrom {
+                    throw PriceResolverError.overlappingRateIntervals(
+                        provider: earlier.provider,
+                        canonicalModelID: earlier.canonicalModelID,
+                        metric: earlier.metric,
+                        earlierEffectiveFrom: earlier.effectiveFrom,
+                        laterEffectiveFrom: later.effectiveFrom
+                    )
+                }
+            }
         }
         return result
+    }
+
+    private func validateInterval(from: String, to: String?) throws {
+        try validateGregorianDay(from)
+        if let to {
+            try validateGregorianDay(to)
+            guard to > from else {
+                throw PriceResolverError.invalidEffectiveInterval(from: from, to: to)
+            }
+        }
+    }
+
+    private func validateGregorianDay(_ value: String) throws {
+        let bytes = Array(value.utf8)
+        guard bytes.count == 10,
+              bytes[4] == 0x2D,
+              bytes[7] == 0x2D,
+              bytes.enumerated().allSatisfy({ index, byte in
+                  index == 4 || index == 7 || (0x30...0x39).contains(byte)
+              }) else {
+            throw PriceResolverError.invalidEffectiveDate(value)
+        }
+
+        let year = decimalValue(bytes[0...3])
+        let month = decimalValue(bytes[5...6])
+        let day = decimalValue(bytes[8...9])
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.locale = Locale(identifier: "en_US_POSIX")
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let components = DateComponents(
+            calendar: calendar,
+            timeZone: calendar.timeZone,
+            year: year,
+            month: month,
+            day: day
+        )
+        guard let date = calendar.date(from: components) else {
+            throw PriceResolverError.invalidEffectiveDate(value)
+        }
+        let roundTrip = calendar.dateComponents([.year, .month, .day], from: date)
+        guard roundTrip.year == year, roundTrip.month == month, roundTrip.day == day else {
+            throw PriceResolverError.invalidEffectiveDate(value)
+        }
+    }
+
+    private func decimalValue(_ bytes: ArraySlice<UInt8>) -> Int {
+        bytes.reduce(0) { $0 * 10 + Int($1 - 0x30) }
     }
 
     private func effectiveRecord(
