@@ -96,21 +96,23 @@ struct IngestionCoordinatorDiagnostics: Equatable, Sendable {
 
 public actor IngestionCoordinator {
     static let maximumPendingEventPaths = 64
+    static let maximumDiscoveryChunkSize = 64
     static let maximumEventLatency = Duration.seconds(2)
     private static let eventDebounceDelay = Duration.milliseconds(750)
 
-    private enum Severity: Int {
+    private enum Severity: Int, Sendable {
         case success
         case attention
         case failure
     }
 
-    private struct ScanCandidate: Sendable {
+    private struct WorkInput: Sendable {
         let url: URL
+        let root: URL
         let provider: Provider
     }
 
-    private struct ProviderProgress {
+    private struct ProviderProgress: Sendable {
         var discoveredFiles = 0
         var scannedFiles = 0
         var severity = Severity.success
@@ -127,15 +129,16 @@ public actor IngestionCoordinator {
         }
     }
 
-    private struct PreparedBatch {
-        let runID: UInt64
-        var candidates: [URL: ScanCandidate]
+    private struct BatchExecution: Sendable {
         var progress: [Provider: ProviderProgress]
+        var wasCancelled: Bool
     }
 
     private struct QueuedBatch {
-        var batch: PreparedBatch
+        let runID: UInt64
         let scope: IngestionBatchScope
+        let inputs: [WorkInput]
+        let failedProviders: Set<Provider>
         var continuations: [CheckedContinuation<IngestionBatchResult, Never>]
     }
 
@@ -151,6 +154,7 @@ public actor IngestionCoordinator {
     private var debounceTask: Task<Void, Never>?
     private var maximumLatencyTask: Task<Void, Never>?
     private var drainTask: Task<Void, Never>?
+    private var activeWorkTask: Task<BatchExecution, Never>?
     private var stopBarrier: Task<Void, Never>?
     private var pendingEventPaths: Set<URL> = []
     private var pendingEventRootProviders: Set<Provider> = []
@@ -279,26 +283,30 @@ public actor IngestionCoordinator {
         debounceTask?.cancel()
         maximumLatencyTask?.cancel()
         drainTask?.cancel()
+        activeWorkTask?.cancel()
         let tasks = [
             eventTask,
             debounceTask,
             maximumLatencyTask,
             drainTask
         ].compactMap { $0 }
+        let workTask = activeWorkTask
         eventTask = nil
         debounceTask = nil
         maximumLatencyTask = nil
-        drainTask = nil
         pendingEventPaths.removeAll()
         pendingEventRootProviders.removeAll()
         followUpDirtyProviders.removeAll()
-        roots.removeAll()
         debounceGeneration &+= 1
         eventWindowGeneration &+= 1
+        _ = await workTask?.value
         for task in tasks {
             await task.value
         }
+        activeWorkTask = nil
+        drainTask = nil
         failRemainingBatches()
+        roots.removeAll()
     }
 
     private func receive(paths: Set<URL>, runID: UInt64) {
@@ -394,26 +402,13 @@ public actor IngestionCoordinator {
             markFollowUpDirtyProviders(for: paths)
             return
         }
-        var batch = PreparedBatch(runID: runID, candidates: [:], progress: [:])
-        for path in paths.sorted(by: { $0.path < $1.path }) {
-            guard let (provider, root) = providerAndRoot(containing: path) else { continue }
-            guard hasNoSymbolicLinkBelowRoot(path, root: root) else { continue }
-            let values = try? path.resourceValues(forKeys: [
-                .isDirectoryKey,
-                .isRegularFileKey,
-                .isSymbolicLinkKey
-            ])
-            if values?.isSymbolicLink == true {
-                continue
-            }
-            if values?.isRegularFile == true, path.pathExtension.lowercased() == "jsonl" {
-                add(files: [path], provider: provider, into: &batch)
-            } else if values?.isDirectory == true || path == root {
-                discover(root: path, provider: provider, into: &batch)
+        let inputs = paths.sorted(by: { $0.path < $1.path }).compactMap { path in
+            providerAndRoot(containing: path).map { provider, root in
+                WorkInput(url: path, root: root, provider: provider)
             }
         }
-        guard !batch.progress.isEmpty else { return }
-        enqueueEventBatch(batch)
+        guard !inputs.isEmpty else { return }
+        enqueueEventBatch(runID: runID, inputs: inputs)
     }
 
     private func markFollowUpDirtyProviders(for paths: Set<URL>) {
@@ -421,35 +416,6 @@ public actor IngestionCoordinator {
             if let (provider, _) = providerAndRoot(containing: path) {
                 followUpDirtyProviders.insert(provider)
             }
-        }
-    }
-
-    private func discover(
-        root: URL,
-        provider: Provider,
-        into batch: inout PreparedBatch
-    ) {
-        do {
-            add(files: try discovery.jsonlFiles(under: root), provider: provider, into: &batch)
-        } catch {
-            var progress = batch.progress[provider] ?? ProviderProgress()
-            progress.severity = .failure
-            batch.progress[provider] = progress
-        }
-    }
-
-    private func add(
-        files: [URL],
-        provider: Provider,
-        into batch: inout PreparedBatch
-    ) {
-        let standardized = Set(files.map(\.standardizedFileURL))
-        var progress = batch.progress[provider] ?? ProviderProgress()
-        let newFiles = standardized.filter { batch.candidates[$0] == nil }
-        progress.discoveredFiles += newFiles.count
-        batch.progress[provider] = progress
-        for url in newFiles {
-            batch.candidates[url] = ScanCandidate(url: url, provider: provider)
         }
     }
 
@@ -461,32 +427,40 @@ public actor IngestionCoordinator {
                 return
             }
             if let index = pendingBatches.firstIndex(where: {
-                $0.scope == .inventory && $0.batch.runID == runID
+                $0.scope == .inventory && $0.runID == runID
             }) {
                 pendingBatches[index].continuations.append(continuation)
                 return
             }
-            var batch = PreparedBatch(runID: runID, candidates: [:], progress: [:])
-            for provider in Provider.allCases {
-                guard let root = roots[provider] else {
-                    batch.progress[provider] = ProviderProgress(severity: .failure)
-                    continue
+            let inputs = Provider.allCases.compactMap { provider in
+                roots[provider].map {
+                    WorkInput(url: $0, root: $0, provider: provider)
                 }
-                discover(root: root, provider: provider, into: &batch)
             }
+            let failedProviders = Set(Provider.allCases).subtracting(
+                inputs.map(\.provider)
+            )
             pendingBatches.append(QueuedBatch(
-                batch: batch,
+                runID: runID,
                 scope: .inventory,
+                inputs: inputs,
+                failedProviders: failedProviders,
                 continuations: [continuation]
             ))
             startDrainIfNeeded()
         }
     }
 
-    private func enqueueEventBatch(_ batch: PreparedBatch) {
+    private func enqueueEventBatch(
+        runID: UInt64,
+        inputs: [WorkInput],
+        failedProviders: Set<Provider> = []
+    ) {
         pendingBatches.append(QueuedBatch(
-            batch: batch,
+            runID: runID,
             scope: .incremental,
+            inputs: inputs,
+            failedProviders: failedProviders,
             continuations: []
         ))
         startDrainIfNeeded()
@@ -501,60 +475,63 @@ public actor IngestionCoordinator {
 
     private func drainBatches() async {
         while !pendingBatches.isEmpty {
-            var queued = pendingBatches.removeFirst()
+            let queued = pendingBatches.removeFirst()
             activeBatchScope = queued.scope
-            activeBatchRunID = queued.batch.runID
+            activeBatchRunID = queued.runID
             activeInventoryContinuations = queued.continuations
-            let candidates = queued.batch.candidates.values.sorted { $0.url.path < $1.url.path }
-            for candidate in candidates {
-                guard !Task.isCancelled else {
-                    markAllProvidersFailed(in: &queued.batch)
-                    break
-                }
-                var progress = queued.batch.progress[candidate.provider] ?? ProviderProgress()
-                progress.scannedFiles += 1
-                do {
-                    let outcome = try await scanner.scan(
-                        file: candidate.url,
-                        provider: candidate.provider,
-                        calendar: calendar
-                    )
-                    if outcome.attention != nil,
-                       progress.severity.rawValue < Severity.attention.rawValue {
-                        progress.severity = .attention
-                    }
-                } catch {
-                    progress.severity = .failure
-                }
-                queued.batch.progress[candidate.provider] = progress
+            let scanner = self.scanner
+            let discovery = self.discovery
+            let calendar = self.calendar
+            let workTask = Task.detached(priority: .utility) {
+                await Self.executeBatch(
+                    inputs: queued.inputs,
+                    failedProviders: queued.failedProviders,
+                    scanner: scanner,
+                    discovery: discovery,
+                    calendar: calendar
+                )
             }
-            nextSequence &+= 1
-            let result = IngestionBatchResult(
-                runID: queued.batch.runID,
-                sequence: nextSequence,
-                scope: queued.scope,
-                providers: queued.batch.progress.mapValues(\.result)
-            )
+            activeWorkTask = workTask
+            let execution = await workTask.value
+            activeWorkTask = nil
             let inventoryContinuations = activeInventoryContinuations
             activeInventoryContinuations.removeAll()
             activeBatchScope = nil
             activeBatchRunID = nil
-            inventoryContinuations.forEach { $0.resume(returning: result) }
-            if queued.scope == .incremental,
-               activeRunID == queued.batch.runID,
-               case .dropped = resultContinuation.yield(result) {
+            if queued.scope == .inventory || !execution.progress.isEmpty {
                 nextSequence &+= 1
-                resultContinuation.yield(IngestionBatchResult(
-                    runID: queued.batch.runID,
+                let result = IngestionBatchResult(
+                    runID: queued.runID,
                     sequence: nextSequence,
-                    scope: .incremental,
-                    requiresInventoryRefresh: true,
+                    scope: queued.scope,
+                    providers: execution.progress.mapValues(\.result)
+                )
+                inventoryContinuations.forEach { $0.resume(returning: result) }
+                if queued.scope == .incremental,
+                   activeRunID == queued.runID,
+                   case .dropped = resultContinuation.yield(result) {
+                    nextSequence &+= 1
+                    resultContinuation.yield(IngestionBatchResult(
+                        runID: queued.runID,
+                        sequence: nextSequence,
+                        scope: .incremental,
+                        requiresInventoryRefresh: true,
+                        providers: [:]
+                    ))
+                }
+            } else {
+                let result = IngestionBatchResult(
+                    runID: queued.runID,
+                    sequence: nextSequence,
+                    scope: queued.scope,
                     providers: [:]
-                ))
+                )
+                inventoryContinuations.forEach { $0.resume(returning: result) }
             }
             if queued.scope == .incremental {
-                enqueueFollowUpEventIfNeeded(runID: queued.batch.runID)
+                enqueueFollowUpEventIfNeeded(runID: queued.runID)
             }
+            if Task.isCancelled || execution.wasCancelled { break }
         }
         drainTask = nil
     }
@@ -567,27 +544,218 @@ public actor IngestionCoordinator {
         }
         let providers = followUpDirtyProviders
         followUpDirtyProviders.removeAll()
-        var batch = PreparedBatch(runID: runID, candidates: [:], progress: [:])
-        for provider in Provider.allCases where providers.contains(provider) {
-            guard let root = roots[provider] else {
-                batch.progress[provider] = ProviderProgress(severity: .failure)
+        let inputs = Provider.allCases.compactMap { provider -> WorkInput? in
+            guard providers.contains(provider), let root = roots[provider] else {
+                return nil
+            }
+            return WorkInput(url: root, root: root, provider: provider)
+        }
+        let failedProviders = providers.subtracting(inputs.map(\.provider))
+        guard !inputs.isEmpty || !failedProviders.isEmpty else { return }
+        enqueueEventBatch(
+            runID: runID,
+            inputs: inputs,
+            failedProviders: failedProviders
+        )
+    }
+
+    private nonisolated static func executeBatch(
+        inputs: [WorkInput],
+        failedProviders: Set<Provider>,
+        scanner: any IngestionScanning,
+        discovery: any LogDiscovering,
+        calendar: Calendar
+    ) async -> BatchExecution {
+        let accumulator = ProgressAccumulator(failedProviders: failedProviders)
+        do {
+            let classified = try classify(inputs: inputs)
+            for input in classified.recursive {
+                try Task.checkCancellation()
+                accumulator.ensure(provider: input.provider)
+                do {
+                    try await discovery.enumerateJSONLFiles(
+                        under: input.url,
+                        maximumChunkSize: maximumDiscoveryChunkSize
+                    ) { files in
+                        let uniqueFiles = Array(Set(files.map(\.standardizedFileURL)))
+                            .sorted { $0.path < $1.path }
+                        accumulator.addDiscovered(
+                            uniqueFiles.count,
+                            provider: input.provider
+                        )
+                        try await scan(
+                            files: uniqueFiles,
+                            provider: input.provider,
+                            scanner: scanner,
+                            calendar: calendar,
+                            accumulator: accumulator
+                        )
+                    }
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    accumulator.markFailure(provider: input.provider)
+                }
+            }
+            for input in classified.direct {
+                try Task.checkCancellation()
+                accumulator.ensure(provider: input.provider)
+                accumulator.addDiscovered(1, provider: input.provider)
+                try await scan(
+                    files: [input.url],
+                    provider: input.provider,
+                    scanner: scanner,
+                    calendar: calendar,
+                    accumulator: accumulator
+                )
+            }
+            return BatchExecution(progress: accumulator.snapshot(), wasCancelled: false)
+        } catch is CancellationError {
+            for provider in Set(inputs.map(\.provider)).union(failedProviders) {
+                accumulator.markFailure(provider: provider)
+            }
+            return BatchExecution(progress: accumulator.snapshot(), wasCancelled: true)
+        } catch {
+            for provider in Set(inputs.map(\.provider)).union(failedProviders) {
+                accumulator.markFailure(provider: provider)
+            }
+            return BatchExecution(progress: accumulator.snapshot(), wasCancelled: false)
+        }
+    }
+
+    private nonisolated static func classify(
+        inputs: [WorkInput]
+    ) throws -> (recursive: [WorkInput], direct: [WorkInput]) {
+        var recursive: [WorkInput] = []
+        var direct: [WorkInput] = []
+        for input in inputs {
+            try Task.checkCancellation()
+            guard hasNoSymbolicLinkBelowRoot(input.url, root: input.root) else {
                 continue
             }
-            discover(root: root, provider: provider, into: &batch)
+            if input.url == input.root {
+                recursive.append(input)
+                continue
+            }
+            let values = try? input.url.resourceValues(forKeys: [
+                .isDirectoryKey,
+                .isRegularFileKey,
+                .isSymbolicLinkKey
+            ])
+            guard values?.isSymbolicLink != true else { continue }
+            if values?.isRegularFile == true,
+               input.url.pathExtension.lowercased() == "jsonl" {
+                direct.append(input)
+            } else if values?.isDirectory == true {
+                recursive.append(input)
+            }
         }
-        guard !batch.progress.isEmpty else { return }
-        enqueueEventBatch(batch)
+        recursive = recursive.filter { candidate in
+            !recursive.contains { other in
+                other.provider == candidate.provider
+                    && other.url != candidate.url
+                    && candidate.url.pathComponents.starts(with: other.url.pathComponents)
+            }
+        }
+        direct = direct.filter { candidate in
+            !recursive.contains { directory in
+                directory.provider == candidate.provider
+                    && candidate.url.pathComponents.starts(with: directory.url.pathComponents)
+            }
+        }
+        let order: (WorkInput, WorkInput) -> Bool = { lhs, rhs in
+            if lhs.provider.rawValue != rhs.provider.rawValue {
+                return lhs.provider.rawValue < rhs.provider.rawValue
+            }
+            return lhs.url.path < rhs.url.path
+        }
+        return (recursive.sorted(by: order), direct.sorted(by: order))
     }
 
-    private func markFailure(for provider: Provider, in batch: inout PreparedBatch) {
-        var progress = batch.progress[provider] ?? ProviderProgress()
-        progress.severity = .failure
-        batch.progress[provider] = progress
+    private nonisolated static func scan(
+        files: [URL],
+        provider: Provider,
+        scanner: any IngestionScanning,
+        calendar: Calendar,
+        accumulator: ProgressAccumulator
+    ) async throws {
+        for file in files {
+            try Task.checkCancellation()
+            do {
+                let outcome = try await scanner.scan(
+                    file: file,
+                    provider: provider,
+                    calendar: calendar
+                )
+                accumulator.recordScan(
+                    provider: provider,
+                    needsAttention: outcome.attention != nil
+                )
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                accumulator.recordScanFailure(provider: provider)
+            }
+        }
     }
 
-    private func markAllProvidersFailed(in batch: inout PreparedBatch) {
-        for provider in Array(batch.progress.keys) {
-            markFailure(for: provider, in: &batch)
+    private final class ProgressAccumulator: @unchecked Sendable {
+        private let lock = NSLock()
+        private var progress: [Provider: ProviderProgress] = [:]
+
+        init(failedProviders: Set<Provider>) {
+            for provider in failedProviders {
+                progress[provider] = ProviderProgress(severity: .failure)
+            }
+        }
+
+        func ensure(provider: Provider) {
+            lock.withLock {
+                if progress[provider] == nil {
+                    progress[provider] = ProviderProgress()
+                }
+            }
+        }
+
+        func addDiscovered(_ count: Int, provider: Provider) {
+            lock.withLock {
+                var value = progress[provider] ?? ProviderProgress()
+                value.discoveredFiles += count
+                progress[provider] = value
+            }
+        }
+
+        func recordScan(provider: Provider, needsAttention: Bool) {
+            lock.withLock {
+                var value = progress[provider] ?? ProviderProgress()
+                value.scannedFiles += 1
+                if needsAttention,
+                   value.severity.rawValue < Severity.attention.rawValue {
+                    value.severity = .attention
+                }
+                progress[provider] = value
+            }
+        }
+
+        func recordScanFailure(provider: Provider) {
+            lock.withLock {
+                var value = progress[provider] ?? ProviderProgress()
+                value.scannedFiles += 1
+                value.severity = .failure
+                progress[provider] = value
+            }
+        }
+
+        func markFailure(provider: Provider) {
+            lock.withLock {
+                var value = progress[provider] ?? ProviderProgress()
+                value.severity = .failure
+                progress[provider] = value
+            }
+        }
+
+        func snapshot() -> [Provider: ProviderProgress] {
+            lock.withLock { progress }
         }
     }
 
@@ -596,17 +764,16 @@ public actor IngestionCoordinator {
         pendingBatches.removeAll()
         for queued in batches {
             nextSequence &+= 1
-            let providers = queued.batch.progress.mapValues { progress in
-                ProviderIngestionResult.failure(
-                    discoveredFiles: progress.discoveredFiles,
-                    scannedFiles: progress.scannedFiles
-                )
-            }
+            let providers = Set(queued.inputs.map(\.provider))
+                .union(queued.failedProviders)
+            let failures = Dictionary(uniqueKeysWithValues: providers.map {
+                ($0, ProviderIngestionResult.failure(discoveredFiles: 0, scannedFiles: 0))
+            })
             let result = IngestionBatchResult(
-                runID: queued.batch.runID,
+                runID: queued.runID,
                 sequence: nextSequence,
                 scope: queued.scope,
-                providers: providers
+                providers: failures
             )
             queued.continuations.forEach { $0.resume(returning: result) }
         }
@@ -620,7 +787,10 @@ public actor IngestionCoordinator {
             .map { ($0.key, $0.value) }
     }
 
-    private func hasNoSymbolicLinkBelowRoot(_ url: URL, root: URL) -> Bool {
+    private nonisolated static func hasNoSymbolicLinkBelowRoot(
+        _ url: URL,
+        root: URL
+    ) -> Bool {
         let rootComponents = root.pathComponents
         let components = url.pathComponents
         guard components.starts(with: rootComponents) else { return false }

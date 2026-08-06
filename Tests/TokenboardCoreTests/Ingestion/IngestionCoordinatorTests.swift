@@ -412,6 +412,10 @@ final class IngestionCoordinatorTests: XCTestCase {
             watcher.emit([changed])
             await clock.waitForSleepStartCount(index + 2)
             await clock.advancePastDebounce()
+            await waitUntil {
+                let diagnostics = await coordinator.diagnostics()
+                return diagnostics.followUpDirtyProviderCount == min(index + 1, 2)
+            }
         }
 
         let whileScanning = await coordinator.diagnostics()
@@ -478,6 +482,211 @@ final class IngestionCoordinatorTests: XCTestCase {
         XCTAssertEqual(scannedURLs, [changed])
         XCTAssertEqual(finished.inventoryWaiterCount, 0)
         XCTAssertEqual(finished.pendingBatchCount, 0)
+        await coordinator.stop()
+    }
+
+    func testInventoryDiscoveryUsesBackpressuredChunksWithoutFullMaterialization() async throws {
+        let setup = try makeSetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let discovery = ChunkedLogicalDiscovery(counts: [
+            "claude": 2_049,
+            "codex": 2_048
+        ])
+        let scanner = ChunkCountingScanner()
+        let coordinator = IngestionCoordinator(
+            scanner: scanner,
+            watcher: FakeSourceEventWatcher(),
+            clock: ManualIngestionClock(),
+            discovery: discovery,
+            calendar: calendar
+        )
+
+        let result = try await coordinator.start(roots: setup.roots)
+
+        let discoverySnapshot = discovery.snapshot()
+        let scannerSnapshot = await scanner.snapshot()
+        XCTAssertEqual(discoverySnapshot.synchronousArrayCalls, 0)
+        XCTAssertEqual(discoverySnapshot.maximumChunkSize, 64)
+        XCTAssertEqual(discoverySnapshot.maximumActiveConsumers, 1)
+        XCTAssertEqual(discoverySnapshot.generatedFiles, 4_097)
+        XCTAssertEqual(scannerSnapshot.scansByProvider[.claudeCode], 2_049)
+        XCTAssertEqual(scannerSnapshot.scansByProvider[.codex], 2_048)
+        XCTAssertEqual(scannerSnapshot.maximumActiveScans, 1)
+        XCTAssertEqual(
+            result.providers[.claudeCode],
+            .success(discoveredFiles: 2_049, scannedFiles: 2_049)
+        )
+        XCTAssertEqual(
+            result.providers[.codex],
+            .success(discoveredFiles: 2_048, scannedFiles: 2_048)
+        )
+        await coordinator.stop()
+    }
+
+    func testStopCancelsAndAwaitsGatedDiscoveryBeforeSettlingCoalescedCallers() async throws {
+        let setup = try makeSetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let watcher = FakeSourceEventWatcher()
+        let clock = ManualIngestionClock()
+        let discovery = ChunkedLogicalDiscovery(counts: [:])
+        let scanner = ChunkCountingScanner()
+        let coordinator = IngestionCoordinator(
+            scanner: scanner,
+            watcher: watcher,
+            clock: clock,
+            discovery: discovery,
+            calendar: calendar
+        )
+        let initial = try await coordinator.start(roots: setup.roots)
+        let gate = CancellableDiscoveryGate()
+        discovery.configure(
+            counts: ["claude": 10_000, "codex": 10_000],
+            gate: gate
+        )
+        discovery.resetMetrics()
+        await scanner.reset()
+
+        let stoppedRunWasStreamed = TimedAsyncFlag()
+        let firstStreamedResult = Task { () -> IngestionBatchResult? in
+            let stream = await coordinator.results()
+            for await result in stream {
+                if result.runID == initial.runID {
+                    await stoppedRunWasStreamed.set()
+                }
+                return result
+            }
+            return nil
+        }
+        watcher.emit([setup.claudeRoot, setup.codexRoot])
+        await clock.waitForSleepStartCount(1)
+        await clock.advancePastDebounce()
+        await gate.waitUntilEntered()
+        var refreshes: [Task<IngestionBatchResult, Never>] = []
+        for _ in 0..<32 {
+            refreshes.append(Task { await coordinator.refreshAll() })
+        }
+        await waitUntil {
+            await coordinator.diagnostics().inventoryWaiterCount == 32
+        }
+        let stopFinished = TimedAsyncFlag()
+        let stop = Task {
+            await coordinator.stop()
+            await stopFinished.set()
+        }
+        let stoppedBeforeRelease = await stopFinished.wait(for: .milliseconds(200))
+        if !stoppedBeforeRelease { await gate.release() }
+        await stop.value
+        var stoppedResults: [IngestionBatchResult] = []
+        for refresh in refreshes { stoppedResults.append(await refresh.value) }
+
+        let stoppedDiscovery = discovery.snapshot()
+        let stoppedScans = await scanner.snapshot()
+        let discoveryWasCancelled = await gate.wasCancelled
+        let stoppedResultDelivered = await stoppedRunWasStreamed.wait(
+            for: .milliseconds(50)
+        )
+        XCTAssertTrue(stoppedBeforeRelease)
+        XCTAssertTrue(discoveryWasCancelled)
+        XCTAssertFalse(stoppedResultDelivered)
+        XCTAssertEqual(stoppedDiscovery.synchronousArrayCalls, 0)
+        XCTAssertEqual(stoppedDiscovery.generatedFiles, 0)
+        XCTAssertEqual(stoppedScans.totalScans, 0)
+        XCTAssertEqual(Set(stoppedResults.map(\.runID)), [initial.runID])
+        XCTAssertEqual(Set(stoppedResults.map(\.sequence)), [3])
+
+        discovery.configure(counts: [:], gate: nil)
+        discovery.resetMetrics()
+        let restarted = try await coordinator.start(roots: setup.roots)
+        XCTAssertNotEqual(restarted.runID, initial.runID)
+        XCTAssertEqual(restarted.sequence, 1)
+        let later = setup.codexRoot.appending(path: "later.jsonl")
+        try Data().write(to: later)
+        watcher.emit([later])
+        await clock.waitForSleepStartCount(2)
+        await clock.advancePastDebounce()
+        let laterResult = await firstStreamedResult.value
+        XCTAssertEqual(laterResult?.runID, restarted.runID)
+        XCTAssertEqual(laterResult?.sequence, 2)
+        XCTAssertEqual(
+            laterResult?.providers[.codex],
+            .success(discoveredFiles: 1, scannedFiles: 1)
+        )
+        await coordinator.stop()
+    }
+
+    func testEventsDuringChunkedRootDiscoveryCollapseToOneTwoProviderFollowUp() async throws {
+        let setup = try makeSetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let watcher = FakeSourceEventWatcher()
+        let clock = ManualIngestionClock()
+        let discovery = ChunkedLogicalDiscovery(counts: [:])
+        let scanner = ChunkCountingScanner()
+        let coordinator = IngestionCoordinator(
+            scanner: scanner,
+            watcher: watcher,
+            clock: clock,
+            discovery: discovery,
+            calendar: calendar
+        )
+        _ = try await coordinator.start(roots: setup.roots)
+        let gate = CancellableDiscoveryGate()
+        discovery.configure(
+            counts: ["claude": 130, "codex": 129],
+            gate: gate
+        )
+        discovery.resetMetrics()
+        await scanner.reset()
+        let stream = await coordinator.results()
+        let received = Task { () -> [IngestionBatchResult] in
+            var values: [IngestionBatchResult] = []
+            for await result in stream {
+                values.append(result)
+                if values.count == 2 { return values }
+            }
+            return values
+        }
+
+        watcher.emit([setup.claudeRoot, setup.codexRoot])
+        await clock.waitForSleepStartCount(1)
+        await clock.advancePastDebounce()
+        await gate.waitUntilEntered()
+        for index in 0..<12 {
+            let root = index.isMultiple(of: 2) ? setup.claudeRoot : setup.codexRoot
+            watcher.emit([root.appending(path: "burst-\(index).jsonl")])
+            await clock.waitForSleepStartCount(index + 2)
+            await clock.advancePastDebounce()
+        }
+        let duringDiscovery = await coordinator.diagnostics()
+        XCTAssertEqual(duringDiscovery.followUpDirtyProviderCount, 2)
+        XCTAssertEqual(duringDiscovery.pendingEventBatchCount, 0)
+
+        await gate.release()
+        let values = await received.value
+        await waitUntil {
+            let diagnostics = await coordinator.diagnostics()
+            return !diagnostics.isDraining && diagnostics.pendingBatchCount == 0
+        }
+
+        let discoverySnapshot = discovery.snapshot()
+        let scannerSnapshot = await scanner.snapshot()
+        XCTAssertEqual(values.count, 2)
+        for value in values {
+            XCTAssertEqual(
+                value.providers[.claudeCode],
+                .success(discoveredFiles: 130, scannedFiles: 130)
+            )
+            XCTAssertEqual(
+                value.providers[.codex],
+                .success(discoveredFiles: 129, scannedFiles: 129)
+            )
+        }
+        XCTAssertEqual(discoverySnapshot.enumerationCalls, 4)
+        XCTAssertEqual(discoverySnapshot.synchronousArrayCalls, 0)
+        XCTAssertEqual(discoverySnapshot.maximumChunkSize, 64)
+        XCTAssertEqual(discoverySnapshot.maximumActiveConsumers, 1)
+        XCTAssertEqual(discoverySnapshot.generatedFiles, 518)
+        XCTAssertEqual(scannerSnapshot.totalScans, 518)
+        XCTAssertEqual(scannerSnapshot.maximumActiveScans, 1)
         await coordinator.stop()
     }
 
@@ -774,6 +983,207 @@ private actor RecordingScanner: IngestionScanning {
         maximumConcurrentScans = 0
         completedScanCount = 0
         wasCancelled = false
+    }
+}
+
+private actor ChunkCountingScanner: IngestionScanning {
+    private var scansByProvider: [Provider: Int] = [:]
+    private var activeScans = 0
+    private var maximumActiveScans = 0
+
+    func scan(file: URL, provider: Provider, calendar: Calendar) async throws -> ScanOutcome {
+        activeScans += 1
+        maximumActiveScans = max(maximumActiveScans, activeScans)
+        scansByProvider[provider, default: 0] += 1
+        await Task.yield()
+        activeScans -= 1
+        return ScanOutcome(
+            committedUsageRecords: 0,
+            skippedRecords: 0,
+            finalOffset: 0,
+            attention: nil
+        )
+    }
+
+    func reset() {
+        scansByProvider.removeAll()
+        activeScans = 0
+        maximumActiveScans = 0
+    }
+
+    func snapshot() -> (
+        scansByProvider: [Provider: Int],
+        totalScans: Int,
+        maximumActiveScans: Int
+    ) {
+        (
+            scansByProvider,
+            scansByProvider.values.reduce(0, +),
+            maximumActiveScans
+        )
+    }
+}
+
+private final class ChunkedLogicalDiscovery: LogDiscovering, @unchecked Sendable {
+    struct Snapshot {
+        let synchronousArrayCalls: Int
+        let enumerationCalls: Int
+        let generatedFiles: Int
+        let maximumChunkSize: Int
+        let maximumActiveConsumers: Int
+        let cancellationCount: Int
+    }
+
+    private let lock = NSLock()
+    private var counts: [String: Int]
+    private var gate: CancellableDiscoveryGate?
+    private var synchronousArrayCalls = 0
+    private var enumerationCalls = 0
+    private var generatedFiles = 0
+    private var maximumChunkSize = 0
+    private var activeConsumers = 0
+    private var maximumActiveConsumers = 0
+    private var cancellationCount = 0
+
+    init(counts: [String: Int]) {
+        self.counts = counts
+    }
+
+    func configure(counts: [String: Int], gate: CancellableDiscoveryGate? = nil) {
+        lock.withLock {
+            self.counts = counts
+            self.gate = gate
+        }
+    }
+
+    func resetMetrics() {
+        lock.withLock {
+            synchronousArrayCalls = 0
+            enumerationCalls = 0
+            generatedFiles = 0
+            maximumChunkSize = 0
+            activeConsumers = 0
+            maximumActiveConsumers = 0
+            cancellationCount = 0
+        }
+    }
+
+    func snapshot() -> Snapshot {
+        lock.withLock {
+            Snapshot(
+                synchronousArrayCalls: synchronousArrayCalls,
+                enumerationCalls: enumerationCalls,
+                generatedFiles: generatedFiles,
+                maximumChunkSize: maximumChunkSize,
+                maximumActiveConsumers: maximumActiveConsumers,
+                cancellationCount: cancellationCount
+            )
+        }
+    }
+
+    func jsonlFiles(under root: URL) throws -> [URL] {
+        let count = lock.withLock { () -> Int in
+            synchronousArrayCalls += 1
+            return counts[root.lastPathComponent, default: 0]
+        }
+        return (0..<count).map {
+            root.appending(path: "logical-\($0).jsonl").standardizedFileURL
+        }
+    }
+
+    func enumerateJSONLFiles(
+        under root: URL,
+        maximumChunkSize: Int,
+        consume: @escaping @Sendable ([URL]) async throws -> Void
+    ) async throws {
+        let configuration = lock.withLock { () -> (Int, CancellableDiscoveryGate?) in
+            enumerationCalls += 1
+            return (counts[root.lastPathComponent, default: 0], gate)
+        }
+        do {
+            if let gate = configuration.1 { try await gate.wait() }
+            var chunk: [URL] = []
+            chunk.reserveCapacity(maximumChunkSize)
+            for index in 0..<configuration.0 {
+                try Task.checkCancellation()
+                chunk.append(
+                    root.appending(path: "logical-\(index).jsonl").standardizedFileURL
+                )
+                if chunk.count == maximumChunkSize {
+                    try await deliver(chunk, consume: consume)
+                    chunk.removeAll(keepingCapacity: true)
+                }
+            }
+            if !chunk.isEmpty { try await deliver(chunk, consume: consume) }
+        } catch is CancellationError {
+            lock.withLock { cancellationCount += 1 }
+            throw CancellationError()
+        }
+    }
+
+    private func deliver(
+        _ chunk: [URL],
+        consume: @escaping @Sendable ([URL]) async throws -> Void
+    ) async throws {
+        lock.withLock {
+            generatedFiles += chunk.count
+            maximumChunkSize = max(maximumChunkSize, chunk.count)
+            activeConsumers += 1
+            maximumActiveConsumers = max(maximumActiveConsumers, activeConsumers)
+        }
+        do {
+            try await consume(chunk)
+            lock.withLock { activeConsumers -= 1 }
+        } catch {
+            lock.withLock { activeConsumers -= 1 }
+            throw error
+        }
+    }
+}
+
+private actor CancellableDiscoveryGate {
+    private var entered = false
+    private var released = false
+    private(set) var wasCancelled = false
+    private var continuation: CheckedContinuation<Void, Error>?
+    private var enteredWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async throws {
+        entered = true
+        let waiters = enteredWaiters
+        enteredWaiters.removeAll()
+        waiters.forEach { $0.resume() }
+        if released { return }
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                if released {
+                    continuation.resume()
+                } else if wasCancelled || Task.isCancelled {
+                    continuation.resume(throwing: CancellationError())
+                } else {
+                    self.continuation = continuation
+                }
+            }
+        } onCancel: {
+            Task { await self.cancel() }
+        }
+    }
+
+    func waitUntilEntered() async {
+        guard !entered else { return }
+        await withCheckedContinuation { enteredWaiters.append($0) }
+    }
+
+    func release() {
+        released = true
+        continuation?.resume()
+        continuation = nil
+    }
+
+    private func cancel() {
+        wasCancelled = true
+        continuation?.resume(throwing: CancellationError())
+        continuation = nil
     }
 }
 

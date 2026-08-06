@@ -3,6 +3,29 @@ import XCTest
 @testable import TokenboardCore
 
 final class LogDiscoveryTests: XCTestCase {
+    func testChunkEnumerationBoundsEveryDeliveryWithoutDroppingFiles() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let expected = Set((0..<130).map { index in
+            root.appending(path: "session-\(index).jsonl").standardizedFileURL
+        })
+        for file in expected { try Data().write(to: file) }
+        let recorder = DiscoveryChunkRecorder()
+
+        try await LogDiscovery().enumerateJSONLFiles(
+            under: root,
+            maximumChunkSize: 64
+        ) { chunk in
+            await recorder.record(chunk)
+        }
+
+        let snapshot = await recorder.snapshot()
+        XCTAssertEqual(snapshot.files, expected)
+        XCTAssertEqual(snapshot.chunkSizes, [64, 64, 2])
+        XCTAssertEqual(snapshot.maximumActiveConsumers, 1)
+    }
+
     func testRecursivelyReturnsOnlyRegularJSONLFilesInSortedOrder() throws {
         let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         let nested = root.appending(path: "nested/deeper")
@@ -26,5 +49,29 @@ final class LogDiscoveryTests: XCTestCase {
         let files = try LogDiscovery().jsonlFiles(under: root)
 
         XCTAssertEqual(files, [hiddenLog, nestedLog, rootLog].sorted { $0.path < $1.path })
+    }
+}
+
+private actor DiscoveryChunkRecorder {
+    private var files: Set<URL> = []
+    private var chunkSizes: [Int] = []
+    private var activeConsumers = 0
+    private var maximumActiveConsumers = 0
+
+    func record(_ chunk: [URL]) async {
+        activeConsumers += 1
+        maximumActiveConsumers = max(maximumActiveConsumers, activeConsumers)
+        chunkSizes.append(chunk.count)
+        files.formUnion(chunk)
+        await Task.yield()
+        activeConsumers -= 1
+    }
+
+    func snapshot() -> (
+        files: Set<URL>,
+        chunkSizes: [Int],
+        maximumActiveConsumers: Int
+    ) {
+        (files, chunkSizes, maximumActiveConsumers)
     }
 }

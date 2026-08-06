@@ -4,6 +4,89 @@ import XCTest
 @testable import TokenboardCore
 
 final class FSEventWatcherTests: XCTestCase {
+    func testLazyNativeConversionReadsAndRetainsOnlyBoundedPrefixOnOverflow() {
+        let source = LazyNativeEventSource(logicalCount: 1_000_000)
+
+        let batch = NativeFSEventBatchConverter.convert(
+            count: source.logicalCount,
+            maximumEvents: FSEventWatcher.maximumChangedPaths,
+            pathAt: source.path(at:),
+            flagsAt: source.flags(at:),
+            eventIDAt: source.eventID(at:)
+        )
+
+        XCTAssertTrue(batch.overflowed)
+        XCTAssertEqual(batch.events.count, 64)
+        XCTAssertEqual(batch.events.first?.path, "/tmp/claude/session-0.jsonl")
+        XCTAssertEqual(batch.events.last?.path, "/tmp/codex/session-63.jsonl")
+        XCTAssertEqual(batch.highestConsumedEventID, 10_064)
+        XCTAssertEqual(source.pathReads, Array(0...64))
+        XCTAssertEqual(source.flagReads, Array(0...64))
+        XCTAssertEqual(source.eventIDReads, Array(0...64))
+    }
+
+    func testLazyNativeConversionPreservesExactCapUnicodeFlagsAndEventIDs() {
+        let source = LazyNativeEventSource(
+            logicalCount: FSEventWatcher.maximumChangedPaths,
+            unicodeIndex: 17,
+            rootChangedIndex: 63
+        )
+
+        let batch = NativeFSEventBatchConverter.convert(
+            count: source.logicalCount,
+            maximumEvents: FSEventWatcher.maximumChangedPaths,
+            pathAt: source.path(at:),
+            flagsAt: source.flags(at:),
+            eventIDAt: source.eventID(at:)
+        )
+
+        XCTAssertFalse(batch.overflowed)
+        XCTAssertEqual(batch.events.count, 64)
+        XCTAssertEqual(batch.events[17].path, "/tmp/codex/日本語-é-17.jsonl")
+        XCTAssertEqual(
+            batch.events[63].flags,
+            UInt32(kFSEventStreamEventFlagRootChanged)
+        )
+        XCTAssertEqual(batch.events[63].eventID, 10_063)
+        XCTAssertEqual(batch.highestConsumedEventID, 10_063)
+        XCTAssertEqual(source.pathReads, Array(0..<64))
+        XCTAssertEqual(source.flagReads, Array(0..<64))
+        XCTAssertEqual(source.eventIDReads, Array(0..<64))
+    }
+
+    func testLazyNativeCapPlusRootChangeOverflowsToBothWatchedRoots() async {
+        let driver = RecordingFSEventStreamDriver()
+        let watcher = FSEventWatcher(driver: driver)
+        let roots = [
+            URL(fileURLWithPath: "/tmp/claude").standardizedFileURL,
+            URL(fileURLWithPath: "/tmp/codex").standardizedFileURL
+        ]
+        let stream = watcher.events(for: roots)
+        let source = LazyNativeEventSource(
+            logicalCount: FSEventWatcher.maximumChangedPaths + 1,
+            rootChangedIndex: FSEventWatcher.maximumChangedPaths
+        )
+        let batch = NativeFSEventBatchConverter.convert(
+            count: source.logicalCount,
+            maximumEvents: FSEventWatcher.maximumChangedPaths,
+            pathAt: source.path(at:),
+            flagsAt: source.flags(at:),
+            eventIDAt: source.eventID(at:)
+        )
+
+        XCTAssertTrue(driver.emit(batch))
+
+        var iterator = stream.makeAsyncIterator()
+        let received = await iterator.next()
+        XCTAssertEqual(received, Set(roots))
+        XCTAssertEqual(batch.events.count, 64)
+        XCTAssertEqual(batch.highestConsumedEventID, 10_064)
+        XCTAssertEqual(source.pathReads.count, 65)
+        XCTAssertEqual(source.flagReads.count, 65)
+        XCTAssertEqual(source.eventIDReads.count, 65)
+        watcher.stop()
+    }
+
     func testCreatesOneStreamWithExactConfigurationAndOrderedCleanup() {
         let driver = RecordingFSEventStreamDriver()
         let watcher = FSEventWatcher(driver: driver)
@@ -178,6 +261,47 @@ final class FSEventWatcherTests: XCTestCase {
     }
 }
 
+private final class LazyNativeEventSource {
+    let logicalCount: Int
+    private let unicodeIndex: Int?
+    private let rootChangedIndex: Int?
+    private(set) var pathReads: [Int] = []
+    private(set) var flagReads: [Int] = []
+    private(set) var eventIDReads: [Int] = []
+
+    init(
+        logicalCount: Int,
+        unicodeIndex: Int? = nil,
+        rootChangedIndex: Int? = nil
+    ) {
+        self.logicalCount = logicalCount
+        self.unicodeIndex = unicodeIndex
+        self.rootChangedIndex = rootChangedIndex
+    }
+
+    func path(at index: Int) -> String? {
+        pathReads.append(index)
+        let root = index.isMultiple(of: 2) ? "/tmp/claude" : "/tmp/codex"
+        if index == unicodeIndex {
+            return "\(root)/日本語-é-\(index).jsonl"
+        }
+        if index == rootChangedIndex { return root }
+        return "\(root)/session-\(index).jsonl"
+    }
+
+    func flags(at index: Int) -> UInt32 {
+        flagReads.append(index)
+        return index == rootChangedIndex
+            ? UInt32(kFSEventStreamEventFlagRootChanged)
+            : 0
+    }
+
+    func eventID(at index: Int) -> UInt64 {
+        eventIDReads.append(index)
+        return UInt64(10_000 + index)
+    }
+}
+
 private final class RecordingFSEventStreamDriver: FSEventStreamDriving, @unchecked Sendable {
     enum Operation: Equatable {
         case schedule
@@ -215,7 +339,7 @@ private final class RecordingFSEventStreamDriver: FSEventStreamDriving, @uncheck
 
     func create(
         configuration: FSEventStreamConfiguration,
-        callback: @escaping @Sendable ([FSEventDriverEvent]) -> Void
+        callback: @escaping @Sendable (FSEventDriverBatch) -> Void
     ) -> FSEventStreamHandle? {
         lock.withLock {
             recordedCreateCount += 1
@@ -254,7 +378,15 @@ private final class RecordingFSEventStreamDriver: FSEventStreamDriving, @uncheck
     }
 
     func emit(_ events: [FSEventDriverEvent]) -> Bool {
-        lock.withLock { handle }?.deliver(events) ?? false
+        emit(FSEventDriverBatch(
+            events: events,
+            overflowed: false,
+            highestConsumedEventID: events.map(\.eventID).max()
+        ))
+    }
+
+    func emit(_ batch: FSEventDriverBatch) -> Bool {
+        lock.withLock { handle }?.deliver(batch) ?? false
     }
 
     private func record(_ operation: Operation, handle: FSEventStreamHandle) {

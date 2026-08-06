@@ -11,6 +11,55 @@ struct FSEventStreamConfiguration: Equatable, Sendable {
 struct FSEventDriverEvent: Equatable, Sendable {
     let path: String
     let flags: UInt32
+    let eventID: UInt64
+
+    init(path: String, flags: UInt32, eventID: UInt64 = 0) {
+        self.path = path
+        self.flags = flags
+        self.eventID = eventID
+    }
+}
+
+struct FSEventDriverBatch: Equatable, Sendable {
+    let events: [FSEventDriverEvent]
+    let overflowed: Bool
+    let highestConsumedEventID: UInt64?
+}
+
+enum NativeFSEventBatchConverter {
+    static func convert(
+        count: Int,
+        maximumEvents: Int,
+        pathAt: (Int) -> String?,
+        flagsAt: (Int) -> UInt32,
+        eventIDAt: (Int) -> UInt64
+    ) -> FSEventDriverBatch {
+        let boundedMaximum = max(0, maximumEvents)
+        let accessorLimit = boundedMaximum == Int.max
+            ? count
+            : min(count, boundedMaximum + 1)
+        var events: [FSEventDriverEvent] = []
+        events.reserveCapacity(boundedMaximum)
+        var highestConsumedEventID: UInt64?
+        for index in 0..<accessorLimit {
+            let path = pathAt(index)
+            let flags = flagsAt(index)
+            let eventID = eventIDAt(index)
+            highestConsumedEventID = max(highestConsumedEventID ?? eventID, eventID)
+            if index < boundedMaximum, let path {
+                events.append(FSEventDriverEvent(
+                    path: path,
+                    flags: flags,
+                    eventID: eventID
+                ))
+            }
+        }
+        return FSEventDriverBatch(
+            events: events,
+            overflowed: count > boundedMaximum,
+            highestConsumedEventID: highestConsumedEventID
+        )
+    }
 }
 
 final class FSEventStreamHandle: @unchecked Sendable {
@@ -19,7 +68,7 @@ final class FSEventStreamHandle: @unchecked Sendable {
     fileprivate var nativeStream: FSEventStreamRef?
 
     init(
-        callback: @escaping @Sendable ([FSEventDriverEvent]) -> Void,
+        callback: @escaping @Sendable (FSEventDriverBatch) -> Void,
         onCallbackRelease: @escaping @Sendable () -> Void = {}
     ) {
         callbackContext = FSEventCallbackContext(
@@ -33,8 +82,8 @@ final class FSEventStreamHandle: @unchecked Sendable {
     }
 
     @discardableResult
-    func deliver(_ events: [FSEventDriverEvent]) -> Bool {
-        lock.withLock { callbackContext }?.deliver(events) ?? false
+    func deliver(_ batch: FSEventDriverBatch) -> Bool {
+        lock.withLock { callbackContext }?.deliver(batch) ?? false
     }
 
     fileprivate var callbackInfo: UnsafeMutableRawPointer? {
@@ -52,12 +101,12 @@ final class FSEventStreamHandle: @unchecked Sendable {
 
 private final class FSEventCallbackContext: @unchecked Sendable {
     private let condition = NSCondition()
-    private var callback: (@Sendable ([FSEventDriverEvent]) -> Void)?
+    private var callback: (@Sendable (FSEventDriverBatch) -> Void)?
     private let onRelease: @Sendable () -> Void
     private var activeDeliveries = 0
 
     init(
-        callback: @escaping @Sendable ([FSEventDriverEvent]) -> Void,
+        callback: @escaping @Sendable (FSEventDriverBatch) -> Void,
         onRelease: @escaping @Sendable () -> Void
     ) {
         self.callback = callback
@@ -65,7 +114,7 @@ private final class FSEventCallbackContext: @unchecked Sendable {
     }
 
     @discardableResult
-    func deliver(_ events: [FSEventDriverEvent]) -> Bool {
+    func deliver(_ batch: FSEventDriverBatch) -> Bool {
         condition.lock()
         guard let callback else {
             condition.unlock()
@@ -74,7 +123,7 @@ private final class FSEventCallbackContext: @unchecked Sendable {
         activeDeliveries += 1
         condition.unlock()
 
-        callback(events)
+        callback(batch)
 
         condition.lock()
         activeDeliveries -= 1
@@ -103,7 +152,7 @@ private final class FSEventCallbackContext: @unchecked Sendable {
 protocol FSEventStreamDriving: Sendable {
     func create(
         configuration: FSEventStreamConfiguration,
-        callback: @escaping @Sendable ([FSEventDriverEvent]) -> Void
+        callback: @escaping @Sendable (FSEventDriverBatch) -> Void
     ) -> FSEventStreamHandle?
     func schedule(_ handle: FSEventStreamHandle, on queue: DispatchQueue)
     func start(_ handle: FSEventStreamHandle) -> Bool
@@ -115,7 +164,7 @@ protocol FSEventStreamDriving: Sendable {
 private struct NativeFSEventStreamDriver: FSEventStreamDriving {
     func create(
         configuration: FSEventStreamConfiguration,
-        callback: @escaping @Sendable ([FSEventDriverEvent]) -> Void
+        callback: @escaping @Sendable (FSEventDriverBatch) -> Void
     ) -> FSEventStreamHandle? {
         let handle = FSEventStreamHandle(callback: callback)
         guard let callbackInfo = handle.callbackInfo else { return nil }
@@ -126,22 +175,30 @@ private struct NativeFSEventStreamDriver: FSEventStreamDriving {
             release: nil,
             copyDescription: nil
         )
-        let nativeCallback: FSEventStreamCallback = { _, info, count, paths, flags, _ in
+        let nativeCallback: FSEventStreamCallback = { _, info, count, paths, flags, eventIDs in
             guard let info else { return }
             let callbackContext = Unmanaged<FSEventCallbackContext>
                 .fromOpaque(info)
                 .takeUnretainedValue()
             let pathValues = Unmanaged<CFArray>
                 .fromOpaque(paths)
-                .takeUnretainedValue() as NSArray
-            var events: [FSEventDriverEvent] = []
-            events.reserveCapacity(count)
-            for index in 0..<count {
-                guard let path = pathValues[index] as? String else { continue }
-                events.append(FSEventDriverEvent(path: path, flags: UInt32(flags[index])))
-            }
-            if !events.isEmpty {
-                callbackContext.deliver(events)
+                .takeUnretainedValue()
+            let batch = NativeFSEventBatchConverter.convert(
+                count: count,
+                maximumEvents: FSEventWatcher.maximumChangedPaths,
+                pathAt: { index in
+                    guard let value = CFArrayGetValueAtIndex(pathValues, index) else {
+                        return nil
+                    }
+                    return Unmanaged<CFString>
+                        .fromOpaque(value)
+                        .takeUnretainedValue() as String
+                },
+                flagsAt: { UInt32(flags[$0]) },
+                eventIDAt: { UInt64(eventIDs[$0]) }
+            )
+            if !batch.events.isEmpty || batch.overflowed {
+                callbackContext.deliver(batch)
             }
         }
         guard let stream = FSEventStreamCreate(
@@ -234,8 +291,10 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
                 latency: 0.5,
                 flags: createFlags
             )
-            guard let handle = driver.create(configuration: configuration, callback: { events in
-                let changed = Self.changedURLs(from: events, roots: resolvedRoots)
+            guard let handle = driver.create(configuration: configuration, callback: { batch in
+                let changed = batch.overflowed
+                    ? Set(resolvedRoots)
+                    : Self.changedURLs(from: batch.events, roots: resolvedRoots)
                 if !changed.isEmpty {
                     if case .dropped = continuation.yield(changed) {
                         continuation.yield(Set(resolvedRoots))
