@@ -79,5 +79,24 @@ public enum Migrations {
         """
     )
 
-    public static let all = [v1]
+    public static let v2 = Migration(
+        version: 2,
+        name: "enforce integer daily usage quantities",
+        sql: """
+        CREATE TRIGGER daily_usage_quantity_integer_insert
+        BEFORE INSERT ON daily_usage
+        FOR EACH ROW WHEN typeof(NEW.quantity) <> 'integer'
+        BEGIN
+          SELECT RAISE(ABORT, 'daily_usage.quantity must be INTEGER');
+        END;
+        CREATE TRIGGER daily_usage_quantity_integer_update
+        BEFORE UPDATE OF quantity ON daily_usage
+        FOR EACH ROW WHEN typeof(NEW.quantity) <> 'integer'
+        BEGIN
+          SELECT RAISE(ABORT, 'daily_usage.quantity must be INTEGER');
+        END;
+        """
+    )
+
+    public static let all = [v1, v2]
 }

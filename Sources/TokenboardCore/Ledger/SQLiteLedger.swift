@@ -9,6 +9,18 @@ public enum LedgerError: Error, Equatable {
     case randomSaltGenerationFailed(Int32)
 }
 
+public enum LedgerValidationError: Error, Equatable, Sendable {
+    case invalidObservedModelID
+    case invalidCheckpointFingerprint
+    case invalidLastUsageIdentityHash
+    case invalidLastCommittedLineHash
+    case invalidSkippedSourceFingerprint
+    case invalidSkippedRecordHash
+    case invalidSkippedReason
+    case invalidAdapterStateKey
+    case invalidAdapterStateModelID
+}
+
 public actor SQLiteLedger: LedgerStore {
     private var connection: SQLiteConnection?
     private let backupDirectory: URL
@@ -36,6 +48,7 @@ public actor SQLiteLedger: LedgerStore {
         calendar: Calendar
     ) throws {
         let connection = try requiredConnection()
+        try validateStorageBoundary(usage: usage, skipped: skipped, checkpoint: checkpoint)
         let groupedUsage = try grouped(usage, calendar: calendar)
         let checkpointMetrics = try encodedJSON(checkpoint.cumulativeMetrics)
         let adapterState = try encodedJSON(checkpoint.adapterState)
@@ -191,6 +204,56 @@ public actor SQLiteLedger: LedgerStore {
         let result = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
         guard result == errSecSuccess else { throw LedgerError.randomSaltGenerationFailed(result) }
         return Data(bytes)
+    }
+
+    private func validateStorageBoundary(
+        usage: [NormalizedUsage],
+        skipped: [SkippedRecord],
+        checkpoint: SourceCheckpoint
+    ) throws {
+        for entry in usage where !isContentSafeModelID(entry.observedModelID) {
+            throw LedgerValidationError.invalidObservedModelID
+        }
+        guard isOpaqueDigest(checkpoint.fingerprint) else {
+            throw LedgerValidationError.invalidCheckpointFingerprint
+        }
+        if let hash = checkpoint.lastUsageIdentityHash, !isOpaqueDigest(hash) {
+            throw LedgerValidationError.invalidLastUsageIdentityHash
+        }
+        if let hash = checkpoint.lastCommittedLineHash, !isOpaqueDigest(hash) {
+            throw LedgerValidationError.invalidLastCommittedLineHash
+        }
+        for record in skipped {
+            guard isOpaqueDigest(record.sourceFingerprint) else {
+                throw LedgerValidationError.invalidSkippedSourceFingerprint
+            }
+            guard isOpaqueDigest(record.recordHash) else {
+                throw LedgerValidationError.invalidSkippedRecordHash
+            }
+            guard Self.allowedSkippedReasons.contains(record.reason) else {
+                throw LedgerValidationError.invalidSkippedReason
+            }
+        }
+        for (key, value) in checkpoint.adapterState {
+            guard key == "current_model" else {
+                throw LedgerValidationError.invalidAdapterStateKey
+            }
+            guard isContentSafeModelID(value) else {
+                throw LedgerValidationError.invalidAdapterStateModelID
+            }
+        }
+    }
+
+    private func isOpaqueDigest(_ value: String) -> Bool {
+        value.utf8.count == 64 && value.utf8.allSatisfy { byte in
+            (48...57).contains(byte) || (97...102).contains(byte)
+        }
+    }
+
+    private func isContentSafeModelID(_ value: String) -> Bool {
+        !value.isEmpty
+            && value.utf8.count <= 256
+            && value.utf8.allSatisfy { Self.allowedModelIDBytes.contains($0) }
     }
 
     private func grouped(_ usage: [NormalizedUsage], calendar: Calendar) throws -> [DailyUsageRow] {
@@ -388,8 +451,7 @@ public actor SQLiteLedger: LedgerStore {
     }
 
     private func bind(_ value: String, to statement: OpaquePointer, at index: Int32, using connection: SQLiteConnection) throws {
-        let result = sqlite3_bind_text(statement, index, value, -1, sqliteTransient)
-        guard result == SQLITE_OK else { throw failure(result, using: connection) }
+        try sqliteBindText(value, to: statement, at: index, using: connection)
     }
 
     private func bind(_ value: Int64, to statement: OpaquePointer, at index: Int32, using connection: SQLiteConnection) throws {
@@ -419,10 +481,7 @@ public actor SQLiteLedger: LedgerStore {
     }
 
     private func requiredText(_ statement: OpaquePointer, at index: Int32) throws -> String {
-        guard let value = sqlite3_column_text(statement, index) else {
-            throw LedgerError.corruptData("required database text value is NULL")
-        }
-        return String(cString: value)
+        try sqliteText(statement, at: index, using: try requiredConnection())
     }
 
     private func optionalText(_ statement: OpaquePointer, at index: Int32) throws -> String? {
@@ -442,4 +501,17 @@ private struct UsageKey: Hashable {
     let metric: UsageMetric
 }
 
-private let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+private extension SQLiteLedger {
+    static let allowedSkippedReasons: Set<String> = [
+        "malformed_record",
+        "missing_model",
+        "missing_source_identity",
+        "inconsistent_subtotals",
+        "inconsistent_total"
+    ]
+
+    static let allowedModelIDBytes: Set<UInt8> = {
+        let allowed = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-/:<>"
+        return Set(allowed.utf8)
+    }()
+}
