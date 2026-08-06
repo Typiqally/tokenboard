@@ -185,8 +185,208 @@ final class PriceResolverTests: XCTestCase {
         }
     }
 
+    func testLaterExpiringAliasDoesNotFallBackToOlderOpenEndedAlias() throws {
+        let snapshot = pricing(
+            aliases: [
+                alias(model: "gpt-observed", canonical: "gpt-old", from: "2026-01-01"),
+                alias(
+                    model: "gpt-observed",
+                    canonical: "gpt-new",
+                    from: "2026-09-01",
+                    to: "2026-10-01"
+                )
+            ],
+            rates: [
+                rate(canonical: "gpt-old", metric: .output, usd: "2", from: "2026-01-01"),
+                rate(canonical: "gpt-new", metric: .output, usd: "3", from: "2026-01-01")
+            ]
+        )
+        let rows = [
+            row(day: "2026-08-31", model: "gpt-observed", metric: .output, quantity: 1_000_000),
+            row(day: "2026-09-01", model: "gpt-observed", metric: .output, quantity: 1_000_000),
+            row(day: "2026-10-01", model: "gpt-observed", metric: .output, quantity: 1_000_000)
+        ]
+
+        let result = try PriceResolver().resolve(rows: rows, pricing: snapshot)
+
+        XCTAssertEqual(result.tokenTotal, 3_000_000)
+        XCTAssertEqual(result.knownUSD, Decimal(string: "5"))
+        XCTAssertEqual(result.unpricedTokens, 1_000_000)
+    }
+
+    func testLaterExpiringRateDoesNotFallBackToOlderOpenEndedRate() throws {
+        let snapshot = pricing(
+            aliases: [alias(model: "gpt-observed")],
+            rates: [
+                rate(metric: .output, usd: "2", from: "2026-01-01"),
+                rate(metric: .output, usd: "3", from: "2026-09-01", to: "2026-10-01")
+            ]
+        )
+        let rows = [
+            row(day: "2026-08-31", model: "gpt-observed", metric: .output, quantity: 1_000_000),
+            row(day: "2026-09-01", model: "gpt-observed", metric: .output, quantity: 1_000_000),
+            row(day: "2026-10-01", model: "gpt-observed", metric: .output, quantity: 1_000_000)
+        ]
+
+        let result = try PriceResolver().resolve(rows: rows, pricing: snapshot)
+
+        XCTAssertEqual(result.tokenTotal, 3_000_000)
+        XCTAssertEqual(result.knownUSD, Decimal(string: "5"))
+        XCTAssertEqual(result.unpricedTokens, 1_000_000)
+    }
+
+    func testProviderIsolatesBothAliasAndRateLookupKeys() throws {
+        let snapshot = pricing(
+            aliases: [
+                alias(provider: .codex, model: "shared-model", canonical: "shared-canonical"),
+                alias(provider: .claudeCode, model: "shared-model", canonical: "shared-canonical")
+            ],
+            rates: [
+                rate(
+                    provider: .codex,
+                    canonical: "shared-canonical",
+                    metric: .output,
+                    usd: "2",
+                    from: "2026-01-01"
+                ),
+                rate(
+                    provider: .claudeCode,
+                    canonical: "shared-canonical",
+                    metric: .output,
+                    usd: "7",
+                    from: "2026-01-01"
+                )
+            ]
+        )
+        let rows = [
+            row(
+                day: "2026-08-05",
+                provider: .codex,
+                model: "shared-model",
+                metric: .output,
+                quantity: 1_000_000
+            ),
+            row(
+                day: "2026-08-05",
+                provider: .claudeCode,
+                model: "shared-model",
+                metric: .output,
+                quantity: 1_000_000
+            )
+        ]
+
+        let result = try PriceResolver().resolve(rows: rows, pricing: snapshot)
+
+        XCTAssertEqual(result.tokenTotal, 2_000_000)
+        XCTAssertEqual(result.knownUSD, Decimal(string: "9"))
+        XCTAssertEqual(result.unpricedTokens, 0)
+    }
+
+    func testRejectsMalformedAndImpossibleEffectiveDates() throws {
+        assertResolverError(.invalidEffectiveDate("2026-8-01")) {
+            _ = try PriceResolver().resolve(
+                rows: [],
+                pricing: pricing(
+                    aliases: [alias(model: "gpt-observed", from: "2026-8-01")],
+                    rates: []
+                )
+            )
+        }
+        assertResolverError(.invalidEffectiveDate("2026-02-30")) {
+            _ = try PriceResolver().resolve(
+                rows: [],
+                pricing: pricing(
+                    aliases: [],
+                    rates: [rate(metric: .output, usd: "2", from: "2026-02-30")]
+                )
+            )
+        }
+    }
+
+    func testRejectsEqualAndReversedEffectiveIntervals() throws {
+        assertResolverError(.invalidEffectiveInterval(from: "2026-02-01", to: "2026-02-01")) {
+            _ = try PriceResolver().resolve(
+                rows: [],
+                pricing: pricing(
+                    aliases: [
+                        alias(model: "gpt-observed", from: "2026-02-01", to: "2026-02-01")
+                    ],
+                    rates: []
+                )
+            )
+        }
+        assertResolverError(.invalidEffectiveInterval(from: "2026-03-01", to: "2026-02-01")) {
+            _ = try PriceResolver().resolve(
+                rows: [],
+                pricing: pricing(
+                    aliases: [],
+                    rates: [
+                        rate(metric: .output, usd: "2", from: "2026-03-01", to: "2026-02-01")
+                    ]
+                )
+            )
+        }
+    }
+
+    func testRejectsExplicitAliasAndRateIntervalsOverlappingLaterStarts() throws {
+        assertResolverError(
+            .overlappingAliasIntervals(
+                provider: .codex,
+                observedModelID: "gpt-observed",
+                earlierEffectiveFrom: "2026-01-01",
+                laterEffectiveFrom: "2026-02-01"
+            )
+        ) {
+            _ = try PriceResolver().resolve(
+                rows: [],
+                pricing: pricing(
+                    aliases: [
+                        alias(model: "gpt-observed", from: "2026-01-01", to: "2026-03-01"),
+                        alias(model: "gpt-observed", from: "2026-02-01")
+                    ],
+                    rates: []
+                )
+            )
+        }
+        assertResolverError(
+            .overlappingRateIntervals(
+                provider: .codex,
+                canonicalModelID: "gpt-canonical",
+                metric: .output,
+                earlierEffectiveFrom: "2026-01-01",
+                laterEffectiveFrom: "2026-02-01"
+            )
+        ) {
+            _ = try PriceResolver().resolve(
+                rows: [],
+                pricing: pricing(
+                    aliases: [],
+                    rates: [
+                        rate(metric: .output, usd: "2", from: "2026-01-01", to: "2026-03-01"),
+                        rate(metric: .output, usd: "3", from: "2026-02-01")
+                    ]
+                )
+            )
+        }
+    }
+
+    private func assertResolverError(
+        _ expected: PriceResolverError,
+        operation: () throws -> Void
+    ) {
+        do {
+            try operation()
+            XCTFail("expected resolver error \(expected)")
+        } catch let error as PriceResolverError {
+            XCTAssertEqual(error, expected)
+        } catch {
+            XCTFail("unexpected error \(error)")
+        }
+    }
+
     private func row(
         day value: String,
+        provider: Provider = .codex,
         model: String,
         metric: UsageMetric,
         aggregation: MetricAggregation = .additive,
@@ -194,7 +394,7 @@ final class PriceResolverTests: XCTestCase {
     ) -> DailyUsageRow {
         DailyUsageRow(
             localDay: localDay(value),
-            provider: .codex,
+            provider: provider,
             observedModelID: model,
             metric: metric,
             aggregation: aggregation,
@@ -203,13 +403,14 @@ final class PriceResolverTests: XCTestCase {
     }
 
     private func alias(
+        provider: Provider = .codex,
         model: String,
         canonical: String = "gpt-canonical",
         from: String = "2026-01-01",
         to: String? = nil
     ) -> StoredModelAlias {
         StoredModelAlias(
-            provider: .codex,
+            provider: provider,
             observedModelID: model,
             canonicalModelID: canonical,
             effectiveFrom: from,
@@ -218,6 +419,7 @@ final class PriceResolverTests: XCTestCase {
     }
 
     private func rate(
+        provider: Provider = .codex,
         canonical: String = "gpt-canonical",
         metric: UsageMetric,
         usd: String,
@@ -225,7 +427,7 @@ final class PriceResolverTests: XCTestCase {
         to: String? = nil
     ) -> StoredPriceRate {
         StoredPriceRate(
-            provider: .codex,
+            provider: provider,
             canonicalModelID: canonical,
             metric: metric,
             usdPerMillion: Decimal(string: usd)!,

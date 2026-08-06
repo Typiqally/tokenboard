@@ -38,4 +38,22 @@ final class CalendarPeriodTests: XCTestCase {
         XCTAssertEqual(localDay.value, "2026-08-06")
         XCTAssertEqual(localDay.timeZoneIdentifier, "Europe/Amsterdam")
     }
+
+    func testLocalDayAlwaysUsesGregorianCivilDateForNonGregorianCalendars() throws {
+        let date = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-08-05T22:30:00Z"))
+        var buddhist = Calendar(identifier: .buddhist)
+        buddhist.locale = Locale(identifier: "th_TH")
+        buddhist.timeZone = calendar.timeZone
+        var japanese = Calendar(identifier: .japanese)
+        japanese.locale = Locale(identifier: "ja_JP")
+        japanese.timeZone = calendar.timeZone
+
+        let buddhistDay = LocalDay(date: date, calendar: buddhist)
+        let japaneseDay = LocalDay(date: date, calendar: japanese)
+
+        XCTAssertEqual(buddhistDay.value, "2026-08-06")
+        XCTAssertEqual(japaneseDay.value, "2026-08-06")
+        XCTAssertEqual(buddhistDay.timeZoneIdentifier, "Europe/Amsterdam")
+        XCTAssertEqual(japaneseDay.timeZoneIdentifier, "Europe/Amsterdam")
+    }
 }

@@ -56,9 +56,38 @@ final class UsageQueryServiceTests: XCTestCase {
         XCTAssertEqual(usedNilInterval, true)
     }
 
-    private func row(day value: String, quantity: Int64) -> DailyUsageRow {
+    func testBuddhistCalendarKeepsItsWeekBoundaryButQueriesGregorianDayKeys() async throws {
+        var buddhist = Calendar(identifier: .buddhist)
+        buddhist.locale = Locale(identifier: "th_TH")
+        buddhist.timeZone = TimeZone(identifier: "Europe/Amsterdam")!
+        buddhist.firstWeekday = 1
+        let ledger = QueryTestLedger(rows: [
+            row(day: "2026-08-02", quantity: 100, calendar: buddhist),
+            row(day: "2026-08-03", quantity: 200, calendar: buddhist),
+            row(day: "2026-08-04", quantity: 300, calendar: buddhist)
+        ])
+
+        let result = try await UsageQueryService(ledger: ledger).summary(
+            period: .thisWeek,
+            now: date("2026-08-05T12:00:00Z"),
+            calendar: buddhist
+        )
+        let intervalStart = await ledger.lastIntervalStartDay()
+
+        XCTAssertEqual(result.period, .thisWeek)
+        XCTAssertEqual(result.tokenTotal, 500)
+        XCTAssertEqual(result.knownAPIEquivalentUSD, Decimal(string: "0.001"))
+        XCTAssertEqual(result.unpricedTokens, 0)
+        XCTAssertEqual(intervalStart, "2026-08-03")
+    }
+
+    private func row(
+        day value: String,
+        quantity: Int64,
+        calendar: Calendar? = nil
+    ) -> DailyUsageRow {
         DailyUsageRow(
-            localDay: localDay(value),
+            localDay: localDay(value, calendar: calendar ?? amsterdamCalendar()),
             provider: .codex,
             observedModelID: "gpt-observed",
             metric: .inputUncached,
@@ -67,13 +96,13 @@ final class UsageQueryServiceTests: XCTestCase {
         )
     }
 
-    private func localDay(_ value: String) -> LocalDay {
+    private func localDay(_ value: String, calendar: Calendar) -> LocalDay {
         let formatter = DateFormatter()
         formatter.calendar = Calendar(identifier: .gregorian)
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         formatter.dateFormat = "yyyy-MM-dd"
-        return LocalDay(date: formatter.date(from: value)!, calendar: amsterdamCalendar())
+        return LocalDay(date: formatter.date(from: value)!, calendar: calendar)
     }
 
     private func date(_ value: String) -> Date {
