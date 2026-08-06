@@ -184,19 +184,34 @@ private actor RuntimeCoordinator: AppIngestionCoordinating {
     let recorder: OrderedRecorder
     private(set) var startCount = 0
     private(set) var refreshCount = 0
+    private var runID: UInt64 = 0
 
     init(recorder: OrderedRecorder) { self.recorder = recorder }
 
-    func start(roots: [Provider: URL]) {
+    func setEventBatchHandler(_ handler: (@Sendable (IngestionBatchResult) -> Void)?) {}
+
+    func start(roots: [Provider: URL]) -> IngestionBatchResult {
         startCount += 1
+        runID += 1
         recorder.append("coordinator.start")
+        return result()
     }
-    func refreshAll() {
+    func refreshAll() -> IngestionBatchResult {
         refreshCount += 1
         recorder.append("coordinator.refresh")
+        return result()
     }
     func stop() { recorder.append("coordinator.stop") }
     func counts() -> [Int] { [startCount, refreshCount] }
+
+    private func result() -> IngestionBatchResult {
+        IngestionBatchResult(
+            runID: runID,
+            providers: Dictionary(uniqueKeysWithValues: Provider.allCases.map {
+                ($0, .success(discoveredFiles: 0, scannedFiles: 0))
+            })
+        )
+    }
 }
 
 private actor RuntimePricingInbox: AppPricingInboxWatching {

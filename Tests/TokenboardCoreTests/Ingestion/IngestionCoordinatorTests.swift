@@ -21,7 +21,7 @@ final class IngestionCoordinatorTests: XCTestCase {
             clock: clock,
             calendar: calendar
         )
-        try await coordinator.start(roots: setup.roots)
+        _ = try await coordinator.start(roots: setup.roots)
         let changedA = setup.claudeRoot.appending(path: "a.jsonl")
         let changedB = setup.codexRoot.appending(path: "nested/b.jsonl")
         try FileManager.default.createDirectory(
@@ -70,15 +70,104 @@ final class IngestionCoordinatorTests: XCTestCase {
             calendar: calendar
         )
 
-        try await coordinator.start(roots: setup.roots)
+        let initial = try await coordinator.start(roots: setup.roots)
 
         var scannedURLs = await scanner.scannedURLs
         XCTAssertEqual(scannedURLs, [claudeFile, codexFile])
+        XCTAssertEqual(initial.providers[.claudeCode], .success(discoveredFiles: 1, scannedFiles: 1))
+        XCTAssertEqual(initial.providers[.codex], .success(discoveredFiles: 1, scannedFiles: 1))
         await scanner.reset()
-        await coordinator.refreshAll()
+        let refreshed = await coordinator.refreshAll()
         scannedURLs = await scanner.scannedURLs
         XCTAssertEqual(scannedURLs, [claudeFile, codexFile])
-        XCTAssertEqual(watcher.requestedRoots, [setup.claudeRoot, setup.codexRoot])
+        XCTAssertEqual(refreshed.providers[.claudeCode], .success(discoveredFiles: 1, scannedFiles: 1))
+        XCTAssertEqual(refreshed.providers[.codex], .success(discoveredFiles: 1, scannedFiles: 1))
+        XCTAssertEqual(
+            watcher.requestedRoots.map(\.path),
+            [setup.claudeRoot.path, setup.codexRoot.path]
+        )
+        await coordinator.stop()
+    }
+
+    func testCatchUpReportsAttentionAndFailureWithoutPathsOrMessages() async throws {
+        let setup = try makeSetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let claudeFile = setup.claudeRoot.appending(path: "attention.jsonl")
+        let codexFile = setup.codexRoot.appending(path: "failure.jsonl")
+        try Data().write(to: claudeFile)
+        try Data().write(to: codexFile)
+        let scanner = RecordingScanner(
+            outcomes: [
+                .claudeCode: ScanOutcome(
+                    committedUsageRecords: 0,
+                    skippedRecords: 0,
+                    finalOffset: 0,
+                    attention: .truncated
+                )
+            ],
+            failingProviders: [.codex]
+        )
+        let coordinator = IngestionCoordinator(
+            scanner: scanner,
+            watcher: FakeSourceEventWatcher(),
+            clock: ManualIngestionClock(),
+            calendar: calendar
+        )
+
+        let result = try await coordinator.start(roots: setup.roots)
+
+        XCTAssertEqual(result.providers[.claudeCode], .attention(discoveredFiles: 1, scannedFiles: 1))
+        XCTAssertEqual(result.providers[.codex], .failure(discoveredFiles: 1, scannedFiles: 1))
+        await coordinator.stop()
+    }
+
+    func testDiscoveryFailureIsReportedAndDoesNotBecomeHealthySuccess() async throws {
+        let setup = try makeSetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let coordinator = IngestionCoordinator(
+            scanner: RecordingScanner(),
+            watcher: FakeSourceEventWatcher(),
+            clock: ManualIngestionClock(),
+            discovery: ProviderFailingDiscovery(failingRoot: setup.claudeRoot),
+            calendar: calendar
+        )
+
+        let result = try await coordinator.start(roots: setup.roots)
+
+        XCTAssertEqual(result.providers[.claudeCode], .failure(discoveredFiles: 0, scannedFiles: 0))
+        XCTAssertEqual(result.providers[.codex], .success(discoveredFiles: 0, scannedFiles: 0))
+        await coordinator.stop()
+    }
+
+    func testDrainedEventBatchPublishesOneContentFreeCompletion() async throws {
+        let setup = try makeSetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let watcher = FakeSourceEventWatcher()
+        let clock = ManualIngestionClock()
+        let completions = BatchCompletionRecorder()
+        let coordinator = IngestionCoordinator(
+            scanner: RecordingScanner(),
+            watcher: watcher,
+            clock: clock,
+            calendar: calendar
+        )
+        await coordinator.setEventBatchHandler { result in
+            Task { await completions.append(result) }
+        }
+        let initial = try await coordinator.start(roots: setup.roots)
+        let changed = setup.claudeRoot.appending(path: "changed.jsonl")
+        try Data().write(to: changed)
+
+        watcher.emit([changed, changed])
+        await waitUntil { await clock.waiterCount == 1 }
+        await clock.advancePastDebounce()
+        await waitUntil { await completions.values.count == 1 }
+
+        let values = await completions.values
+        XCTAssertEqual(values.count, 1)
+        XCTAssertEqual(values[0].runID, initial.runID)
+        XCTAssertEqual(values[0].providers[.claudeCode], .success(discoveredFiles: 1, scannedFiles: 1))
+        XCTAssertNil(values[0].providers[.codex])
         await coordinator.stop()
     }
 
@@ -105,7 +194,7 @@ final class IngestionCoordinatorTests: XCTestCase {
         await waitUntil { await clock.waiterCount == 1 }
         await clock.advancePastDebounce()
         await scanner.resumeFirstScan()
-        try await startTask.value
+        _ = try await startTask.value
         await waitUntil { await scanner.scannedURLs.count == 2 }
 
         let scannedURLs = await scanner.scannedURLs
@@ -159,7 +248,7 @@ final class IngestionCoordinatorTests: XCTestCase {
             calendar: calendar
         )
 
-        try await coordinator.start(roots: setup.roots)
+        _ = try await coordinator.start(roots: setup.roots)
 
         let scannedURLs = await scanner.scannedURLs
         let scannedProviders = await scanner.scannedProviders
@@ -204,7 +293,7 @@ final class IngestionCoordinatorTests: XCTestCase {
             calendar: calendar
         )
         do {
-            try await coordinator.start(roots: roots)
+            _ = try await coordinator.start(roots: roots)
             XCTFail("expected ambiguous source roots to be rejected")
         } catch let error as IngestionCoordinatorError {
             XCTAssertEqual(error, .overlappingRoots)
@@ -256,6 +345,10 @@ private final class FakeSourceEventWatcher: SourceEventWatching, @unchecked Send
     }
 }
 
+private enum RecordingScannerError: Error {
+    case injected
+}
+
 private actor RecordingScanner: IngestionScanning {
     private(set) var scannedURLs: [URL] = []
     private(set) var scannedProviders: [Provider] = []
@@ -263,9 +356,17 @@ private actor RecordingScanner: IngestionScanning {
     private(set) var maximumConcurrentScans = 0
     private var shouldSuspendFirstScan: Bool
     private var firstScanContinuation: CheckedContinuation<Void, Never>?
+    private let outcomes: [Provider: ScanOutcome]
+    private let failingProviders: Set<Provider>
 
-    init(suspendFirstScan: Bool = false) {
+    init(
+        suspendFirstScan: Bool = false,
+        outcomes: [Provider: ScanOutcome] = [:],
+        failingProviders: Set<Provider> = []
+    ) {
         shouldSuspendFirstScan = suspendFirstScan
+        self.outcomes = outcomes
+        self.failingProviders = failingProviders
     }
 
     func scan(file: URL, provider: Provider, calendar: Calendar) async throws -> ScanOutcome {
@@ -278,7 +379,8 @@ private actor RecordingScanner: IngestionScanning {
             await withCheckedContinuation { firstScanContinuation = $0 }
         }
         activeScans -= 1
-        return ScanOutcome(
+        if failingProviders.contains(provider) { throw RecordingScannerError.injected }
+        return outcomes[provider] ?? ScanOutcome(
             committedUsageRecords: 0,
             skippedRecords: 0,
             finalOffset: 0,
@@ -297,6 +399,22 @@ private actor RecordingScanner: IngestionScanning {
         activeScans = 0
         maximumConcurrentScans = 0
     }
+}
+
+private struct ProviderFailingDiscovery: LogDiscovering {
+    let failingRoot: URL
+
+    func jsonlFiles(under root: URL) throws -> [URL] {
+        if root.standardizedFileURL == failingRoot.standardizedFileURL {
+            throw RecordingScannerError.injected
+        }
+        return []
+    }
+}
+
+private actor BatchCompletionRecorder {
+    private(set) var values: [IngestionBatchResult] = []
+    func append(_ value: IngestionBatchResult) { values.append(value) }
 }
 
 private actor ManualIngestionClock: IngestionClock {

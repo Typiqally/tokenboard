@@ -2,76 +2,44 @@ import Combine
 import Foundation
 import TokenboardCore
 
-protocol AppLedgerRuntime: Sendable {
-    func migrate() async throws
-    func integrityCheck() async throws
-    func latestAppliedPricingCatalogJSON() async throws -> Data?
-    func applyPricingCatalog(
-        _ catalog: ValidatedPricingCatalog,
-        canonicalJSON: Data,
-        origin: String,
-        validationSummary: String
-    ) async throws
-}
-
-protocol AppUsageQuerying: Sendable {
-    func summary(
-        period: CalendarPeriod,
-        now: Date,
-        calendar: Calendar
-    ) async throws -> UsageSummary
-}
-
-protocol AppIngestionCoordinating: Sendable {
-    func start(roots: [Provider: URL]) async throws
-    func refreshAll() async
-    func stop() async
-}
-
-protocol AppPricingInboxWatching: Sendable {
-    func start() async throws
-    func stop() async throws
-}
-
-extension SQLiteLedger: AppLedgerRuntime {}
-extension UsageQueryService: AppUsageQuerying {}
-extension IngestionCoordinator: AppIngestionCoordinating {}
-extension PricingInbox: AppPricingInboxWatching {}
-
 @MainActor
 final class AppModel: ObservableObject {
-    @Published private(set) var presentation: MenuPresentation?
-    @Published private(set) var sourceHealth: [Provider: SourceHealth] = [
-        .claudeCode: .notGranted,
-        .codex: .notGranted
-    ]
-    @Published private(set) var sourceFileCounts: [Provider: Int] = [:]
-    @Published private(set) var onboardingRequired = false
-    @Published private(set) var selectedPeriod: CalendarPeriod
-    @Published private(set) var selectedDisplayMetric: DisplayMetric
-    @Published private(set) var lastUpdated: Date?
-    @Published private(set) var revision = 0
+    @Published private(set) var state: AppPublishedState
 
     var onOpenPricing: (() -> Void)?
     var onOpenSettings: (() -> Void)?
 
-    private let ledger: any AppLedgerRuntime
-    private let queryService: any AppUsageQuerying
-    private let coordinator: any AppIngestionCoordinating
-    private let pricingInbox: any AppPricingInboxWatching
-    private let grantStore: SourceGrantStore
-    private let grantController: SourceGrantController
-    private let preferences: AppPreferences
-    private let bundledCatalogData: Data
-    private let now: @Sendable () -> Date
-    private let calendar: Calendar
-    private let discovery: LogDiscovery
-    private var activeGrants: [Provider: ActiveSourceGrant] = [:]
-    private var lastSummary: UsageSummary?
-    private var started = false
-    private var coordinatorStarted = false
-    private var inboxStarted = false
-    private var isShutdown = false
+    var presentation: MenuPresentation? { state.presentation }
+    var sourceHealth: [Provider: SourceHealth] { state.sourceHealth }
+    var sourceFileCounts: [Provider: Int] { state.sourceFileCounts }
+    var onboardingRequired: Bool { state.onboardingRequired }
+    var selectedPeriod: CalendarPeriod { state.selectedPeriod }
+    var selectedDisplayMetric: DisplayMetric { state.selectedDisplayMetric }
+    var lastUpdated: Date? { state.lastUpdated }
+    var canStartHistoricalImport: Bool { state.canStartHistoricalImport }
+
+    let ledger: any AppLedgerRuntime
+    let queryService: any AppUsageQuerying
+    let coordinator: any AppIngestionCoordinating
+    let pricingInbox: any AppPricingInboxWatching
+    let grantStore: SourceGrantStore
+    let sourcePicker: any AppSourcePicking
+    let preferences: AppPreferences
+    let bundledCatalogData: Data
+    let now: @Sendable () -> Date
+    let calendar: Calendar
+    let discovery: any LogDiscovering
+    var activeGrants: [Provider: ActiveSourceGrant] = [:]
+    var lastSummary: UsageSummary?
+    var lifecycleGeneration: UInt64 = 0
+    var readyGeneration: UInt64?
+    var queryGeneration: UInt64 = 0
+    var inFlightQueries: [UInt64: Task<Result<UsageSummary, Error>, Never>] = [:]
+    var activityGeneration: UInt64 = 0
+    var startupTask: Task<Void, Never>?
+    var activity: AppRuntimeActivity?
+    var coordinatorStatus = AppRuntimeStatus.inactive
+    var inboxStatus = AppRuntimeStatus.inactive
 
     init(
         ledger: any AppLedgerRuntime,
@@ -83,136 +51,106 @@ final class AppModel: ObservableObject {
         bundledCatalogData: Data,
         now: @escaping @Sendable () -> Date = { Date() },
         calendar: Calendar = .current,
-        discovery: LogDiscovery = LogDiscovery()
+        discovery: any LogDiscovering = LogDiscovery(),
+        sourcePicker: (any AppSourcePicking)? = nil
     ) {
         self.ledger = ledger
         self.queryService = queryService
         self.coordinator = coordinator
         self.pricingInbox = pricingInbox
         self.grantStore = grantStore
-        self.grantController = SourceGrantController(store: grantStore)
+        self.sourcePicker = sourcePicker ?? SourceGrantController()
         self.preferences = preferences
         self.bundledCatalogData = bundledCatalogData
         self.now = now
         self.calendar = calendar
         self.discovery = discovery
-        selectedPeriod = preferences.selectedPeriod
-        selectedDisplayMetric = preferences.selectedDisplayMetric
-    }
-
-    var canStartHistoricalImport: Bool {
-        Provider.allCases.allSatisfy { activeGrants[$0] != nil }
+        state = .initial(
+            period: preferences.selectedPeriod,
+            displayMetric: preferences.selectedDisplayMetric
+        )
     }
 
     func hasActiveGrant(for provider: Provider) -> Bool {
         activeGrants[provider] != nil
     }
 
+    func commitState(_ next: AppPublishedState) {
+        state = next
+    }
+
     func start() async {
-        guard !started, !isShutdown else { return }
-        started = true
-        do {
-            try await ledger.migrate()
-            try await ledger.integrityCheck()
-            try await installBundledCatalogIfNeeded()
-            try await pricingInbox.start()
-            inboxStarted = true
-            resolveStoredGrants()
-            guard canStartHistoricalImport,
-                  preferences.historicalImportApproved else {
-                onboardingRequired = true
-                if preferences.historicalImportApproved {
-                    try await querySelectedSummary()
-                }
-                publishChange()
-                return
-            }
-            try await startCoordinatorAndQuery()
-        } catch {
-            publishWarning("Startup paused: \(Self.errorDescription(error))")
-        }
+        guard state.lifecycle != .ready else { return }
+        guard await ensureReady(retryFailed: false) else { return }
+        await finishStartupBehavior()
     }
 
     func startHistoricalImport() async {
-        guard !isShutdown else { return }
-        guard canStartHistoricalImport else {
-            onboardingRequired = true
-            publishChange()
+        guard isReadyForSources,
+              state.canStartHistoricalImport else { return }
+        if let activity {
+            await activity.task.value
             return
         }
-
         preferences.historicalImportApproved = true
-        onboardingRequired = false
-        for provider in Provider.allCases {
-            sourceHealth[provider] = .indexing(fileCount: sourceFileCounts[provider, default: 0])
-        }
-        publishChange()
-
-        do {
-            try await startCoordinatorAndQuery()
-        } catch {
-            publishWarning("Historical import paused: \(Self.errorDescription(error))")
-        }
+        var next = state
+        next.onboardingRequired = false
+        state = next
+        await launchIngestion(refreshExisting: false)
     }
 
     func refresh() async {
-        guard preferences.historicalImportApproved, canStartHistoricalImport else {
-            onboardingRequired = true
-            publishChange()
+        guard await ensureReady(retryFailed: true) else { return }
+        guard isReadyForSources else { return }
+        guard preferences.historicalImportApproved,
+              hasEveryGrant else {
+            var next = state
+            next.onboardingRequired = true
+            state = next
+            if preferences.historicalImportApproved {
+                await querySelectedSummary()
+            }
             return
         }
-        do {
-            if coordinatorStarted {
-                await coordinator.refreshAll()
-            } else {
-                try await coordinator.start(roots: activeRoots())
-                coordinatorStarted = true
-            }
-            try await querySelectedSummary()
-            markSourcesHealthy()
-        } catch {
-            publishWarning("Refresh paused: \(Self.errorDescription(error))")
+        if let activity {
+            await activity.task.value
+            return
         }
+        await launchIngestion(refreshExisting: true)
     }
 
     func select(period: CalendarPeriod) async {
-        selectedPeriod = period
+        guard state.lifecycle != .stopped,
+              state.lifecycle != .shuttingDown else { return }
         preferences.selectedPeriod = period
-        publishChange()
+        var next = state
+        next.selectedPeriod = period
+        state = next
         await requeryWithoutScanning()
     }
 
     func select(displayMetric: DisplayMetric) async {
-        selectedDisplayMetric = displayMetric
+        guard state.lifecycle != .stopped,
+              state.lifecycle != .shuttingDown else { return }
         preferences.selectedDisplayMetric = displayMetric
+        var next = state
+        next.selectedDisplayMetric = displayMetric
         if let lastSummary {
-            presentation = makePresentation(summary: lastSummary)
+            next.presentation = makePresentation(summary: lastSummary, state: next)
         }
-        publishChange()
+        state = next
         await requeryWithoutScanning()
     }
 
     func chooseSource(_ provider: Provider) async {
+        guard isReadyForSources else { return }
+        if let activity { await activity.task.value }
+        guard isReadyForSources else { return }
         do {
-            guard try grantController.select(provider: provider) != nil else { return }
-            if coordinatorStarted {
-                await coordinator.stop()
-                coordinatorStarted = false
-            }
-            activeGrants[provider]?.close()
-            activeGrants[provider] = nil
-            try openStoredGrant(for: provider)
-            onboardingRequired = !canStartHistoricalImport || !preferences.historicalImportApproved
-            publishChange()
-            if canStartHistoricalImport, preferences.historicalImportApproved {
-                try await startCoordinatorAndQuery()
-            }
+            guard let url = try sourcePicker.select(provider: provider) else { return }
+            await launchReplacement(provider: provider, url: url)
         } catch {
-            sourceHealth[provider] = .warning(
-                message: "Access unavailable: \(Self.errorDescription(error))"
-            )
-            onboardingRequired = true
-            publishChange()
+            return
         }
     }
 
@@ -220,149 +158,60 @@ final class AppModel: ObservableObject {
     func openSettings() { onOpenSettings?() }
 
     func shutdown() async {
-        guard !isShutdown else { return }
-        isShutdown = true
-        await coordinator.stop()
-        coordinatorStarted = false
-        if inboxStarted {
-            do {
-                try await pricingInbox.stop()
-            } catch {
-                publishWarning("Pricing shutdown warning: \(Self.errorDescription(error))")
-            }
-            inboxStarted = false
-        }
-        closeActiveGrants()
-    }
-
-    private func installBundledCatalogIfNeeded() async throws {
-        guard try await ledger.latestAppliedPricingCatalogJSON() == nil else { return }
-        let loaded = try PricingCatalogLoader().load(bundledCatalogData)
-        let validated = try PricingCatalogValidator().validate(loaded)
-        try await ledger.applyPricingCatalog(
-            validated,
-            canonicalJSON: validated.canonicalJSON,
-            origin: PricingImportMetadata.bundledRepositoryOrigin,
-            validationSummary: PricingImportMetadata.schemaV1ValidSummary
-        )
-    }
-
-    private func resolveStoredGrants() {
-        for provider in Provider.allCases {
-            do {
-                try openStoredGrant(for: provider)
-            } catch {
-                activeGrants[provider]?.close()
-                activeGrants[provider] = nil
-                sourceHealth[provider] = .warning(
-                    message: "Access unavailable: \(Self.errorDescription(error))"
-                )
-            }
-        }
-    }
-
-    private func openStoredGrant(for provider: Provider) throws {
-        activeGrants[provider]?.close()
-        activeGrants[provider] = nil
-        guard let grant = try grantStore.openGrant(for: provider) else {
-            sourceFileCounts[provider] = nil
-            sourceHealth[provider] = .notGranted
+        switch state.lifecycle {
+        case .shuttingDown, .stopped:
             return
+        case .idle, .starting, .ready, .failed:
+            break
         }
-        activeGrants[provider] = grant
-        let fileCount = try discovery.jsonlFiles(under: grant.root).count
-        sourceFileCounts[provider] = fileCount
-        sourceHealth[provider] = .indexing(fileCount: fileCount)
-    }
 
-    private func startCoordinatorAndQuery() async throws {
-        guard canStartHistoricalImport, preferences.historicalImportApproved else { return }
-        if !coordinatorStarted {
-            try await coordinator.start(roots: activeRoots())
-            coordinatorStarted = true
+        lifecycleGeneration &+= 1
+        readyGeneration = nil
+        queryGeneration &+= 1
+        let startup = startupTask
+        let currentActivity = activity?.task
+        let currentQueries = Array(inFlightQueries.values)
+        startup?.cancel()
+        currentActivity?.cancel()
+        currentQueries.forEach { $0.cancel() }
+        var next = state
+        next.lifecycle = .shuttingDown
+        next.isImporting = false
+        next.onboardingRequired = false
+        state = next
+
+        await coordinator.setEventBatchHandler(nil)
+        await coordinator.stop()
+        if inboxStatus != .inactive {
+            try? await pricingInbox.stop()
         }
-        try await querySelectedSummary()
-        markSourcesHealthy()
-        onboardingRequired = false
-        publishChange()
-    }
+        await startup?.value
+        await currentActivity?.value
+        for query in currentQueries { _ = await query.value }
 
-    private func requeryWithoutScanning() async {
-        guard preferences.historicalImportApproved else { return }
-        do {
-            try await querySelectedSummary()
-        } catch {
-            publishWarning("Summary unavailable: \(Self.errorDescription(error))")
+        await coordinator.setEventBatchHandler(nil)
+        await coordinator.stop()
+        if inboxStatus != .inactive {
+            try? await pricingInbox.stop()
         }
+        coordinatorStatus = .inactive
+        inboxStatus = .inactive
+        startupTask = nil
+        activity = nil
+        inFlightQueries.removeAll()
+        closeActiveGrants()
+        lastSummary = nil
+
+        next = state
+        next.lifecycle = .stopped
+        next.presentation = nil
+        next.grantedProviders = []
+        next.sourceFileCounts = [:]
+        next.sourceHealth = [.claudeCode: .notGranted, .codex: .notGranted]
+        next.lastUpdated = nil
+        next.isImporting = false
+        next.onboardingRequired = false
+        state = next
     }
 
-    private func querySelectedSummary() async throws {
-        let summary = try await queryService.summary(
-            period: selectedPeriod,
-            now: now(),
-            calendar: calendar
-        )
-        lastSummary = summary
-        presentation = makePresentation(summary: summary)
-    }
-
-    private func makePresentation(summary: UsageSummary) -> MenuPresentation {
-        MenuPresentation(
-            summary: summary,
-            displayMetric: selectedDisplayMetric,
-            hasHealthWarning: sourceHealth.values.contains(where: Self.isWarning)
-        )
-    }
-
-    private func markSourcesHealthy() {
-        let updated = now()
-        lastUpdated = updated
-        for provider in Provider.allCases {
-            sourceHealth[provider] = .healthy(
-                fileCount: sourceFileCounts[provider, default: 0],
-                lastUpdated: updated
-            )
-        }
-        if let lastSummary {
-            presentation = makePresentation(summary: lastSummary)
-        }
-    }
-
-    private func activeRoots() -> [Provider: URL] {
-        Dictionary(uniqueKeysWithValues: activeGrants.map { ($0.key, $0.value.root) })
-    }
-
-    private func closeActiveGrants() {
-        for grant in activeGrants.values { grant.close() }
-        activeGrants.removeAll()
-    }
-
-    private func publishWarning(_ message: String) {
-        for provider in Provider.allCases {
-            sourceHealth[provider] = .warning(message: message)
-        }
-        if let lastSummary {
-            presentation = makePresentation(summary: lastSummary)
-        }
-        publishChange()
-    }
-
-    private func publishChange() { revision &+= 1 }
-
-    private static func isWarning(_ health: SourceHealth) -> Bool {
-        switch health {
-        case .notGranted, .warning:
-            return true
-        case .indexing, .healthy:
-            return false
-        }
-    }
-
-    private static func errorDescription(_ error: Error) -> String {
-        if let localized = error as? LocalizedError,
-           let description = localized.errorDescription {
-            return description
-        }
-        return String(describing: error)
-    }
 }

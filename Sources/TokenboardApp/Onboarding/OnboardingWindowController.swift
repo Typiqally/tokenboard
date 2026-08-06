@@ -23,4 +23,12 @@ final class OnboardingWindowController: NSWindowController {
         showWindow(nil)
         window?.orderFrontRegardless()
     }
+
+    func update(isRequired: Bool) {
+        if isRequired {
+            present()
+        } else {
+            window?.orderOut(nil)
+        }
+    }
 }

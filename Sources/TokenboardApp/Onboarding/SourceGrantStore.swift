@@ -84,6 +84,37 @@ final class ActiveSourceGrant {
 }
 
 @MainActor
+final class PreparedSourceGrant {
+    let provider: Provider
+    let root: URL
+    fileprivate let bookmarkData: Data
+    private var activeGrant: ActiveSourceGrant?
+
+    fileprivate init(
+        provider: Provider,
+        root: URL,
+        bookmarkData: Data,
+        activeGrant: ActiveSourceGrant
+    ) {
+        self.provider = provider
+        self.root = root
+        self.bookmarkData = bookmarkData
+        self.activeGrant = activeGrant
+    }
+
+    func close() {
+        activeGrant?.close()
+        activeGrant = nil
+    }
+
+    fileprivate func takeActiveGrant() -> ActiveSourceGrant {
+        precondition(activeGrant != nil, "prepared grant was already consumed")
+        defer { activeGrant = nil }
+        return activeGrant!
+    }
+}
+
+@MainActor
 final class SourceGrantStore {
     private let defaults: UserDefaults
     private let bookmarkAccess: any SecurityScopedBookmarkAccessing
@@ -117,6 +148,27 @@ final class SourceGrantStore {
             options: [.withSecurityScope, .securityScopeAllowOnlyReadAccess]
         )
         defaults.set(data, forKey: bookmarkKey(for: provider))
+    }
+
+    func prepareGrant(url: URL, for provider: Provider) throws -> PreparedSourceGrant {
+        let root = url.standardizedFileURL
+        let bookmarkData = try bookmarkAccess.makeBookmark(
+            for: root,
+            options: [.withSecurityScope, .securityScopeAllowOnlyReadAccess]
+        )
+        let activeGrant = try ActiveSourceGrant(root: root, access: bookmarkAccess)
+        return PreparedSourceGrant(
+            provider: provider,
+            root: root,
+            bookmarkData: bookmarkData,
+            activeGrant: activeGrant
+        )
+    }
+
+    func commit(_ prepared: PreparedSourceGrant, for provider: Provider) -> ActiveSourceGrant {
+        precondition(prepared.provider == provider, "prepared grant provider mismatch")
+        defaults.set(prepared.bookmarkData, forKey: bookmarkKey(for: provider))
+        return prepared.takeActiveGrant()
     }
 
     func openGrant(for provider: Provider) throws -> ActiveSourceGrant? {

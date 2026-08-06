@@ -41,10 +41,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             model.onOpenSettings = { [weak onboardingController] in
                 onboardingController?.present()
             }
-            onboardingObservation = model.$onboardingRequired
+            onboardingObservation = model.$state
+                .map(\.onboardingRequired)
                 .removeDuplicates()
                 .sink { [weak self] required in
-                    if required { self?.onboardingController?.present() }
+                    self?.onboardingController?.update(isRequired: required)
                 }
             Task { await model.start() }
         } catch {

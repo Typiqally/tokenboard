@@ -2,13 +2,12 @@ import AppKit
 import TokenboardCore
 
 @MainActor
-final class SourceGrantController {
-    private let store: SourceGrantStore
+protocol AppSourcePicking: Sendable {
+    func select(provider: Provider) throws -> URL?
+}
 
-    init(store: SourceGrantStore) {
-        self.store = store
-    }
-
+@MainActor
+final class SourceGrantController: AppSourcePicking {
     @discardableResult
     func select(provider: Provider) throws -> URL? {
         let panel = NSOpenPanel()
@@ -21,8 +20,7 @@ final class SourceGrantController {
             panel.directoryURL = suggestedDirectory
         }
         guard panel.runModal() == .OK, let url = panel.url else { return nil }
-        try store.save(url: url, for: provider)
-        return url
+        return url.standardizedFileURL
     }
 
     private func suggestedDirectory(for provider: Provider) -> URL? {

@@ -96,6 +96,39 @@ final class SourceGrantStoreTests: XCTestCase {
         XCTAssertEqual(setup.access.operations, [.resolve, .start, .stop])
     }
 
+    func testPreparedReplacementKeepsStoredBookmarkUnchangedUntilCommit() throws {
+        let setup = makeSetup()
+        defer { setup.cleanup() }
+        let oldBookmark = Data([9])
+        let root = URL(fileURLWithPath: "/tmp/replacement")
+        setup.defaults.set(oldBookmark, forKey: "sourceBookmark.claude_code")
+
+        let prepared = try setup.store.prepareGrant(url: root, for: .claudeCode)
+
+        XCTAssertEqual(setup.defaults.data(forKey: "sourceBookmark.claude_code"), oldBookmark)
+        XCTAssertEqual(setup.access.operations, [.make, .start])
+        prepared.close()
+        XCTAssertEqual(setup.access.operations, [.make, .start, .stop])
+        XCTAssertEqual(setup.defaults.data(forKey: "sourceBookmark.claude_code"), oldBookmark)
+    }
+
+    func testCommittedReplacementPublishesBookmarkAndTransfersActiveGrant() throws {
+        let setup = makeSetup()
+        defer { setup.cleanup() }
+        let root = URL(fileURLWithPath: "/tmp/replacement")
+        setup.defaults.set(Data([9]), forKey: "sourceBookmark.codex")
+        let prepared = try setup.store.prepareGrant(url: root, for: .codex)
+
+        let grant = setup.store.commit(prepared, for: .codex)
+
+        XCTAssertEqual(setup.defaults.data(forKey: "sourceBookmark.codex"), Data([1]))
+        XCTAssertEqual(grant.root, root.standardizedFileURL)
+        prepared.close()
+        XCTAssertEqual(setup.access.stopCount, 0)
+        grant.close()
+        XCTAssertEqual(setup.access.stopCount, 1)
+    }
+
     func testFailedActiveGrantStartDoesNotStopAndRevokeDeletesOnlySelectedKey() throws {
         let setup = makeSetup()
         defer { setup.cleanup() }

@@ -1,13 +1,18 @@
 import SwiftUI
 import TokenboardCore
 
+enum OnboardingCopy {
+    static let privacy = "Only token counts, model IDs, and timestamps are read. Conversation content is never retained."
+    static let coverageWarning = "Tokenboard cannot recover conversations deleted before this first import."
+}
+
 struct OnboardingView: View {
     @ObservedObject var model: AppModel
 
     var body: some View {
         Form {
             Section {
-                Text("Only token counts, model IDs, and timestamps are read. Conversation content is never retained.")
+                Text(OnboardingCopy.privacy)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -18,7 +23,7 @@ struct OnboardingView: View {
 
             Section {
                 Label(
-                    "Tokenboard cannot recover conversations deleted before this first import.",
+                    OnboardingCopy.coverageWarning,
                     systemImage: "exclamationmark.triangle"
                 )
                 .fixedSize(horizontal: false, vertical: true)
@@ -52,6 +57,7 @@ struct OnboardingView: View {
             Button(model.hasActiveGrant(for: provider) ? "Change" : "Grant") {
                 Task { await model.chooseSource(provider) }
             }
+            .disabled(model.state.isImporting || model.state.lifecycle != .ready)
             .accessibilityLabel(
                 model.hasActiveGrant(for: provider)
                     ? "Change \(title) folder"

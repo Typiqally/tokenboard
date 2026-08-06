@@ -1,6 +1,10 @@
 import Foundation
 
-public struct LogDiscovery: Sendable {
+public protocol LogDiscovering: Sendable {
+    func jsonlFiles(under root: URL) throws -> [URL]
+}
+
+public struct LogDiscovery: LogDiscovering, Sendable {
     public init() {}
 
     public func jsonlFiles(under root: URL) throws -> [URL] {
