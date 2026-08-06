@@ -51,7 +51,10 @@ final class CodexAdapterTests: XCTestCase {
 
     func testUnsafeModelContextDoesNotEnterCheckpointState() {
         var adapter = CodexAdapter(stableSourceID: "session-a")
-        XCTAssertEqual(adapter.consume(line: Data(#"{"type":"turn_context","payload":{"model":"unsafe\nmodel"}}"#.utf8)), .ignored)
+        guard case let .skipped(diagnostic) = adapter.consume(line: Data(#"{"type":"turn_context","payload":{"model":"unsafe\nmodel"}}"#.utf8)) else {
+            return XCTFail("expected skipped record")
+        }
+        XCTAssertEqual(diagnostic.kind, .malformedRecord)
         XCTAssertNil(adapter.checkpointState["current_model"])
     }
 
