@@ -4,7 +4,7 @@ import XCTest
 @testable import TokenboardCore
 
 final class FSEventWatcherTests: XCTestCase {
-    func testCreatesOneStreamWithExactNativeConfigurationAndReleasesItOnce() {
+    func testCreatesOneStreamWithExactConfigurationAndOrderedCleanup() {
         let driver = RecordingFSEventStreamDriver()
         let watcher = FSEventWatcher(driver: driver)
         let roots = [URL(fileURLWithPath: "/tmp/claude"), URL(fileURLWithPath: "/tmp/codex")]
@@ -22,40 +22,50 @@ final class FSEventWatcherTests: XCTestCase {
         XCTAssertEqual(driver.configuration?.flags, expectedFlags)
         XCTAssertEqual(driver.configuration?.sinceWhen, UInt64(kFSEventStreamEventIdSinceNow))
         XCTAssertEqual(driver.configuration?.latency, 0.5)
-        XCTAssertEqual(driver.scheduleCount, 1)
-        XCTAssertEqual(driver.startCount, 1)
-        XCTAssertEqual(driver.hasLiveHandle, true)
+        XCTAssertEqual(driver.operations, [.schedule, .start(true)])
+        XCTAssertTrue(driver.callbackContextIsAlive)
 
         watcher.stop()
         watcher.stop()
 
-        XCTAssertEqual(driver.stopCount, 1)
-        XCTAssertEqual(driver.invalidateCount, 1)
-        XCTAssertEqual(driver.releaseCount, 1)
-        XCTAssertEqual(driver.hasLiveHandle, false)
+        XCTAssertEqual(
+            driver.operations,
+            [.schedule, .start(true), .stop, .invalidate, .release]
+        )
+        XCTAssertEqual(driver.callbackLivenessAtOperation, [true, true, true, true, true])
+        XCTAssertFalse(driver.callbackContextIsAlive)
+        XCTAssertEqual(driver.callbackReleaseCount, 1)
+        XCTAssertEqual(driver.operationCountsAtCallbackRelease, [5])
         withExtendedLifetime(stream) {}
     }
 
-    func testRootChangedEventYieldsTheWatchedRoot() async {
+    func testDeliverySucceedsBeforeCleanupAndIsRejectedAfterRelease() async {
         let driver = RecordingFSEventStreamDriver()
         let watcher = FSEventWatcher(driver: driver)
         let root = URL(fileURLWithPath: "/tmp/claude").standardizedFileURL
         let stream = watcher.events(for: [root])
         var iterator = stream.makeAsyncIterator()
 
-        driver.emit([
+        let delivered = driver.emit([
             FSEventDriverEvent(
                 path: root.appending(path: "renamed").path,
                 flags: UInt32(kFSEventStreamEventFlagRootChanged)
             )
         ])
 
+        XCTAssertTrue(delivered)
         let received = await iterator.next()
         XCTAssertEqual(received, [root])
+
         watcher.stop()
+
+        XCTAssertFalse(driver.callbackContextIsAlive)
+        XCTAssertEqual(driver.callbackReleaseCount, 1)
+        XCTAssertEqual(driver.operationCountsAtCallbackRelease, [5])
+        XCTAssertFalse(driver.emit([FSEventDriverEvent(path: root.path, flags: 0)]))
     }
 
-    func testStartFailureInvalidatesAndReleasesWithoutStopping() async {
+    func testStartFailureUsesFailureCleanupOrderAndReleasesCallbackOnce() async {
         let driver = RecordingFSEventStreamDriver(startResult: false)
         let watcher = FSEventWatcher(driver: driver)
         let stream = watcher.events(for: [URL(fileURLWithPath: "/tmp/claude")])
@@ -63,72 +73,126 @@ final class FSEventWatcherTests: XCTestCase {
 
         let received = await iterator.next()
         XCTAssertEqual(received, nil)
-        XCTAssertEqual(driver.stopCount, 0)
-        XCTAssertEqual(driver.invalidateCount, 1)
-        XCTAssertEqual(driver.releaseCount, 1)
-        XCTAssertEqual(driver.hasLiveHandle, false)
+        XCTAssertEqual(driver.operations, [.schedule, .start(false), .invalidate, .release])
+        XCTAssertEqual(driver.callbackLivenessAtOperation, [true, true, true, true])
+        XCTAssertFalse(driver.operations.contains(.stop))
+        XCTAssertFalse(driver.callbackContextIsAlive)
+        XCTAssertEqual(driver.callbackReleaseCount, 1)
+        XCTAssertEqual(driver.operationCountsAtCallbackRelease, [4])
+        XCTAssertFalse(driver.emit([FSEventDriverEvent(path: "/tmp/claude", flags: 0)]))
 
         watcher.stop()
-        XCTAssertEqual(driver.invalidateCount, 1)
-        XCTAssertEqual(driver.releaseCount, 1)
+        XCTAssertEqual(driver.operations, [.schedule, .start(false), .invalidate, .release])
+        XCTAssertEqual(driver.callbackReleaseCount, 1)
+    }
+
+    func testStreamTerminationCleansUpOnceWithoutReordering() async {
+        let driver = RecordingFSEventStreamDriver()
+        let watcher = FSEventWatcher(driver: driver)
+        let stream = watcher.events(for: [URL(fileURLWithPath: "/tmp/claude")])
+        let consumer = Task {
+            for await _ in stream {}
+        }
+
+        consumer.cancel()
+        await consumer.value
+        watcher.stop()
+
+        XCTAssertEqual(
+            driver.operations,
+            [.schedule, .start(true), .stop, .invalidate, .release]
+        )
+        XCTAssertEqual(driver.callbackLivenessAtOperation, [true, true, true, true, true])
+        XCTAssertFalse(driver.callbackContextIsAlive)
+        XCTAssertEqual(driver.callbackReleaseCount, 1)
+        XCTAssertEqual(driver.operationCountsAtCallbackRelease, [5])
     }
 }
 
 private final class RecordingFSEventStreamDriver: FSEventStreamDriving, @unchecked Sendable {
+    enum Operation: Equatable {
+        case schedule
+        case start(Bool)
+        case stop
+        case invalidate
+        case release
+    }
+
     private let lock = NSLock()
     private let startResult: Bool
-    private weak var handle: FSEventStreamHandle?
-    private(set) var configuration: FSEventStreamConfiguration?
-    private(set) var createCount = 0
-    private(set) var scheduleCount = 0
-    private(set) var startCount = 0
-    private(set) var stopCount = 0
-    private(set) var invalidateCount = 0
-    private(set) var releaseCount = 0
+    private var handle: FSEventStreamHandle?
+    private var recordedOperations: [Operation] = []
+    private var recordedCallbackLiveness: [Bool] = []
+    private var recordedCallbackReleaseCount = 0
+    private var recordedOperationCountsAtCallbackRelease: [Int] = []
+    private var recordedConfiguration: FSEventStreamConfiguration?
+    private var recordedCreateCount = 0
 
     init(startResult: Bool = true) {
         self.startResult = startResult
     }
 
-    var hasLiveHandle: Bool { lock.withLock { handle != nil } }
+    var configuration: FSEventStreamConfiguration? { lock.withLock { recordedConfiguration } }
+    var createCount: Int { lock.withLock { recordedCreateCount } }
+    var operations: [Operation] { lock.withLock { recordedOperations } }
+    var callbackLivenessAtOperation: [Bool] { lock.withLock { recordedCallbackLiveness } }
+    var callbackReleaseCount: Int { lock.withLock { recordedCallbackReleaseCount } }
+    var operationCountsAtCallbackRelease: [Int] {
+        lock.withLock { recordedOperationCountsAtCallbackRelease }
+    }
+    var callbackContextIsAlive: Bool {
+        lock.withLock { handle }?.hasLiveCallbackContext ?? false
+    }
 
     func create(
         configuration: FSEventStreamConfiguration,
         callback: @escaping @Sendable ([FSEventDriverEvent]) -> Void
     ) -> FSEventStreamHandle? {
         lock.withLock {
-            createCount += 1
-            self.configuration = configuration
-            let handle = FSEventStreamHandle(callback: callback)
+            recordedCreateCount += 1
+            recordedConfiguration = configuration
+            let handle = FSEventStreamHandle(callback: callback, onCallbackRelease: { [weak self] in
+                guard let self else { return }
+                self.lock.withLock {
+                    self.recordedCallbackReleaseCount += 1
+                    self.recordedOperationCountsAtCallbackRelease.append(self.recordedOperations.count)
+                }
+            })
             self.handle = handle
             return handle
         }
     }
 
     func schedule(_ handle: FSEventStreamHandle, on queue: DispatchQueue) {
-        lock.withLock { scheduleCount += 1 }
+        record(.schedule, handle: handle)
     }
 
     func start(_ handle: FSEventStreamHandle) -> Bool {
-        lock.withLock {
-            startCount += 1
-            return startResult
-        }
+        record(.start(startResult), handle: handle)
+        return startResult
     }
 
     func stop(_ handle: FSEventStreamHandle) {
-        lock.withLock { stopCount += 1 }
+        record(.stop, handle: handle)
     }
 
     func invalidate(_ handle: FSEventStreamHandle) {
-        lock.withLock { invalidateCount += 1 }
+        record(.invalidate, handle: handle)
     }
 
     func release(_ handle: FSEventStreamHandle) {
-        lock.withLock { releaseCount += 1 }
+        record(.release, handle: handle)
     }
 
-    func emit(_ events: [FSEventDriverEvent]) {
-        lock.withLock { handle }?.deliver(events)
+    func emit(_ events: [FSEventDriverEvent]) -> Bool {
+        lock.withLock { handle }?.deliver(events) ?? false
+    }
+
+    private func record(_ operation: Operation, handle: FSEventStreamHandle) {
+        let callbackIsAlive = handle.hasLiveCallbackContext
+        lock.withLock {
+            recordedOperations.append(operation)
+            recordedCallbackLiveness.append(callbackIsAlive)
+        }
     }
 }

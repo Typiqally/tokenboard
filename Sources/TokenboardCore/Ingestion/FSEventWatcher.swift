@@ -14,16 +14,89 @@ struct FSEventDriverEvent: Equatable, Sendable {
 }
 
 final class FSEventStreamHandle: @unchecked Sendable {
-    private let callback: @Sendable ([FSEventDriverEvent]) -> Void
+    private let lock = NSLock()
+    private var callbackContext: FSEventCallbackContext?
     fileprivate var nativeStream: FSEventStreamRef?
-    fileprivate var callbackInfo: UnsafeMutableRawPointer?
 
-    init(callback: @escaping @Sendable ([FSEventDriverEvent]) -> Void) {
-        self.callback = callback
+    init(
+        callback: @escaping @Sendable ([FSEventDriverEvent]) -> Void,
+        onCallbackRelease: @escaping @Sendable () -> Void = {}
+    ) {
+        callbackContext = FSEventCallbackContext(
+            callback: callback,
+            onRelease: onCallbackRelease
+        )
     }
 
-    func deliver(_ events: [FSEventDriverEvent]) {
+    var hasLiveCallbackContext: Bool {
+        lock.withLock { callbackContext != nil }
+    }
+
+    @discardableResult
+    func deliver(_ events: [FSEventDriverEvent]) -> Bool {
+        lock.withLock { callbackContext }?.deliver(events) ?? false
+    }
+
+    fileprivate var callbackInfo: UnsafeMutableRawPointer? {
+        lock.withLock { callbackContext }.map { Unmanaged.passUnretained($0).toOpaque() }
+    }
+
+    fileprivate func releaseCallbackContext() {
+        let context = lock.withLock { () -> FSEventCallbackContext? in
+            defer { callbackContext = nil }
+            return callbackContext
+        }
+        context?.release()
+    }
+}
+
+private final class FSEventCallbackContext: @unchecked Sendable {
+    private let condition = NSCondition()
+    private var callback: (@Sendable ([FSEventDriverEvent]) -> Void)?
+    private let onRelease: @Sendable () -> Void
+    private var activeDeliveries = 0
+
+    init(
+        callback: @escaping @Sendable ([FSEventDriverEvent]) -> Void,
+        onRelease: @escaping @Sendable () -> Void
+    ) {
+        self.callback = callback
+        self.onRelease = onRelease
+    }
+
+    @discardableResult
+    func deliver(_ events: [FSEventDriverEvent]) -> Bool {
+        condition.lock()
+        guard let callback else {
+            condition.unlock()
+            return false
+        }
+        activeDeliveries += 1
+        condition.unlock()
+
         callback(events)
+
+        condition.lock()
+        activeDeliveries -= 1
+        if activeDeliveries == 0 {
+            condition.broadcast()
+        }
+        condition.unlock()
+        return true
+    }
+
+    func release() {
+        condition.lock()
+        guard callback != nil else {
+            condition.unlock()
+            return
+        }
+        callback = nil
+        while activeDeliveries > 0 {
+            condition.wait()
+        }
+        condition.unlock()
+        onRelease()
     }
 }
 
@@ -39,38 +112,13 @@ protocol FSEventStreamDriving: Sendable {
     func release(_ handle: FSEventStreamHandle)
 }
 
-private final class NativeFSEventCallbackBox: @unchecked Sendable {
-    let callback: @Sendable ([FSEventDriverEvent]) -> Void
-
-    init(callback: @escaping @Sendable ([FSEventDriverEvent]) -> Void) {
-        self.callback = callback
-    }
-
-    func receive(
-        count: Int,
-        pathsPointer: UnsafeMutableRawPointer,
-        flags: UnsafePointer<FSEventStreamEventFlags>
-    ) {
-        let paths = Unmanaged<CFArray>.fromOpaque(pathsPointer).takeUnretainedValue() as NSArray
-        var events: [FSEventDriverEvent] = []
-        events.reserveCapacity(count)
-        for index in 0..<count {
-            guard let path = paths[index] as? String else { continue }
-            events.append(FSEventDriverEvent(path: path, flags: UInt32(flags[index])))
-        }
-        if !events.isEmpty {
-            callback(events)
-        }
-    }
-}
-
 private struct NativeFSEventStreamDriver: FSEventStreamDriving {
     func create(
         configuration: FSEventStreamConfiguration,
         callback: @escaping @Sendable ([FSEventDriverEvent]) -> Void
     ) -> FSEventStreamHandle? {
-        let callbackBox = NativeFSEventCallbackBox(callback: callback)
-        let callbackInfo = Unmanaged.passRetained(callbackBox).toOpaque()
+        let handle = FSEventStreamHandle(callback: callback)
+        guard let callbackInfo = handle.callbackInfo else { return nil }
         var context = FSEventStreamContext(
             version: 0,
             info: callbackInfo,
@@ -80,11 +128,21 @@ private struct NativeFSEventStreamDriver: FSEventStreamDriving {
         )
         let nativeCallback: FSEventStreamCallback = { _, info, count, paths, flags, _ in
             guard let info else { return }
-            Unmanaged<NativeFSEventCallbackBox>.fromOpaque(info).takeUnretainedValue().receive(
-                count: count,
-                pathsPointer: paths,
-                flags: flags
-            )
+            let callbackContext = Unmanaged<FSEventCallbackContext>
+                .fromOpaque(info)
+                .takeUnretainedValue()
+            let pathValues = Unmanaged<CFArray>
+                .fromOpaque(paths)
+                .takeUnretainedValue() as NSArray
+            var events: [FSEventDriverEvent] = []
+            events.reserveCapacity(count)
+            for index in 0..<count {
+                guard let path = pathValues[index] as? String else { continue }
+                events.append(FSEventDriverEvent(path: path, flags: UInt32(flags[index])))
+            }
+            if !events.isEmpty {
+                callbackContext.deliver(events)
+            }
         }
         guard let stream = FSEventStreamCreate(
             nil,
@@ -95,12 +153,10 @@ private struct NativeFSEventStreamDriver: FSEventStreamDriving {
             configuration.latency,
             FSEventStreamCreateFlags(configuration.flags)
         ) else {
-            Unmanaged<NativeFSEventCallbackBox>.fromOpaque(callbackInfo).release()
+            handle.releaseCallbackContext()
             return nil
         }
-        let handle = FSEventStreamHandle(callback: callback)
         handle.nativeStream = stream
-        handle.callbackInfo = callbackInfo
         return handle
     }
 
@@ -128,10 +184,6 @@ private struct NativeFSEventStreamDriver: FSEventStreamDriving {
         if let stream = handle.nativeStream {
             FSEventStreamRelease(stream)
             handle.nativeStream = nil
-        }
-        if let callbackInfo = handle.callbackInfo {
-            Unmanaged<NativeFSEventCallbackBox>.fromOpaque(callbackInfo).release()
-            handle.callbackInfo = nil
         }
     }
 }
@@ -199,6 +251,7 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
             guard started else {
                 driver.invalidate(handle)
                 driver.release(handle)
+                handle.releaseCallbackContext()
                 continuation.finish()
                 return
             }
@@ -217,6 +270,7 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
         driver.stop(priorState.handle)
         driver.invalidate(priorState.handle)
         driver.release(priorState.handle)
+        priorState.handle.releaseCallbackContext()
         priorState.continuation.finish()
     }
 
