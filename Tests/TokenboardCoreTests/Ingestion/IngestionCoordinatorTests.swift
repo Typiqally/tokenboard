@@ -143,7 +143,7 @@ final class IngestionCoordinatorTests: XCTestCase {
         await coordinator.stop()
     }
 
-    func testDrainedEventBatchPublishesOneContentFreeCompletion() async throws {
+    func testOnlyDrainedEventBatchIsStreamedOnce() async throws {
         let setup = try makeSetup()
         defer { try? FileManager.default.removeItem(at: setup.directory) }
         let watcher = FakeSourceEventWatcher()
@@ -155,13 +155,9 @@ final class IngestionCoordinatorTests: XCTestCase {
             calendar: calendar
         )
         let results = await coordinator.results()
-        let completions = Task { () -> [IngestionBatchResult] in
-            var values: [IngestionBatchResult] = []
-            for await result in results {
-                values.append(result)
-                if values.count == 2 { break }
-            }
-            return values
+        let completion = Task { () -> IngestionBatchResult? in
+            for await result in results { return result }
+            return nil
         }
         let initial = try await coordinator.start(roots: setup.roots)
         let changed = setup.claudeRoot.appending(path: "changed.jsonl")
@@ -170,15 +166,12 @@ final class IngestionCoordinatorTests: XCTestCase {
         watcher.emit([changed, changed])
         await waitUntil { await clock.waiterCount == 1 }
         await clock.advancePastDebounce()
-        let values = await completions.value
-        XCTAssertEqual(values.count, 2)
-        XCTAssertEqual(values[0], initial)
-        XCTAssertEqual(values[0].scope, .inventory)
-        XCTAssertEqual(values[1].runID, initial.runID)
-        XCTAssertEqual(values[1].sequence, initial.sequence + 1)
-        XCTAssertEqual(values[1].scope, .incremental)
-        XCTAssertEqual(values[1].providers[.claudeCode], .success(discoveredFiles: 1, scannedFiles: 1))
-        XCTAssertNil(values[1].providers[.codex])
+        let value = await completion.value
+        XCTAssertEqual(value?.runID, initial.runID)
+        XCTAssertEqual(value?.sequence, initial.sequence + 1)
+        XCTAssertEqual(value?.scope, .incremental)
+        XCTAssertEqual(value?.providers[.claudeCode], .success(discoveredFiles: 1, scannedFiles: 1))
+        XCTAssertNil(value?.providers[.codex])
         await coordinator.stop()
     }
 
@@ -198,13 +191,9 @@ final class IngestionCoordinatorTests: XCTestCase {
             calendar: calendar
         )
         let stream = await coordinator.results()
-        let received = Task { () -> [IngestionBatchResult] in
-            var values: [IngestionBatchResult] = []
-            for await result in stream {
-                values.append(result)
-                if values.count == 2 { break }
-            }
-            return values
+        let received = Task { () -> IngestionBatchResult? in
+            for await result in stream { return result }
+            return nil
         }
 
         let start = Task { try await coordinator.start(roots: setup.roots) }
@@ -215,19 +204,88 @@ final class IngestionCoordinatorTests: XCTestCase {
         await clock.advancePastDebounce()
         await scanner.resumeFirstScan()
         let initial = try await start.value
-        let values = await received.value
+        let value = await received.value
 
-        XCTAssertEqual(values.map(\.sequence), [initial.sequence, initial.sequence + 1])
-        XCTAssertEqual(values.map(\.scope), [.inventory, .incremental])
-        XCTAssertEqual(values[1].providers[.codex], .success(discoveredFiles: 1, scannedFiles: 1))
+        XCTAssertEqual(value?.sequence, initial.sequence + 1)
+        XCTAssertEqual(value?.scope, .incremental)
+        XCTAssertEqual(value?.providers[.codex], .success(discoveredFiles: 1, scannedFiles: 1))
         await coordinator.stop()
     }
 
-    func testStopUnblocksSuspendedWaiterAndRestartNeverEmitsStaleRun() async throws {
+    func testStopUnblocksMultipleQueuedManualRefreshesAndRestartUsesFreshRun() async throws {
         let setup = try makeSetup()
         defer { try? FileManager.default.removeItem(at: setup.directory) }
         let firstFile = setup.claudeRoot.appending(path: "first.jsonl")
+        let scanner = RecordingScanner(suspendFirstScan: true)
+        let discovery = CountingDiscovery()
+        let coordinator = IngestionCoordinator(
+            scanner: scanner,
+            watcher: FakeSourceEventWatcher(),
+            clock: ManualIngestionClock(),
+            discovery: discovery,
+            calendar: calendar
+        )
+        let initial = try await coordinator.start(roots: setup.roots)
         try Data().write(to: firstFile)
+
+        let firstRefresh = Task { await coordinator.refreshAll() }
+        await scanner.waitForScanCount(1)
+        let secondRefresh = Task { await coordinator.refreshAll() }
+        await discovery.waitForCallCount(6)
+        let stop = Task { await coordinator.stop() }
+        await scanner.waitUntilCancelled()
+        await scanner.resumeFirstScan()
+        await stop.value
+        let stoppedResults = await [firstRefresh.value, secondRefresh.value]
+
+        await scanner.reset()
+        let restarted = try await coordinator.start(roots: setup.roots)
+        XCTAssertEqual(stoppedResults.map(\.runID), [initial.runID, initial.runID])
+        XCTAssertEqual(stoppedResults.map(\.sequence), [2, 3])
+        XCTAssertNotEqual(restarted.runID, initial.runID)
+        XCTAssertEqual(restarted.sequence, 1)
+        await coordinator.stop()
+    }
+
+    func testBoundedEventDeliveryEmitsRecoveryMarkerAfterOverflow() async throws {
+        let setup = try makeSetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let watcher = FakeSourceEventWatcher()
+        let scanner = RecordingScanner()
+        let clock = ManualIngestionClock()
+        let coordinator = IngestionCoordinator(
+            scanner: scanner,
+            watcher: watcher,
+            clock: clock,
+            calendar: calendar
+        )
+        let stream = await coordinator.results()
+        let initial = try await coordinator.start(roots: setup.roots)
+
+        for index in 1...2 {
+            let changed = setup.claudeRoot.appending(path: "event-\(index).jsonl")
+            try Data().write(to: changed)
+            watcher.emit([changed])
+            await clock.waitForSleepStartCount(index)
+            await clock.advancePastDebounce()
+            await scanner.waitForCompletedScanCount(index)
+        }
+
+        let recovered = await coordinator.refreshAll()
+        var iterator = stream.makeAsyncIterator()
+        let overflow = await iterator.next()
+        XCTAssertEqual(overflow?.runID, initial.runID)
+        XCTAssertTrue(overflow?.requiresInventoryRefresh == true)
+        XCTAssertEqual(overflow?.providers, [:])
+        XCTAssertEqual(recovered.scope, .inventory)
+        XCTAssertEqual(recovered.sequence, overflow!.sequence + 1)
+        await coordinator.stop()
+    }
+
+    func testConcurrentStopsShareOneQuiescenceBarrier() async throws {
+        let setup = try makeSetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let changed = setup.claudeRoot.appending(path: "suspended.jsonl")
         let scanner = RecordingScanner(suspendFirstScan: true)
         let coordinator = IngestionCoordinator(
             scanner: scanner,
@@ -235,26 +293,25 @@ final class IngestionCoordinatorTests: XCTestCase {
             clock: ManualIngestionClock(),
             calendar: calendar
         )
-        let stream = await coordinator.results()
-        let received = Task { () -> IngestionBatchResult? in
-            for await result in stream { return result }
-            return nil
-        }
-        let staleStart = Task { try await coordinator.start(roots: setup.roots) }
-        await waitUntil { await scanner.activeScans == 1 }
-        let stop = Task { await coordinator.stop() }
-        await scanner.resumeFirstScan()
-        await stop.value
-        do {
-            _ = try await staleStart.value
-            XCTFail("stopped start unexpectedly succeeded")
-        } catch is CancellationError {}
+        _ = try await coordinator.start(roots: setup.roots)
+        try Data().write(to: changed)
+        let refresh = Task { await coordinator.refreshAll() }
+        await scanner.waitForScanCount(1)
 
-        await scanner.reset()
-        let restarted = try await coordinator.start(roots: setup.roots)
-        let onlyEmission = await received.value
-        XCTAssertEqual(onlyEmission, restarted)
-        await coordinator.stop()
+        let firstStop = Task { await coordinator.stop() }
+        await scanner.waitUntilCancelled()
+        let secondFinished = TimedAsyncFlag()
+        let secondStop = Task {
+            await coordinator.stop()
+            await secondFinished.set()
+        }
+        let returnedBeforeQuiescence = await secondFinished.wait(for: .milliseconds(50))
+        await scanner.resumeFirstScan()
+        await firstStop.value
+        await secondStop.value
+        _ = await refresh.value
+
+        XCTAssertFalse(returnedBeforeQuiescence)
     }
 
     func testEventDuringScanSchedulesOneFollowUpPassWithoutOverlap() async throws {
@@ -394,11 +451,29 @@ final class IngestionCoordinatorTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) async {
-        for _ in 0..<1_000 {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while clock.now < deadline {
             if await condition() { return }
-            await Task.yield()
+            try? await clock.sleep(for: .milliseconds(1))
         }
         XCTFail("condition was not met", file: file, line: line)
+    }
+}
+
+private actor TimedAsyncFlag {
+    private var current = false
+
+    func set() { current = true }
+
+    func wait(for duration: Duration) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: duration)
+        while clock.now < deadline {
+            if current { return true }
+            try? await clock.sleep(for: .milliseconds(1))
+        }
+        return current
     }
 }
 
@@ -442,6 +517,11 @@ private actor RecordingScanner: IngestionScanning {
     private(set) var maximumConcurrentScans = 0
     private var shouldSuspendFirstScan: Bool
     private var firstScanContinuation: CheckedContinuation<Void, Never>?
+    private var scanCountWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
+    private var completedScanCount = 0
+    private var completedScanWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
+    private var cancellationWaiters: [CheckedContinuation<Void, Never>] = []
+    private var wasCancelled = false
     private let outcomes: [Provider: ScanOutcome]
     private let failingProviders: Set<Provider>
 
@@ -460,11 +540,18 @@ private actor RecordingScanner: IngestionScanning {
         maximumConcurrentScans = max(maximumConcurrentScans, activeScans)
         scannedURLs.append(file)
         scannedProviders.append(provider)
+        resumeScanCountWaiters()
         if shouldSuspendFirstScan {
             shouldSuspendFirstScan = false
-            await withCheckedContinuation { firstScanContinuation = $0 }
+            await withTaskCancellationHandler {
+                await withCheckedContinuation { firstScanContinuation = $0 }
+            } onCancel: {
+                Task { await self.recordCancellation() }
+            }
         }
         activeScans -= 1
+        completedScanCount += 1
+        resumeCompletedScanWaiters()
         if failingProviders.contains(provider) { throw RecordingScannerError.injected }
         return outcomes[provider] ?? ScanOutcome(
             committedUsageRecords: 0,
@@ -479,11 +566,78 @@ private actor RecordingScanner: IngestionScanning {
         firstScanContinuation = nil
     }
 
+    func waitForScanCount(_ count: Int) async {
+        guard scannedURLs.count < count else { return }
+        await withCheckedContinuation { scanCountWaiters.append((count, $0)) }
+    }
+
+    func waitUntilCancelled() async {
+        guard !wasCancelled else { return }
+        await withCheckedContinuation { cancellationWaiters.append($0) }
+    }
+
+    func waitForCompletedScanCount(_ count: Int) async {
+        guard completedScanCount < count else { return }
+        await withCheckedContinuation { completedScanWaiters.append((count, $0)) }
+    }
+
+    private func recordCancellation() {
+        wasCancelled = true
+        let waiters = cancellationWaiters
+        cancellationWaiters.removeAll()
+        waiters.forEach { $0.resume() }
+    }
+
+    private func resumeScanCountWaiters() {
+        let ready = scanCountWaiters.filter { scannedURLs.count >= $0.0 }
+        scanCountWaiters.removeAll { scannedURLs.count >= $0.0 }
+        ready.forEach { $0.1.resume() }
+    }
+
+    private func resumeCompletedScanWaiters() {
+        let ready = completedScanWaiters.filter { completedScanCount >= $0.0 }
+        completedScanWaiters.removeAll { completedScanCount >= $0.0 }
+        ready.forEach { $0.1.resume() }
+    }
+
     func reset() {
         scannedURLs = []
         scannedProviders = []
         activeScans = 0
         maximumConcurrentScans = 0
+        completedScanCount = 0
+        wasCancelled = false
+    }
+}
+
+private final class CountingDiscovery: LogDiscovering, @unchecked Sendable {
+    private let lock = NSLock()
+    private var callCount = 0
+    private var waiters: [(Int, CheckedContinuation<Void, Never>)] = []
+
+    func jsonlFiles(under root: URL) throws -> [URL] {
+        let files = try LogDiscovery().jsonlFiles(under: root)
+        let ready: [CheckedContinuation<Void, Never>] = lock.withLock {
+            callCount += 1
+            let ready = waiters.filter { callCount >= $0.0 }.map(\.1)
+            waiters.removeAll { callCount >= $0.0 }
+            return ready
+        }
+        ready.forEach { $0.resume() }
+        return files
+    }
+
+    func waitForCallCount(_ count: Int) async {
+        let alreadyReached = lock.withLock { callCount >= count }
+        guard !alreadyReached else { return }
+        await withCheckedContinuation { continuation in
+            let shouldResume = lock.withLock { () -> Bool in
+                if callCount >= count { return true }
+                waiters.append((count, continuation))
+                return false
+            }
+            if shouldResume { continuation.resume() }
+        }
     }
 }
 
@@ -502,6 +656,7 @@ private actor ManualIngestionClock: IngestionClock {
     private var sleepers: [UUID: CheckedContinuation<Void, Error>] = [:]
     private(set) var cancelledSleepCount = 0
     private var sleepStartCount = 0
+    private var sleepStartWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
     private(set) var requestedDurations: [Duration] = []
 
     var waiterCount: Int { sleepers.count }
@@ -513,6 +668,9 @@ private actor ManualIngestionClock: IngestionClock {
         let id = UUID()
         sleepStartCount += 1
         requestedDurations.append(duration)
+        let ready = sleepStartWaiters.filter { sleepStartCount >= $0.0 }
+        sleepStartWaiters.removeAll { sleepStartCount >= $0.0 }
+        ready.forEach { $0.1.resume() }
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 sleepers[id] = continuation
@@ -528,6 +686,11 @@ private actor ManualIngestionClock: IngestionClock {
         for continuation in continuations {
             continuation.resume()
         }
+    }
+
+    func waitForSleepStartCount(_ count: Int) async {
+        guard sleepStartCount < count else { return }
+        await withCheckedContinuation { sleepStartWaiters.append((count, $0)) }
     }
 
     private func cancel(id: UUID) {

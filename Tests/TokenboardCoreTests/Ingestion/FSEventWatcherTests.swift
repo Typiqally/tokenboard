@@ -65,6 +65,23 @@ final class FSEventWatcherTests: XCTestCase {
         XCTAssertFalse(driver.emit([FSEventDriverEvent(path: root.path, flags: 0)]))
     }
 
+    func testBufferedDeliveryFallsBackToBoundedRootRescanWhenConsumerFallsBehind() async {
+        let driver = RecordingFSEventStreamDriver()
+        let watcher = FSEventWatcher(driver: driver)
+        let root = URL(fileURLWithPath: "/tmp/claude").standardizedFileURL
+        let first = root.appending(path: "first.jsonl")
+        let second = root.appending(path: "second.jsonl")
+        let stream = watcher.events(for: [root])
+
+        XCTAssertTrue(driver.emit([FSEventDriverEvent(path: first.path, flags: 0)]))
+        XCTAssertTrue(driver.emit([FSEventDriverEvent(path: second.path, flags: 0)]))
+
+        var iterator = stream.makeAsyncIterator()
+        let received = await iterator.next()
+        XCTAssertEqual(received, Set([root]))
+        watcher.stop()
+    }
+
     func testStartFailureUsesFailureCleanupOrderAndReleasesCallbackOnce() async {
         let driver = RecordingFSEventStreamDriver(startResult: false)
         let watcher = FSEventWatcher(driver: driver)

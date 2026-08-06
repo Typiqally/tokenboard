@@ -94,6 +94,13 @@ enum AppRuntimeStatus: Equatable {
     case active(runID: UInt64)
 }
 
+extension AppRuntimeStatus {
+    var isActive: Bool {
+        if case .active = self { return true }
+        return false
+    }
+}
+
 struct AppRuntimeActivity {
     let id: UInt64
     let task: Task<Void, Never>

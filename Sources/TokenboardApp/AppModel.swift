@@ -193,6 +193,9 @@ final class AppModel: ObservableObject {
         currentActivity?.cancel()
         currentResultConsumer?.cancel()
         currentQueries.forEach { $0.cancel() }
+        pendingIngestionResults.removeAll()
+        knownIngestionResults.removeAll()
+        settleAllIngestionWaiters()
         var next = state
         next.lifecycle = .shuttingDown
         next.isImporting = false
@@ -217,9 +220,6 @@ final class AppModel: ObservableObject {
         startupTask = nil
         activity = nil
         resultConsumerTask = nil
-        pendingIngestionResults.removeAll()
-        knownIngestionResults.removeAll()
-        settleAllIngestionWaiters()
         lastAppliedSequence.removeAll()
         isProcessingIngestionResults = false
         inFlightQueries.removeAll()

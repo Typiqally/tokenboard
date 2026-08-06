@@ -92,21 +92,7 @@ extension AppModel {
     ) async {
         coordinatorStatus = .active(runID: result.runID)
         discardPendingResults(exceptRunID: result.runID)
-        lastAppliedSequence[result.runID] = result.sequence
-        let restoredKey = IngestionResultKey(
-            runID: result.runID,
-            sequence: result.sequence
-        )
-        knownIngestionResults.insert(restoredKey)
-        let catchUpKeys = pendingIngestionResults.keys.filter {
-            $0.runID == result.runID && $0.sequence <= result.sequence
-        }
-        for key in catchUpKeys {
-            pendingIngestionResults[key] = nil
-            settleIngestionResult(key)
-        }
-        settleIngestionResult(restoredKey)
-        await processPendingIngestionResults(generation: generation)
+        await submitAndWaitForIngestionResult(result, generation: generation)
     }
 
     func submitAndWaitForIngestionResult(
@@ -206,6 +192,16 @@ extension AppModel {
         _ result: IngestionBatchResult,
         generation: UInt64
     ) async {
+        if result.requiresInventoryRefresh {
+            let recovery = await coordinator.refreshAll()
+            guard readyGeneration == generation,
+                  accepts(generation),
+                  coordinatorStatus == .active(runID: result.runID),
+                  recovery.runID == result.runID else { return }
+            await receiveIngestionResult(recovery, generation: generation)
+            return
+        }
+
         let period = state.selectedPeriod
         let (queryID, summaryResult) = await requestSummary(period: period)
         guard readyGeneration == generation,
@@ -224,7 +220,9 @@ extension AppModel {
                 if result.scope == .inventory {
                     next.sourceFileCounts[provider] = discoveredFiles
                 }
-                if let successfulUpdate {
+                if let successfulUpdate,
+                   result.scope == .inventory
+                    || !Self.isWarning(next.sourceHealth[provider] ?? .notGranted) {
                     next.sourceHealth[provider] = .healthy(
                         fileCount: next.sourceFileCounts[provider, default: 0],
                         lastUpdated: successfulUpdate
@@ -303,6 +301,10 @@ extension AppModel {
         }
 
         let oldRoots = activeRoots()
+        let oldGrant = activeGrants[provider]
+        let oldState = state
+        let hadCompleteOldRuntime = oldRoots.count == Provider.allCases.count
+            && coordinatorStatus.isActive
         var proposedRoots = oldRoots
         proposedRoots[provider] = prepared.root
         proposedRoots = IngestionRootValidator.canonicalize(proposedRoots)
@@ -334,8 +336,6 @@ extension AppModel {
         }
         coordinatorStatus = .inactive
 
-        let oldGrant = activeGrants[provider]
-        let oldState = state
         let newGrant = grantStore.activate(prepared, for: provider)
         activeGrants[provider] = newGrant
 
@@ -345,6 +345,7 @@ extension AppModel {
                 prepareForCoordinatorStart()
                 let result = try await coordinator.start(roots: proposedRoots)
                 guard readyGeneration == generation, accepts(generation) else {
+                    await coordinator.stop()
                     restoreGrantAfterInterruptedReplacement(
                         provider: provider,
                         oldGrant: oldGrant,
@@ -356,15 +357,20 @@ extension AppModel {
                 discardPendingResults(exceptRunID: result.runID)
                 grantStore.commitBookmark(prepared, for: provider)
                 oldGrant?.close()
+                var accepted = state
+                accepted.grantedProviders = Set(activeGrants.keys)
+                accepted.onboardingRequired = false
+                commitState(accepted)
                 await submitAndWaitForIngestionResult(result, generation: generation)
                 return
             } catch {
+                await coordinator.stop()
                 activeGrants[provider] = oldGrant
                 newGrant.close()
                 coordinatorStatus = .inactive
                 guard readyGeneration == generation, accepts(generation) else { return }
                 commitState(oldState)
-                await coordinator.stop()
+                guard hadCompleteOldRuntime else { return }
                 do {
                     prepareForCoordinatorStart()
                     let restored = try await coordinator.start(roots: oldRoots)

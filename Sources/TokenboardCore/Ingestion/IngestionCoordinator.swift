@@ -38,17 +38,20 @@ public struct IngestionBatchResult: Equatable, Sendable {
     public let runID: UInt64
     public let sequence: UInt64
     public let scope: IngestionBatchScope
+    public let requiresInventoryRefresh: Bool
     public let providers: [Provider: ProviderIngestionResult]
 
     public init(
         runID: UInt64,
         sequence: UInt64,
         scope: IngestionBatchScope,
+        requiresInventoryRefresh: Bool = false,
         providers: [Provider: ProviderIngestionResult]
     ) {
         self.runID = runID
         self.sequence = sequence
         self.scope = scope
+        self.requiresInventoryRefresh = requiresInventoryRefresh
         self.providers = providers
     }
 }
@@ -117,7 +120,6 @@ public actor IngestionCoordinator {
 
     private struct QueuedBatch {
         var batch: PreparedBatch
-        let sequence: UInt64
         let scope: IngestionBatchScope
         let continuation: CheckedContinuation<IngestionBatchResult, Never>?
     }
@@ -133,6 +135,7 @@ public actor IngestionCoordinator {
     private var eventTask: Task<Void, Never>?
     private var debounceTask: Task<Void, Never>?
     private var drainTask: Task<Void, Never>?
+    private var stopBarrier: Task<Void, Never>?
     private var pendingEventPaths: Set<URL> = []
     private var pendingBatches: [QueuedBatch] = []
     private var debounceGeneration: UInt64 = 0
@@ -150,7 +153,9 @@ public actor IngestionCoordinator {
         discovery: any LogDiscovering = LogDiscovery(),
         calendar: Calendar = .current
     ) {
-        let (stream, continuation) = AsyncStream<IngestionBatchResult>.makeStream()
+        let (stream, continuation) = AsyncStream<IngestionBatchResult>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
         self.scanner = scanner
         self.watcher = watcher
         self.clock = clock
@@ -169,8 +174,9 @@ public actor IngestionCoordinator {
         let startID = startGeneration
         let canonicalRoots = try IngestionRootValidator.validate(suppliedRoots)
 
-        await stopRuntime()
+        await stopWithBarrier()
         guard startGeneration == startID else { throw CancellationError() }
+        stopBarrier = nil
         runGeneration &+= 1
         let runID = runGeneration
         nextSequence = 0
@@ -214,7 +220,20 @@ public actor IngestionCoordinator {
 
     public func stop() async {
         startGeneration &+= 1
-        await stopRuntime()
+        await stopWithBarrier()
+    }
+
+    private func stopWithBarrier() async {
+        if let stopBarrier {
+            await stopBarrier.value
+            return
+        }
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.stopRuntime()
+        }
+        stopBarrier = task
+        await task.value
     }
 
     private func stopRuntime() async {
@@ -317,10 +336,8 @@ public actor IngestionCoordinator {
         scope: IngestionBatchScope
     ) async -> IngestionBatchResult {
         await withCheckedContinuation { continuation in
-            nextSequence &+= 1
             pendingBatches.append(QueuedBatch(
                 batch: batch,
-                sequence: nextSequence,
                 scope: scope,
                 continuation: continuation
             ))
@@ -329,10 +346,8 @@ public actor IngestionCoordinator {
     }
 
     private func enqueueEventBatch(_ batch: PreparedBatch) {
-        nextSequence &+= 1
         pendingBatches.append(QueuedBatch(
             batch: batch,
-            sequence: nextSequence,
             scope: .incremental,
             continuation: nil
         ))
@@ -372,15 +387,25 @@ public actor IngestionCoordinator {
                 }
                 queued.batch.progress[candidate.provider] = progress
             }
+            nextSequence &+= 1
             let result = IngestionBatchResult(
                 runID: queued.batch.runID,
-                sequence: queued.sequence,
+                sequence: nextSequence,
                 scope: queued.scope,
                 providers: queued.batch.progress.mapValues(\.result)
             )
             queued.continuation?.resume(returning: result)
-            if activeRunID == queued.batch.runID {
-                resultContinuation.yield(result)
+            if queued.scope == .incremental,
+               activeRunID == queued.batch.runID,
+               case .dropped = resultContinuation.yield(result) {
+                nextSequence &+= 1
+                resultContinuation.yield(IngestionBatchResult(
+                    runID: queued.batch.runID,
+                    sequence: nextSequence,
+                    scope: .incremental,
+                    requiresInventoryRefresh: true,
+                    providers: [:]
+                ))
             }
         }
         drainTask = nil
@@ -396,6 +421,7 @@ public actor IngestionCoordinator {
         let batches = pendingBatches
         pendingBatches.removeAll()
         for queued in batches {
+            nextSequence &+= 1
             let providers = queued.batch.progress.mapValues { progress in
                 ProviderIngestionResult.failure(
                     discoveredFiles: progress.discoveredFiles,
@@ -404,7 +430,7 @@ public actor IngestionCoordinator {
             }
             queued.continuation?.resume(returning: IngestionBatchResult(
                 runID: queued.batch.runID,
-                sequence: queued.sequence,
+                sequence: nextSequence,
                 scope: queued.scope,
                 providers: providers
             ))

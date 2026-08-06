@@ -116,6 +116,28 @@ final class NativePresentationTests: XCTestCase {
         await waitUntil { setup.preferences.selectedPeriod == .thisYear }
         XCTAssertEqual(setup.model.state.selectedPeriod, .thisYear)
 
+        let metricParent = controller.renderedMenu?.items.first {
+            $0.title == "Menu Bar Shows"
+        }
+        let apiValue = metricParent?.submenu?.items.first { $0.title == "API Value" }
+        XCTAssertEqual(apiValue?.representedObject as? String, "api_value")
+        XCTAssertEqual(apiValue?.target as? MenuController, controller)
+        XCTAssertEqual(apiValue?.action, NSSelectorFromString("selectDisplayMetric:"))
+        XCTAssertTrue(controller.responds(to: NSSelectorFromString("selectDisplayMetric:")))
+        guard let apiValue else { return XCTFail("missing API Value menu action") }
+        _ = controller.perform(NSSelectorFromString("selectDisplayMetric:"), with: apiValue)
+        await waitUntil { setup.preferences.selectedDisplayMetric == .apiValue }
+        XCTAssertEqual(setup.model.state.selectedDisplayMetric, .apiValue)
+
+        let refresh = controller.renderedMenu?.items.first { $0.title == "Refresh Now" }
+        XCTAssertEqual(refresh?.target as? MenuController, controller)
+        XCTAssertEqual(refresh?.action, NSSelectorFromString("refresh"))
+        XCTAssertTrue(controller.responds(to: NSSelectorFromString("refresh")))
+        let quit = controller.renderedMenu?.items.first { $0.title == "Quit Tokenboard" }
+        XCTAssertEqual(quit?.target as? MenuController, controller)
+        XCTAssertEqual(quit?.action, NSSelectorFromString("quit"))
+        XCTAssertTrue(controller.responds(to: NSSelectorFromString("quit")))
+
         var openedPricing = false
         var openedSettings = false
         setup.model.onOpenPricing = { openedPricing = true }
@@ -157,9 +179,11 @@ final class NativePresentationTests: XCTestCase {
     }
 
     private func waitUntil(_ condition: @escaping @MainActor () -> Bool) async {
-        for _ in 0..<1_000 {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while clock.now < deadline {
             if condition() { return }
-            await Task.yield()
+            try? await clock.sleep(for: .milliseconds(1))
         }
         XCTFail("condition was not met")
     }

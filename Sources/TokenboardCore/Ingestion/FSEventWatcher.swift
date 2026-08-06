@@ -214,7 +214,7 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
     public func events(for roots: [URL]) -> AsyncStream<Set<URL>> {
         stop()
         let resolvedRoots = roots.map(\.standardizedFileURL)
-        return AsyncStream(bufferingPolicy: .unbounded) { continuation in
+        return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             guard !resolvedRoots.isEmpty else {
                 continuation.finish()
                 return
@@ -235,7 +235,9 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
             guard let handle = driver.create(configuration: configuration, callback: { events in
                 let changed = Self.changedURLs(from: events, roots: resolvedRoots)
                 if !changed.isEmpty {
-                    continuation.yield(changed)
+                    if case .dropped = continuation.yield(changed) {
+                        continuation.yield(Set(resolvedRoots))
+                    }
                 }
             }) else {
                 continuation.finish()
