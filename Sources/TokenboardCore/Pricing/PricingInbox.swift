@@ -152,7 +152,7 @@ public actor PricingInbox {
 
     public func stop() throws {
         switch state {
-        case .resolving:
+        case .resolving, .rejectedFinalizing:
             throw PricingInboxError.resolutionInProgress
         case .committed:
             throw PricingInboxError.candidateAlreadyApplied
@@ -176,7 +176,7 @@ public actor PricingInbox {
 
     public func applyPending() async throws {
         switch state {
-        case .resolving:
+        case .resolving, .rejectedFinalizing:
             throw PricingInboxError.resolutionInProgress
         case let .committed(committed):
             try finalizeCommitted(committed)
@@ -193,6 +193,9 @@ public actor PricingInbox {
         switch state {
         case .resolving:
             throw PricingInboxError.resolutionInProgress
+        case let .rejectedFinalizing(rejected):
+            try finalizeRejected(rejected)
+            return
         case .committed:
             throw PricingInboxError.candidateAlreadyApplied
         case .idle:
@@ -210,13 +213,31 @@ public actor PricingInbox {
                 catalogID: isolated.preview.catalog.catalogID,
                 directory: .rejected
             )
-            try fileSystem.removeInbox(name: isolated.location.processingName)
+            let rejected = RejectedRecord(processingName: isolated.location.processingName)
+            do {
+                try fileSystem.removeInbox(name: rejected.processingName)
+            } catch {
+                if Self.completedRemoval(error, name: rejected.processingName) {
+                    state = .rejectedFinalizing(rejected)
+                }
+                throw error
+            }
             state = .idle
             requestDetectionAfterResolution()
         } catch {
+            if case .rejectedFinalizing = state { throw error }
             restorePreCommitCandidate(pendingRecordFromState(fallback: pending))
             throw error
         }
+    }
+
+    private func finalizeRejected(_ rejected: RejectedRecord) throws {
+        guard case .rejectedFinalizing = state else {
+            throw PricingInboxError.noPendingCandidate
+        }
+        try fileSystem.removeInbox(name: rejected.processingName)
+        state = .idle
+        requestDetectionAfterResolution()
     }
 
     private func apply(_ pending: PendingRecord) async throws {
@@ -483,6 +504,12 @@ public actor PricingInbox {
             && mutationError.mutation == .moveInbox(from: from, to: to)
     }
 
+    private static func completedRemoval(_ error: Error, name: String) -> Bool {
+        guard let mutationError = error as? PricingInboxMutationError else { return false }
+        return mutationError.mutationCompleted
+            && mutationError.mutation == .removeInbox(name: name)
+    }
+
     private static func isProcessingFilename(_ name: String) -> Bool {
         name.hasPrefix(processingFilenamePrefix)
             && name.hasSuffix(processingFilenameSuffix)
@@ -502,6 +529,7 @@ private enum CandidateState: Sendable {
     case idle
     case pending(PendingRecord)
     case resolving(PendingRecord)
+    case rejectedFinalizing(RejectedRecord)
     case committed(CommittedRecord)
 
     var allowsDetection: Bool {
@@ -510,7 +538,7 @@ private enum CandidateState: Sendable {
             true
         case let .pending(record):
             record.location.isCandidate
-        case .resolving, .committed:
+        case .resolving, .rejectedFinalizing, .committed:
             false
         }
     }
@@ -524,6 +552,10 @@ private struct PendingRecord: Sendable {
 
 private struct CommittedRecord: Sendable {
     let preview: PendingPricingCandidate
+    let processingName: String
+}
+
+private struct RejectedRecord: Sendable {
     let processingName: String
 }
 

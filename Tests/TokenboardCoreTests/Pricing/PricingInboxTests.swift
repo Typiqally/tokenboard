@@ -536,6 +536,46 @@ final class PricingInboxTests: XCTestCase {
         XCTAssertEqual(try processingNames(in: root), [])
     }
 
+    func testRejectedCleanupSyncFailurePreservesFinalizationOnlyRetry() async throws {
+        let root = try makeRoot(label: "RejectedCleanupSync")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let candidateURL = root.appending(path: "Pricing/Inbox/\(PricingInbox.candidateFilename)")
+        try candidateData(id: "rejected-cleanup-sync").write(to: candidateURL)
+        let ledger = PricingInboxTestLedger(latestApplied: nil)
+        let sync = DirectorySyncFailureInjector()
+        let fileSystem = POSIXPricingInboxFileSystem(directorySync: { sync.call($0) })
+        let inbox = PricingInbox(
+            ledger: ledger,
+            applicationSupportDirectory: root,
+            bundledCatalogData: bundledData(),
+            fileSystem: fileSystem
+        )
+        try await inbox.start()
+        sync.fail(atAttempt: 3)
+
+        await XCTAssertThrowsErrorAsync { try await inbox.rejectPending() }
+
+        let pending = await inbox.pendingCandidate()
+        let firstApplyCalls = await ledger.applyCallCountValue()
+        XCTAssertNil(pending)
+        XCTAssertEqual(firstApplyCalls, 0)
+        XCTAssertTrue(!FileManager.default.fileExists(atPath: candidateURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: root.appending(path: "Pricing/Rejected/rejected-cleanup-sync.json").path
+        ))
+        XCTAssertEqual(try processingNames(in: root), [])
+        XCTAssertEqual(sync.attemptCount(), 3)
+        await assertInboxError(.resolutionInProgress) { try await inbox.applyPending() }
+
+        try await inbox.rejectPending()
+
+        let finalApplyCalls = await ledger.applyCallCountValue()
+        XCTAssertEqual(finalApplyCalls, 0)
+        XCTAssertEqual(sync.attemptCount(), 4)
+        XCTAssertEqual(try processingNames(in: root), [])
+        await assertInboxError(.noPendingCandidate) { try await inbox.rejectPending() }
+    }
+
     func testPostCommitCleanupSyncFailureRetriesWithoutReapplyingOrOrphaning() async throws {
         let root = try makeRoot(label: "PostCommitCleanupSync")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -970,6 +1010,8 @@ private final class DirectorySyncFailureInjector: @unchecked Sendable {
         }
         return shouldFail ? -1 : Darwin.fsync(descriptor)
     }
+
+    func attemptCount() -> Int { lock.withLock { attempt } }
 }
 
 private final class RecordingPricingInboxFileSystem: PricingInboxFileSystem, @unchecked Sendable {
