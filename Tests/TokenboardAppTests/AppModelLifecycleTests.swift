@@ -294,17 +294,21 @@ final class AppModelLifecycleTests: XCTestCase {
             scope: .incremental,
             providers: [.claudeCode: .attention(discoveredFiles: 1, scannedFiles: 1)]
         ))
-        let newerCalls = inventoryCalls + 1
-        await waitUntil { await setup.query.calls() == newerCalls }
+        await Task.yield()
+        let bufferedCalls = await setup.query.calls()
+        XCTAssertEqual(bufferedCalls, inventoryCalls)
         await setup.coordinator.emit(IngestionBatchResult(
             runID: runID,
             sequence: 3,
             scope: .inventory,
             providers: [.claudeCode: .success(discoveredFiles: 3, scannedFiles: 3)]
         ))
-        await Task.yield()
+        await setup.query.waitForCompletedCallCount(inventoryCalls + 2)
+        await waitUntil {
+            setup.model.lastAppliedSequence[runID] == 4
+        }
 
-        XCTAssertEqual(setup.model.state.sourceFileCounts[.claudeCode], 8)
+        XCTAssertEqual(setup.model.state.sourceFileCounts[.claudeCode], 3)
         guard case .warning = setup.model.state.sourceHealth[.claudeCode] else {
             return XCTFail("older inventory result overwrote newer attention")
         }
@@ -405,6 +409,96 @@ final class AppModelLifecycleTests: XCTestCase {
             return XCTFail("manual inventory did not follow the event warning")
         }
         XCTAssertEqual(fileCount, 0)
+    }
+
+    func testLaterEventObservedBeforeReturnedInventoryStillAppliesBothContiguously() async throws {
+        let refreshGate = AsyncTestGate()
+        let setup = try makeSetup(
+            approved: false,
+            coordinatorRefreshGate: refreshGate,
+            refreshInventoryCount: 8
+        )
+        defer { setup.cleanup() }
+        await setup.model.start()
+        await setup.model.startHistoricalImport()
+        let baselineCalls = await setup.query.calls()
+        let runID = await setup.coordinator.runID()
+
+        let refresh = Task { await setup.model.refresh() }
+        await refreshGate.waitUntilEntered()
+        let event = IngestionBatchResult(
+            runID: runID,
+            sequence: 3,
+            scope: .incremental,
+            providers: [.claudeCode: .attention(discoveredFiles: 1, scannedFiles: 1)]
+        )
+        await setup.coordinator.emit(event)
+        await waitUntil {
+            setup.model.pendingIngestionResults[IngestionResultKey(
+                runID: runID,
+                sequence: event.sequence
+            )] != nil || setup.model.lastAppliedSequence[runID, default: 0] >= event.sequence
+        }
+
+        await refreshGate.resume()
+        await refresh.value
+
+        let finalCalls = await setup.query.calls()
+        XCTAssertEqual(finalCalls, baselineCalls + 2)
+        XCTAssertEqual(setup.model.state.sourceFileCounts[.claudeCode], 8)
+        XCTAssertEqual(setup.model.state.sourceFileCounts[.codex], 8)
+        guard case .warning = setup.model.state.sourceHealth[.claudeCode] else {
+            return XCTFail("incremental event was not applied after authoritative inventory")
+        }
+        guard case let .healthy(fileCount, _) = setup.model.state.sourceHealth[.codex] else {
+            return XCTFail("authoritative inventory was lost")
+        }
+        XCTAssertEqual(fileCount, 8)
+    }
+
+    func testRecoveryMarkerDoesNotSkipOutstandingManualInventory() async throws {
+        let refreshGate = AsyncTestGate()
+        let setup = try makeSetup(
+            approved: false,
+            coordinatorRefreshGate: refreshGate,
+            refreshInventoryCount: 9
+        )
+        defer { setup.cleanup() }
+        await setup.model.start()
+        await setup.model.startHistoricalImport()
+        let baselineCalls = await setup.query.calls()
+        let runID = await setup.coordinator.runID()
+
+        let refresh = Task { await setup.model.refresh() }
+        await refreshGate.waitUntilEntered()
+        let marker = IngestionBatchResult(
+            runID: runID,
+            sequence: 4,
+            scope: .incremental,
+            requiresInventoryRefresh: true,
+            providers: [:]
+        )
+        await setup.coordinator.emit(marker)
+        await waitUntil {
+            setup.model.pendingIngestionResults[IngestionResultKey(
+                runID: runID,
+                sequence: marker.sequence
+            )] != nil
+        }
+
+        await refreshGate.resume()
+        await refresh.value
+        await setup.query.waitForCompletedCallCount(baselineCalls + 2)
+        await waitUntil {
+            setup.model.lastAppliedSequence[runID] == 5
+        }
+
+        let coordinatorCounts = await setup.coordinator.counts()
+        let finalQueryCalls = await setup.query.calls()
+        XCTAssertEqual(coordinatorCounts[1], 2)
+        XCTAssertEqual(finalQueryCalls, baselineCalls + 2)
+        XCTAssertEqual(setup.model.state.sourceFileCounts[.claudeCode], 9)
+        XCTAssertEqual(setup.model.state.sourceFileCounts[.codex], 9)
     }
 
     func testFailedSourceReplacementPreservesOldBookmarkGrantAndPublishedState() async throws {
@@ -770,6 +864,7 @@ final class AppModelLifecycleTests: XCTestCase {
         startupGate: AsyncTestGate? = nil,
         coordinatorStartGate: AsyncTestGate? = nil,
         coordinatorStartGateCall: Int = 1,
+        coordinatorRefreshGate: AsyncTestGate? = nil,
         coordinatorStopGate: AsyncTestGate? = nil,
         coordinatorStopGateCall: Int = 1,
         pickedSource: URL? = nil,
@@ -807,6 +902,7 @@ final class AppModelLifecycleTests: XCTestCase {
         let coordinator = LifecycleCoordinator(
             startGate: coordinatorStartGate,
             startGateCall: coordinatorStartGateCall,
+            refreshGate: coordinatorRefreshGate,
             stopGate: coordinatorStopGate,
             stopGateCall: coordinatorStopGateCall,
             failingStartRoot: coordinatorFailingStartRoot,
@@ -1011,6 +1107,7 @@ private actor LifecycleInbox: AppPricingInboxWatching {
 private actor LifecycleCoordinator: AppIngestionCoordinating {
     private let startGate: AsyncTestGate?
     private let startGateCall: Int
+    private let refreshGate: AsyncTestGate?
     private let stopGate: AsyncTestGate?
     private let stopGateCall: Int
     private let failingStartRoot: URL?
@@ -1033,6 +1130,7 @@ private actor LifecycleCoordinator: AppIngestionCoordinating {
     init(
         startGate: AsyncTestGate?,
         startGateCall: Int,
+        refreshGate: AsyncTestGate?,
         stopGate: AsyncTestGate?,
         stopGateCall: Int,
         failingStartRoot: URL?,
@@ -1042,6 +1140,7 @@ private actor LifecycleCoordinator: AppIngestionCoordinating {
     ) {
         self.startGate = startGate
         self.startGateCall = startGateCall
+        self.refreshGate = refreshGate
         self.stopGate = stopGate
         self.stopGateCall = stopGateCall
         self.failingStartRoot = failingStartRoot
@@ -1072,10 +1171,15 @@ private actor LifecycleCoordinator: AppIngestionCoordinating {
         if let startGate, starts == startGateCall { await startGate.suspend() }
         return result
     }
-    func refreshAll() -> IngestionBatchResult {
+    func refreshAll() async -> IngestionBatchResult {
         refreshes += 1
         resumeCountWaiters(&refreshWaiters, count: refreshes)
-        return successResult(scope: .inventory, discoveredOverride: refreshInventoryCount)
+        let result = successResult(
+            scope: .inventory,
+            discoveredOverride: refreshInventoryCount
+        )
+        if let refreshGate, refreshes == 1 { await refreshGate.suspend() }
+        return result
     }
     func stop() async {
         stops += 1

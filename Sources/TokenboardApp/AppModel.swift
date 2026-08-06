@@ -44,6 +44,7 @@ final class AppModel: ObservableObject {
     var knownIngestionResults: Set<IngestionResultKey> = []
     var ingestionResultWaiters: [IngestionResultKey: [CheckedContinuation<Void, Never>]] = [:]
     var lastAppliedSequence: [UInt64: UInt64] = [:]
+    var inFlightCoordinatorInventoryRequests = 0
     var isProcessingIngestionResults = false
     var coordinatorStatus = AppRuntimeStatus.inactive
     var inboxStatus = AppRuntimeStatus.inactive
@@ -196,6 +197,7 @@ final class AppModel: ObservableObject {
         pendingIngestionResults.removeAll()
         knownIngestionResults.removeAll()
         settleAllIngestionWaiters()
+        inFlightCoordinatorInventoryRequests = 0
         var next = state
         next.lifecycle = .shuttingDown
         next.isImporting = false

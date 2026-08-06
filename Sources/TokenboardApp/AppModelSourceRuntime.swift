@@ -37,20 +37,37 @@ extension AppModel {
             switch coordinatorStatus {
             case .inactive:
                 prepareForCoordinatorStart()
-                result = try await coordinator.start(roots: activeRoots())
-                guard readyGeneration == generation, accepts(generation) else { return }
+                beginCoordinatorInventoryRequest()
+                do {
+                    result = try await coordinator.start(roots: activeRoots())
+                } catch {
+                    completeCoordinatorInventoryRequest()
+                    throw error
+                }
+                guard readyGeneration == generation, accepts(generation) else {
+                    completeCoordinatorInventoryRequest()
+                    return
+                }
                 coordinatorStatus = .active(runID: result.runID)
                 discardPendingResults(exceptRunID: result.runID)
             case let .active(runID):
                 guard refreshExisting else { return }
+                beginCoordinatorInventoryRequest()
                 result = await coordinator.refreshAll()
                 guard readyGeneration == generation,
                       accepts(generation),
-                      result.runID == runID else { return }
+                      result.runID == runID else {
+                    completeCoordinatorInventoryRequest()
+                    return
+                }
             case .starting:
                 return
             }
-            await submitAndWaitForIngestionResult(result, generation: generation)
+            await submitAndWaitForIngestionResult(
+                result,
+                generation: generation,
+                completesInventoryRequest: true
+            )
         } catch {
             guard readyGeneration == generation, accepts(generation) else { return }
             coordinatorStatus = .inactive
@@ -92,16 +109,36 @@ extension AppModel {
     ) async {
         coordinatorStatus = .active(runID: result.runID)
         discardPendingResults(exceptRunID: result.runID)
-        await submitAndWaitForIngestionResult(result, generation: generation)
+        await submitAndWaitForIngestionResult(
+            result,
+            generation: generation,
+            completesInventoryRequest: true
+        )
     }
 
     func submitAndWaitForIngestionResult(
         _ result: IngestionBatchResult,
-        generation: UInt64
+        generation: UInt64,
+        completesInventoryRequest: Bool = false
     ) async {
         let key = IngestionResultKey(runID: result.runID, sequence: result.sequence)
         await receiveIngestionResult(result, generation: generation)
+        if completesInventoryRequest {
+            completeCoordinatorInventoryRequest()
+            await processPendingIngestionResults(generation: generation)
+        }
         await waitForIngestionResult(key)
+    }
+
+    func beginCoordinatorInventoryRequest() {
+        inFlightCoordinatorInventoryRequests += 1
+    }
+
+    func completeCoordinatorInventoryRequest() {
+        inFlightCoordinatorInventoryRequests = max(
+            0,
+            inFlightCoordinatorInventoryRequests - 1
+        )
     }
 
     func receiveIngestionResult(
@@ -145,7 +182,22 @@ extension AppModel {
             let candidates = pendingIngestionResults
                 .filter { $0.key.runID == runID }
                 .sorted { $0.key.sequence < $1.key.sequence }
-            guard let (key, result) = candidates.first else { break }
+            guard let first = candidates.first else { break }
+            let expectedSequence = lastAppliedSequence[runID, default: 0] + 1
+            let next: (key: IngestionResultKey, value: IngestionBatchResult)?
+            if first.key.sequence == expectedSequence {
+                next = first
+            } else if inFlightCoordinatorInventoryRequests == 0,
+                      let marker = candidates.first(where: {
+                          $0.value.requiresInventoryRefresh
+                      }),
+                      first.key.sequence <= marker.key.sequence {
+                lastAppliedSequence[runID] = first.key.sequence - 1
+                continue
+            } else {
+                break
+            }
+            guard let (key, result) = next else { break }
             pendingIngestionResults[key] = nil
             guard result.sequence > lastAppliedSequence[runID, default: 0] else {
                 settleIngestionResult(key)
@@ -163,9 +215,19 @@ extension AppModel {
         if readyGeneration == generation,
            accepts(generation),
            case let .active(currentRunID) = coordinatorStatus,
-           pendingIngestionResults.keys.contains(where: { $0.runID == currentRunID }) {
+           hasProcessableIngestionResult(runID: currentRunID) {
             await processPendingIngestionResults(generation: generation)
         }
+    }
+
+    func hasProcessableIngestionResult(runID: UInt64) -> Bool {
+        let expectedSequence = lastAppliedSequence[runID, default: 0] + 1
+        let results = pendingIngestionResults.values.filter { $0.runID == runID }
+        if results.contains(where: { $0.sequence == expectedSequence }) {
+            return true
+        }
+        return inFlightCoordinatorInventoryRequests == 0
+            && results.contains(where: \.requiresInventoryRefresh)
     }
 
     func waitForIngestionResult(_ key: IngestionResultKey) async {
@@ -193,12 +255,17 @@ extension AppModel {
         generation: UInt64
     ) async {
         if result.requiresInventoryRefresh {
+            beginCoordinatorInventoryRequest()
             let recovery = await coordinator.refreshAll()
             guard readyGeneration == generation,
                   accepts(generation),
                   coordinatorStatus == .active(runID: result.runID),
-                  recovery.runID == result.runID else { return }
+                  recovery.runID == result.runID else {
+                completeCoordinatorInventoryRequest()
+                return
+            }
             await receiveIngestionResult(recovery, generation: generation)
+            completeCoordinatorInventoryRequest()
             return
         }
 
@@ -343,8 +410,16 @@ extension AppModel {
             do {
                 await ensureResultConsumer(generation: generation)
                 prepareForCoordinatorStart()
-                let result = try await coordinator.start(roots: proposedRoots)
+                beginCoordinatorInventoryRequest()
+                let result: IngestionBatchResult
+                do {
+                    result = try await coordinator.start(roots: proposedRoots)
+                } catch {
+                    completeCoordinatorInventoryRequest()
+                    throw error
+                }
                 guard readyGeneration == generation, accepts(generation) else {
+                    completeCoordinatorInventoryRequest()
                     await coordinator.stop()
                     restoreGrantAfterInterruptedReplacement(
                         provider: provider,
@@ -361,7 +436,11 @@ extension AppModel {
                 accepted.grantedProviders = Set(activeGrants.keys)
                 accepted.onboardingRequired = false
                 commitState(accepted)
-                await submitAndWaitForIngestionResult(result, generation: generation)
+                await submitAndWaitForIngestionResult(
+                    result,
+                    generation: generation,
+                    completesInventoryRequest: true
+                )
                 return
             } catch {
                 await coordinator.stop()
@@ -373,8 +452,18 @@ extension AppModel {
                 guard hadCompleteOldRuntime else { return }
                 do {
                     prepareForCoordinatorStart()
-                    let restored = try await coordinator.start(roots: oldRoots)
-                    guard readyGeneration == generation, accepts(generation) else { return }
+                    beginCoordinatorInventoryRequest()
+                    let restored: IngestionBatchResult
+                    do {
+                        restored = try await coordinator.start(roots: oldRoots)
+                    } catch {
+                        completeCoordinatorInventoryRequest()
+                        throw error
+                    }
+                    guard readyGeneration == generation, accepts(generation) else {
+                        completeCoordinatorInventoryRequest()
+                        return
+                    }
                     await activateRestoredCoordinator(restored, generation: generation)
                 } catch {
                     coordinatorStatus = .inactive

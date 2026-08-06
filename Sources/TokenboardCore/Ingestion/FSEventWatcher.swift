@@ -189,6 +189,8 @@ private struct NativeFSEventStreamDriver: FSEventStreamDriving {
 }
 
 public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
+    static let maximumChangedPaths = 64
+
     private struct StreamState {
         let handle: FSEventStreamHandle
         let continuation: AsyncStream<Set<URL>>.Continuation
@@ -292,7 +294,12 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
                     eventURL == $0 || eventURL.pathComponents.starts(with: $0.pathComponents)
                 }
                 changed.formUnion(matchingRoots.isEmpty ? roots : matchingRoots)
+                if changed.count > maximumChangedPaths { return Set(roots) }
             } else {
+                if !changed.contains(eventURL),
+                   changed.count == maximumChangedPaths {
+                    return Set(roots)
+                }
                 changed.insert(eventURL)
             }
         }

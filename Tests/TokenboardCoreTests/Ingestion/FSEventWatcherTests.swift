@@ -82,6 +82,58 @@ final class FSEventWatcherTests: XCTestCase {
         watcher.stop()
     }
 
+    func testSingleCallbackAbovePathCapCollapsesToWatchedRoots() async {
+        let driver = RecordingFSEventStreamDriver()
+        let watcher = FSEventWatcher(driver: driver)
+        let roots = [
+            URL(fileURLWithPath: "/tmp/claude").standardizedFileURL,
+            URL(fileURLWithPath: "/tmp/codex").standardizedFileURL
+        ]
+        let stream = watcher.events(for: roots)
+        let events = (0..<1_000).map { index in
+            FSEventDriverEvent(
+                path: roots[index % roots.count]
+                    .appending(path: "session-\(index).jsonl").path,
+                flags: 0
+            )
+        }
+
+        XCTAssertTrue(driver.emit(events))
+
+        var iterator = stream.makeAsyncIterator()
+        let received = await iterator.next()
+        XCTAssertEqual(received, Set(roots))
+        watcher.stop()
+    }
+
+    func testRootSignalAtPathCapCollapsesToAllWatchedRoots() async {
+        let driver = RecordingFSEventStreamDriver()
+        let watcher = FSEventWatcher(driver: driver)
+        let roots = [
+            URL(fileURLWithPath: "/tmp/claude").standardizedFileURL,
+            URL(fileURLWithPath: "/tmp/codex").standardizedFileURL
+        ]
+        let stream = watcher.events(for: roots)
+        var events = (0..<64).map { index in
+            FSEventDriverEvent(
+                path: roots[index % roots.count]
+                    .appending(path: "session-\(index).jsonl").path,
+                flags: 0
+            )
+        }
+        events.append(FSEventDriverEvent(
+            path: roots[0].path,
+            flags: UInt32(kFSEventStreamEventFlagRootChanged)
+        ))
+
+        XCTAssertTrue(driver.emit(events))
+
+        var iterator = stream.makeAsyncIterator()
+        let received = await iterator.next()
+        XCTAssertEqual(received, Set(roots))
+        watcher.stop()
+    }
+
     func testStartFailureUsesFailureCleanupOrderAndReleasesCallbackOnce() async {
         let driver = RecordingFSEventStreamDriver(startResult: false)
         let watcher = FSEventWatcher(driver: driver)
