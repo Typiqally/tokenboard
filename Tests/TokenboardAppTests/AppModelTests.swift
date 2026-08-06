@@ -23,7 +23,7 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(setup.model.presentation?.tokenTitle, "321 tokens")
     }
 
-    func testStartupNeverScansWithOnlyOneActiveGrantEvenWhenPreviouslyApproved() async throws {
+    func testStartupScansTheOneActiveGrantWhenPreviouslyApproved() async throws {
         let setup = try makeSetup(approved: true, grantedProviders: [.claudeCode])
         defer { setup.cleanup() }
 
@@ -31,7 +31,7 @@ final class AppModelTests: XCTestCase {
 
         XCTAssertTrue(setup.model.onboardingRequired)
         let counts = await setup.coordinator.counts()
-        XCTAssertEqual(counts, [0, 0])
+        XCTAssertEqual(counts, [1, 0])
         XCTAssertEqual(setup.model.presentation?.tokenTitle, "321 tokens")
         XCTAssertEqual(setup.model.presentation?.statusTitle, "⚠ 321")
         XCTAssertEqual(setup.access.startCount, 1)
@@ -194,6 +194,7 @@ private actor RuntimeCoordinator: AppIngestionCoordinating {
     private(set) var refreshCount = 0
     private var runID: UInt64 = 0
     private var sequence: UInt64 = 0
+    private var activeProviders: Set<Provider> = []
 
     init(recorder: OrderedRecorder) { self.recorder = recorder }
 
@@ -206,7 +207,11 @@ private actor RuntimeCoordinator: AppIngestionCoordinating {
         runID += 1
         sequence = 0
         recorder.append("coordinator.start")
+        activeProviders = Set(roots.keys)
         return result()
+    }
+    func startMonitoring(roots: [Provider: URL]) -> IngestionBatchResult {
+        start(roots: roots)
     }
     func refreshAll() -> IngestionBatchResult {
         refreshCount += 1
@@ -235,7 +240,7 @@ private actor RuntimeCoordinator: AppIngestionCoordinating {
             runID: runID,
             sequence: sequence,
             scope: .inventory,
-            providers: Dictionary(uniqueKeysWithValues: Provider.allCases.map {
+            providers: Dictionary(uniqueKeysWithValues: activeProviders.map {
                 ($0, .success(discoveredFiles: 0, scannedFiles: 0))
             })
         )

@@ -1,5 +1,27 @@
 import Foundation
 
+public struct PricingGap: Equatable, Hashable, Sendable {
+    public let provider: Provider
+    public let observedModelID: String
+    public let metric: UsageMetric
+    public let effectiveDate: String
+    public let unpricedTokens: Int64
+
+    public init(
+        provider: Provider,
+        observedModelID: String,
+        metric: UsageMetric,
+        effectiveDate: String,
+        unpricedTokens: Int64
+    ) {
+        self.provider = provider
+        self.observedModelID = observedModelID
+        self.metric = metric
+        self.effectiveDate = effectiveDate
+        self.unpricedTokens = unpricedTokens
+    }
+}
+
 public struct PricingPreview: Equatable, Sendable {
     public let diff: CatalogDiff
     public let currentKnownUSD: Decimal
@@ -7,6 +29,7 @@ public struct PricingPreview: Equatable, Sendable {
     public let newlyPricedTokens: Int64
     public let remainingUnpricedTokens: Int64
     public let provenanceURLs: [URL]
+    public let unresolvedGaps: [PricingGap]
 
     public init(
         diff: CatalogDiff,
@@ -14,7 +37,8 @@ public struct PricingPreview: Equatable, Sendable {
         candidateKnownUSD: Decimal,
         newlyPricedTokens: Int64,
         remainingUnpricedTokens: Int64,
-        provenanceURLs: [URL]
+        provenanceURLs: [URL],
+        unresolvedGaps: [PricingGap]
     ) {
         self.diff = diff
         self.currentKnownUSD = currentKnownUSD
@@ -22,6 +46,7 @@ public struct PricingPreview: Equatable, Sendable {
         self.newlyPricedTokens = newlyPricedTokens
         self.remainingUnpricedTokens = remainingUnpricedTokens
         self.provenanceURLs = provenanceURLs
+        self.unresolvedGaps = unresolvedGaps
     }
 
     public static func make(
@@ -36,22 +61,50 @@ public struct PricingPreview: Equatable, Sendable {
 
         var conflicts = comparison.conflicts
         let candidateResolution: PriceResolution
+        let resolvedPricing: PricingSnapshot
         if conflicts.isEmpty {
             do {
                 candidateResolution = try resolver.resolve(rows: rows, pricing: merge)
+                resolvedPricing = merge
             } catch let error as PriceResolverError {
                 conflicts.append(conflictDescription(error))
                 candidateResolution = current
+                resolvedPricing = currentPricing
             }
         } else {
             candidateResolution = current
+            resolvedPricing = currentPricing
         }
 
-        let newlyPriced: Int64
-        if candidateResolution.unpricedTokens <= current.unpricedTokens {
-            newlyPriced = current.unpricedTokens - candidateResolution.unpricedTokens
-        } else {
-            newlyPriced = 0
+        var newlyPriced: Int64 = 0
+        var gaps: [PricingGapKey: Int64] = [:]
+        for row in rows where row.aggregation == .additive {
+            let before = try resolver.resolve(rows: [row], pricing: currentPricing)
+            let after = try resolver.resolve(rows: [row], pricing: resolvedPricing)
+            if before.unpricedTokens > 0, after.unpricedTokens == 0 {
+                newlyPriced = try checkedAdd(newlyPriced, row.quantity)
+            }
+            if after.unpricedTokens > 0 {
+                let key = PricingGapKey(
+                    provider: row.provider,
+                    observedModelID: row.observedModelID,
+                    metric: row.metric,
+                    effectiveDate: row.localDay.value
+                )
+                gaps[key] = try checkedAdd(gaps[key, default: 0], row.quantity)
+            }
+        }
+        let unresolvedGaps = gaps.map { key, quantity in
+            PricingGap(
+                provider: key.provider,
+                observedModelID: key.observedModelID,
+                metric: key.metric,
+                effectiveDate: key.effectiveDate,
+                unpricedTokens: quantity
+            )
+        }.sorted {
+            ($0.provider.rawValue, $0.observedModelID, $0.effectiveDate, $0.metric.rawValue)
+                < ($1.provider.rawValue, $1.observedModelID, $1.effectiveDate, $1.metric.rawValue)
         }
 
         return PricingPreview(
@@ -67,8 +120,15 @@ public struct PricingPreview: Equatable, Sendable {
             remainingUnpricedTokens: candidateResolution.unpricedTokens,
             provenanceURLs: Array(Set(candidate.models.flatMap { model in
                 model.rates.map(\.provenanceURL)
-            })).sorted { $0.absoluteString < $1.absoluteString }
+            })).sorted { $0.absoluteString < $1.absoluteString },
+            unresolvedGaps: unresolvedGaps
         )
+    }
+
+    private static func checkedAdd(_ lhs: Int64, _ rhs: Int64) throws -> Int64 {
+        let (result, overflow) = lhs.addingReportingOverflow(rhs)
+        guard !overflow else { throw PriceResolverError.unpricedTokensOverflow }
+        return result
     }
 
     private static func merge(
@@ -148,4 +208,11 @@ public struct PricingPreview: Equatable, Sendable {
             "decimal arithmetic failure"
         }
     }
+}
+
+private struct PricingGapKey: Hashable {
+    let provider: Provider
+    let observedModelID: String
+    let metric: UsageMetric
+    let effectiveDate: String
 }

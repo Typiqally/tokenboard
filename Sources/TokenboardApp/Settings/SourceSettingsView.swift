@@ -41,6 +41,7 @@ struct SourceSettingsView: View {
                 }
                 .disabled(source?.resolvedPath == nil)
             }
+            .disabled(model.settingsState.isSourceMutationInProgress)
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(title) source settings")

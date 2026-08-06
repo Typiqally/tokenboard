@@ -3,6 +3,69 @@ import TokenboardCore
 
 @MainActor
 extension AppModel {
+    func startSourceMutation(_ request: AppSourceMutationRequest) async {
+        guard isReadyForSources else { return }
+        if let sourceMutation {
+            await sourceMutation.task.value
+            return
+        }
+        sourceMutationGeneration &+= 1
+        let id = sourceMutationGeneration
+        let generation = lifecycleGeneration
+        setSourceMutationInProgress(true)
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.runSourceMutation(
+                request,
+                generation: generation,
+                mutationID: id
+            )
+        }
+        sourceMutation = AppRuntimeActivity(id: id, task: task)
+        await task.value
+        guard sourceMutation?.id == id else { return }
+        sourceMutation = nil
+        if accepts(generation) {
+            setSourceMutationInProgress(false)
+        }
+    }
+
+    func runSourceMutation(
+        _ request: AppSourceMutationRequest,
+        generation: UInt64,
+        mutationID: UInt64
+    ) async {
+        if let activity { await activity.task.value }
+        guard acceptsSourceMutation(generation: generation, id: mutationID) else { return }
+        switch request {
+        case let .choose(provider):
+            do {
+                guard let url = try sourcePicker.select(provider: provider) else { return }
+                guard acceptsSourceMutation(generation: generation, id: mutationID) else { return }
+                await launchReplacement(
+                    provider: provider,
+                    url: url,
+                    sourceMutationID: mutationID
+                )
+            } catch {
+                return
+            }
+        case let .revoke(provider):
+            await runRevocation(
+                provider: provider,
+                generation: generation,
+                mutationID: mutationID
+            )
+        }
+    }
+
+    func acceptsSourceMutation(generation: UInt64, id: UInt64) -> Bool {
+        sourceMutationGeneration == id
+            && sourceMutation?.id == id
+            && readyGeneration == generation
+            && accepts(generation)
+    }
+
     func launchIngestion(refreshExisting: Bool) async {
         guard activity == nil, isReadyForSources else { return }
         let generation = lifecycleGeneration
@@ -28,7 +91,7 @@ extension AppModel {
     }
 
     func runIngestion(refreshExisting: Bool, generation: UInt64) async {
-        guard readyGeneration == generation, accepts(generation), hasEveryGrant else { return }
+        guard readyGeneration == generation, accepts(generation), hasAnyGrant else { return }
         await ensureResultConsumer(generation: generation)
         guard readyGeneration == generation, accepts(generation) else { return }
 
@@ -39,7 +102,7 @@ extension AppModel {
                 prepareForCoordinatorStart()
                 beginCoordinatorInventoryRequest()
                 do {
-                    result = try await coordinator.start(roots: activeRoots())
+                    result = try await coordinator.startMonitoring(roots: activeRoots())
                 } catch {
                     completeCoordinatorInventoryRequest()
                     throw error
@@ -284,6 +347,9 @@ extension AppModel {
         for (provider, outcome) in result.providers {
             switch outcome {
             case let .success(discoveredFiles, _):
+                if let successfulUpdate {
+                    next.lastSuccessfulScans[provider] = successfulUpdate
+                }
                 if result.scope == .inventory {
                     next.sourceFileCounts[provider] = discoveredFiles
                 }
@@ -330,7 +396,11 @@ extension AppModel {
         commitState(next)
     }
 
-    func launchReplacement(provider: Provider, url: URL) async {
+    func launchReplacement(
+        provider: Provider,
+        url: URL,
+        sourceMutationID: UInt64
+    ) async {
         guard activity == nil, isReadyForSources else { return }
         let generation = lifecycleGeneration
         activityGeneration &+= 1
@@ -340,7 +410,12 @@ extension AppModel {
         commitState(next)
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.runReplacement(provider: provider, url: url, generation: generation)
+            await self.runReplacement(
+                provider: provider,
+                url: url,
+                generation: generation,
+                sourceMutationID: sourceMutationID
+            )
         }
         activity = AppRuntimeActivity(id: id, task: task)
         await task.value
@@ -357,9 +432,13 @@ extension AppModel {
     func runReplacement(
         provider: Provider,
         url: URL,
-        generation: UInt64
+        generation: UInt64,
+        sourceMutationID: UInt64
     ) async {
-        guard readyGeneration == generation, accepts(generation) else { return }
+        guard acceptsSourceMutation(
+            generation: generation,
+            id: sourceMutationID
+        ) else { return }
         let prepared: PreparedSourceGrant
         do {
             prepared = try grantStore.prepareGrant(url: url, for: provider)
@@ -371,8 +450,6 @@ extension AppModel {
         let oldGrant = activeGrants[provider]
         let oldState = state
         let hadActiveOldRuntime = coordinatorStatus.isActive
-        let hadCompleteOldRuntime = oldRoots.count == Provider.allCases.count
-            && hadActiveOldRuntime
         var proposedRoots = oldRoots
         proposedRoots[provider] = prepared.root
         proposedRoots = IngestionRootValidator.canonicalize(proposedRoots)
@@ -392,7 +469,7 @@ extension AppModel {
             prepared.close()
             return
         }
-        guard readyGeneration == generation, accepts(generation) else {
+        guard acceptsSourceMutation(generation: generation, id: sourceMutationID) else {
             prepared.close()
             return
         }
@@ -400,8 +477,7 @@ extension AppModel {
         let newGrant = grantStore.activate(prepared, for: provider)
         activeGrants[provider] = newGrant
 
-        if preferences.historicalImportApproved,
-           hasEveryGrant || hadActiveOldRuntime {
+        if preferences.historicalImportApproved, hasAnyGrant {
             do {
                 await ensureResultConsumer(generation: generation)
                 prepareForCoordinatorStart()
@@ -415,13 +491,13 @@ extension AppModel {
                             roots: proposedRoots
                         )
                     } else {
-                        result = try await coordinator.start(roots: proposedRoots)
+                        result = try await coordinator.startMonitoring(roots: proposedRoots)
                     }
                 } catch {
                     completeCoordinatorInventoryRequest()
                     throw error
                 }
-                guard readyGeneration == generation, accepts(generation) else {
+                guard acceptsSourceMutation(generation: generation, id: sourceMutationID) else {
                     completeCoordinatorInventoryRequest()
                     await coordinator.stop()
                     restoreGrantAfterInterruptedReplacement(
@@ -450,26 +526,35 @@ extension AppModel {
                 activeGrants[provider] = oldGrant
                 newGrant.close()
                 coordinatorStatus = .inactive
-                guard readyGeneration == generation, accepts(generation) else { return }
+                guard acceptsSourceMutation(generation: generation, id: sourceMutationID) else {
+                    return
+                }
                 commitState(oldState)
-                guard hadCompleteOldRuntime else { return }
+                guard hadActiveOldRuntime else { return }
                 do {
                     prepareForCoordinatorStart()
                     beginCoordinatorInventoryRequest()
                     let restored: IngestionBatchResult
                     do {
-                        restored = try await coordinator.start(roots: oldRoots)
+                        restored = try await coordinator.startMonitoring(roots: oldRoots)
                     } catch {
                         completeCoordinatorInventoryRequest()
                         throw error
                     }
-                    guard readyGeneration == generation, accepts(generation) else {
+                    guard acceptsSourceMutation(
+                        generation: generation,
+                        id: sourceMutationID
+                    ) else {
                         completeCoordinatorInventoryRequest()
                         return
                     }
                     await activateRestoredCoordinator(restored, generation: generation)
                 } catch {
                     coordinatorStatus = .inactive
+                    guard acceptsSourceMutation(
+                        generation: generation,
+                        id: sourceMutationID
+                    ) else { return }
                     publishWarning("Historical import paused: \(Self.errorDescription(error))")
                 }
                 return

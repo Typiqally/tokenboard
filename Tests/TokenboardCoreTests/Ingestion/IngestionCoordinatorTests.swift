@@ -97,6 +97,33 @@ final class IngestionCoordinatorTests: XCTestCase {
         await coordinator.stop()
     }
 
+    func testStartMonitoringInventoriesAndWatchesOneApprovedRoot() async throws {
+        let setup = try makeSetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let file = setup.codexRoot.appending(path: "retained.jsonl")
+        try Data().write(to: file)
+        let watcher = FakeSourceEventWatcher()
+        let scanner = RecordingScanner()
+        let coordinator = IngestionCoordinator(
+            scanner: scanner,
+            watcher: watcher,
+            clock: ManualIngestionClock(),
+            calendar: calendar
+        )
+
+        let result = try await coordinator.startMonitoring(
+            roots: [.codex: setup.codexRoot]
+        )
+
+        XCTAssertEqual(result.providers, [
+            .codex: .success(discoveredFiles: 1, scannedFiles: 1)
+        ])
+        let scannedURLs = await scanner.scannedURLs
+        XCTAssertEqual(scannedURLs, [file])
+        XCTAssertEqual(watcher.requestedRoots.map(\.path), [setup.codexRoot.path])
+        await coordinator.stop()
+    }
+
     func testReplacingOneSourceInventoriesOnlyThatProviderAndKeepsBothRootsWatched() async throws {
         let setup = try makeSetup()
         defer { try? FileManager.default.removeItem(at: setup.directory) }
@@ -198,6 +225,183 @@ final class IngestionCoordinatorTests: XCTestCase {
         XCTAssertEqual(scannedURLs, [])
         XCTAssertEqual(watcher.requestedRoots.map(\.path), [setup.codexRoot.path])
         XCTAssertEqual(watcher.eventsRequestCount, 2)
+        await coordinator.stop()
+    }
+
+    func testReplacementPreservesDebouncedRetainedProviderPathExactlyOnce() async throws {
+        let setup = try makeSetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let retainedOldFile = setup.codexRoot.appending(path: "old.jsonl")
+        let retainedEventFile = setup.codexRoot.appending(path: "changed.jsonl")
+        try Data().write(to: retainedOldFile)
+        try Data().write(to: retainedEventFile)
+        let watcher = FakeSourceEventWatcher()
+        let scanner = RecordingScanner()
+        let clock = ManualIngestionClock()
+        let coordinator = IngestionCoordinator(
+            scanner: scanner,
+            watcher: watcher,
+            clock: clock,
+            calendar: calendar
+        )
+        _ = try await coordinator.start(roots: setup.roots)
+        await scanner.reset()
+        watcher.emit([retainedEventFile])
+        await clock.waitForSleepStartCount(1)
+
+        let replacementRoot = setup.directory.appending(path: "claude-handoff")
+        try FileManager.default.createDirectory(at: replacementRoot, withIntermediateDirectories: true)
+        let replacementFile = replacementRoot.appending(path: "replacement.jsonl")
+        try Data().write(to: replacementFile)
+        var roots = setup.roots
+        roots[.claudeCode] = replacementRoot
+        _ = try await coordinator.replaceSource(
+            .claudeCode,
+            with: replacementRoot,
+            roots: roots
+        )
+
+        let scannedURLs = await scanner.scannedURLs
+        XCTAssertEqual(scannedURLs.filter { $0 == retainedEventFile }.count, 1)
+        XCTAssertFalse(scannedURLs.contains(retainedOldFile))
+        XCTAssertTrue(scannedURLs.contains(replacementFile))
+        await coordinator.stop()
+    }
+
+    func testRevokeDrainsRetainedProviderDeliveryAtWatcherStopExactlyOnce() async throws {
+        let setup = try makeSetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let retainedEventFile = setup.codexRoot.appending(path: "handoff.jsonl")
+        try Data().write(to: retainedEventFile)
+        let watcher = FakeSourceEventWatcher()
+        let scanner = RecordingScanner()
+        let coordinator = IngestionCoordinator(
+            scanner: scanner,
+            watcher: watcher,
+            clock: ManualIngestionClock(),
+            calendar: calendar
+        )
+        _ = try await coordinator.start(roots: setup.roots)
+        await scanner.reset()
+        watcher.emitOnNextStop([retainedEventFile])
+
+        _ = try await coordinator.revokeSource(
+            .claudeCode,
+            remainingRoots: [.codex: setup.codexRoot]
+        )
+
+        let scannedURLs = await scanner.scannedURLs
+        XCTAssertEqual(scannedURLs, [retainedEventFile])
+        await coordinator.stop()
+    }
+
+    func testRetainedEventReplayAcrossReplacementKeepsFinalLedgerUsageExact() async throws {
+        let setup = try makeSetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let ledger = try SQLiteLedger(
+            databaseURL: setup.directory.appending(path: "ledger.sqlite"),
+            backupDirectory: setup.directory.appending(path: "Backups")
+        )
+        try await ledger.migrate()
+        let watcher = FakeSourceEventWatcher()
+        let clock = ManualIngestionClock()
+        let coordinator = IngestionCoordinator(
+            scanner: IncrementalScanner(ledger: ledger),
+            watcher: watcher,
+            clock: clock,
+            calendar: calendar
+        )
+        _ = try await coordinator.start(roots: setup.roots)
+        let changed = setup.codexRoot.appending(path: "replayed.jsonl")
+        let source = #"""
+        {"type":"session_meta","payload":{"id":"session-replay"}}
+        {"type":"turn_context","payload":{"model":"gpt-test"}}
+        {"timestamp":"2026-08-05T10:00:00Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":3,"cached_input_tokens":1,"output_tokens":2,"total_tokens":5}}}}
+        """#
+        try Data("\(source)\n".utf8).write(to: changed)
+        watcher.emit([changed])
+        await clock.waitForSleepStartCount(1)
+
+        let replacement = setup.directory.appending(path: "claude-replacement")
+        try FileManager.default.createDirectory(at: replacement, withIntermediateDirectories: true)
+        var newRoots = setup.roots
+        newRoots[.claudeCode] = replacement
+        _ = try await coordinator.replaceSource(
+            .claudeCode,
+            with: replacement,
+            roots: newRoots
+        )
+
+        watcher.emit([changed])
+        await clock.waitForSleepStartCount(2)
+        await clock.advancePastDebounce()
+        await waitUntil {
+            let diagnostics = await coordinator.diagnostics()
+            return !diagnostics.isDraining && diagnostics.pendingBatchCount == 0
+        }
+        let rows = try await ledger.usageRows(in: nil, calendar: calendar)
+
+        XCTAssertEqual(
+            rows.filter { $0.metric.countsTowardTokenTotal }.reduce(0) { $0 + $1.quantity },
+            5
+        )
+        await coordinator.stop()
+    }
+
+    func testTransitionCollapsesCombinedRetainedOverflowToProviderRoot() async throws {
+        let setup = try makeSetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let watcher = FakeSourceEventWatcher()
+        let scanner = RecordingScanner(suspendFirstScan: true)
+        let clock = ManualIngestionClock()
+        let discovery = ChunkedLogicalDiscovery(counts: [:])
+        let coordinator = IngestionCoordinator(
+            scanner: scanner,
+            watcher: watcher,
+            clock: clock,
+            discovery: discovery,
+            calendar: calendar
+        )
+        _ = try await coordinator.start(roots: setup.roots)
+        discovery.resetMetrics()
+        let active = Set((0..<64).map {
+            setup.codexRoot.appending(path: "active-\($0).jsonl")
+        })
+        for path in active {
+            try Data().write(to: path)
+        }
+        watcher.emit(active)
+        await clock.waitForSleepStartCount(1)
+        await clock.advancePastDebounce()
+        await scanner.waitForScanCount(1)
+
+        let pending = Set((0..<64).map {
+            setup.codexRoot.appending(path: "pending-\($0).jsonl")
+        })
+        watcher.emit(pending)
+        await clock.waitForSleepStartCount(2)
+        let replacement = setup.directory.appending(path: "claude-replacement-bound")
+        try FileManager.default.createDirectory(at: replacement, withIntermediateDirectories: true)
+        var roots = setup.roots
+        roots[.claudeCode] = replacement
+        let transition = Task {
+            try await coordinator.replaceSource(
+                .claudeCode,
+                with: replacement,
+                roots: roots
+            )
+        }
+        await scanner.waitUntilCancelled()
+        await scanner.resumeFirstScan()
+        _ = try await transition.value
+
+        let snapshot = discovery.snapshot()
+        let diagnostics = await coordinator.diagnostics()
+        XCTAssertEqual(snapshot.rootNames, ["codex", "claude-replacement-bound"])
+        XCTAssertLessThanOrEqual(
+            diagnostics.pendingEventPathCount,
+            IngestionCoordinator.maximumPendingEventPaths
+        )
         await coordinator.stop()
     }
 
@@ -1542,11 +1746,13 @@ private final class SynchronousCountRecorder: @unchecked Sendable {
 
 private final class FakeSourceEventWatcher: SourceEventWatching, @unchecked Sendable {
     private let lock = NSLock()
-    private var continuation: AsyncStream<Set<URL>>.Continuation?
+    private var continuation: AsyncStream<SourceEventBatch>.Continuation?
     private(set) var requestedRoots: [URL] = []
     private(set) var eventsRequestCount = 0
+    private var pathsToEmitOnStop: Set<URL> = []
+    private var nextEventID: UInt64 = 0
 
-    func events(for roots: [URL]) -> AsyncStream<Set<URL>> {
+    func events(for roots: [URL]) -> AsyncStream<SourceEventBatch> {
         lock.withLock {
             requestedRoots = roots
             eventsRequestCount += 1
@@ -1557,14 +1763,40 @@ private final class FakeSourceEventWatcher: SourceEventWatching, @unchecked Send
     }
 
     func emit(_ paths: Set<URL>) {
-        lock.withLock { continuation }?.yield(paths)
+        let delivery = lock.withLock { () -> (AsyncStream<SourceEventBatch>.Continuation?, SourceEventBatch) in
+            nextEventID &+= 1
+            return (
+                continuation,
+                SourceEventBatch(
+                    paths: paths,
+                    checkpoint: SourceEventCheckpoint(eventID: nextEventID)
+                )
+            )
+        }
+        delivery.0?.yield(delivery.1)
     }
 
+    func emitOnNextStop(_ paths: Set<URL>) {
+        lock.withLock { pathsToEmitOnStop = paths }
+    }
+
+    func acknowledge(_ checkpoint: SourceEventCheckpoint?) {}
+
     func stop() {
-        let continuation = lock.withLock { () -> AsyncStream<Set<URL>>.Continuation? in
+        let (continuation, batch) = lock.withLock { () -> (AsyncStream<SourceEventBatch>.Continuation?, SourceEventBatch?) in
             defer { self.continuation = nil }
-            return self.continuation
+            defer { pathsToEmitOnStop.removeAll() }
+            guard !pathsToEmitOnStop.isEmpty else { return (self.continuation, nil) }
+            nextEventID &+= 1
+            return (
+                self.continuation,
+                SourceEventBatch(
+                    paths: pathsToEmitOnStop,
+                    checkpoint: SourceEventCheckpoint(eventID: nextEventID)
+                )
+            )
         }
+        if let batch { continuation?.yield(batch) }
         continuation?.finish()
     }
 }

@@ -22,7 +22,24 @@ final class FSEventWatcherTests: XCTestCase {
         XCTAssertEqual(batch.highestConsumedEventID, 10_064)
         XCTAssertEqual(source.pathReads, Array(0...64))
         XCTAssertEqual(source.flagReads, Array(0...64))
-        XCTAssertEqual(source.eventIDReads, Array(0...64))
+        XCTAssertEqual(source.eventIDReads, Array(0...64) + [999_999])
+    }
+
+    func testOverflowCarriesTerminalCheckpointWithoutReadingUnboundedPathsOrFlags() {
+        let source = LazyNativeEventSource(logicalCount: 1_000_000)
+
+        let batch = NativeFSEventBatchConverter.convert(
+            count: source.logicalCount,
+            maximumEvents: FSEventWatcher.maximumChangedPaths,
+            pathAt: source.path(at:),
+            flagsAt: source.flags(at:),
+            eventIDAt: source.eventID(at:)
+        )
+
+        XCTAssertEqual(batch.terminalEventID, 1_009_999)
+        XCTAssertEqual(source.pathReads, Array(0...64))
+        XCTAssertEqual(source.flagReads, Array(0...64))
+        XCTAssertEqual(source.eventIDReads, Array(0...64) + [999_999])
     }
 
     func testLazyNativeConversionPreservesExactCapUnicodeFlagsAndEventIDs() {
@@ -78,7 +95,7 @@ final class FSEventWatcherTests: XCTestCase {
 
         var iterator = stream.makeAsyncIterator()
         let received = await iterator.next()
-        XCTAssertEqual(received, Set(roots))
+        XCTAssertEqual(received?.paths, Set(roots))
         XCTAssertEqual(batch.events.count, 64)
         XCTAssertEqual(batch.highestConsumedEventID, 10_064)
         XCTAssertEqual(source.pathReads.count, 65)
@@ -103,7 +120,7 @@ final class FSEventWatcherTests: XCTestCase {
         XCTAssertEqual(driver.createCount, 1)
         XCTAssertEqual(driver.configuration?.roots, roots.map(\.path))
         XCTAssertEqual(driver.configuration?.flags, expectedFlags)
-        XCTAssertEqual(driver.configuration?.sinceWhen, UInt64(kFSEventStreamEventIdSinceNow))
+        XCTAssertEqual(driver.configuration?.sinceWhen, 0)
         XCTAssertEqual(driver.configuration?.latency, 0.5)
         XCTAssertEqual(driver.operations, [.schedule, .start(true)])
         XCTAssertTrue(driver.callbackContextIsAlive)
@@ -113,13 +130,50 @@ final class FSEventWatcherTests: XCTestCase {
 
         XCTAssertEqual(
             driver.operations,
-            [.schedule, .start(true), .stop, .invalidate, .release]
+            [.schedule, .start(true), .flushSync, .stop, .invalidate, .release]
         )
-        XCTAssertEqual(driver.callbackLivenessAtOperation, [true, true, true, true, true])
+        XCTAssertEqual(driver.callbackLivenessAtOperation, [true, true, true, true, true, true])
         XCTAssertFalse(driver.callbackContextIsAlive)
         XCTAssertEqual(driver.callbackReleaseCount, 1)
-        XCTAssertEqual(driver.operationCountsAtCallbackRelease, [5])
+        XCTAssertEqual(driver.operationCountsAtCallbackRelease, [6])
         withExtendedLifetime(stream) {}
+    }
+
+    func testReconfigurationStartsAtLastAcknowledgedContiguousCheckpoint() async {
+        let driver = RecordingFSEventStreamDriver(currentEventID: 900)
+        let watcher = FSEventWatcher(driver: driver)
+        let root = URL(fileURLWithPath: "/tmp/claude").standardizedFileURL
+        let firstStream = watcher.events(for: [root])
+        var firstIterator = firstStream.makeAsyncIterator()
+        XCTAssertTrue(driver.emit([
+            FSEventDriverEvent(path: root.appending(path: "one.jsonl").path, flags: 0, eventID: 901)
+        ]))
+        let first = await firstIterator.next()
+        XCTAssertEqual(first?.paths, [root.appending(path: "one.jsonl")])
+        watcher.acknowledge(first?.checkpoint)
+
+        let secondStream = watcher.events(for: [root])
+        withExtendedLifetime(secondStream) {}
+
+        XCTAssertEqual(driver.configurations.map(\.sinceWhen), [900, 901])
+        watcher.stop()
+    }
+
+    func testUnacknowledgedDeliveryIsReplayedAcrossReconfiguration() async {
+        let driver = RecordingFSEventStreamDriver(currentEventID: 40)
+        let watcher = FSEventWatcher(driver: driver)
+        let root = URL(fileURLWithPath: "/tmp/codex").standardizedFileURL
+        let firstStream = watcher.events(for: [root])
+        XCTAssertTrue(driver.emit([
+            FSEventDriverEvent(path: root.appending(path: "gap.jsonl").path, flags: 0, eventID: 41)
+        ]))
+        withExtendedLifetime(firstStream) {}
+
+        let secondStream = watcher.events(for: [root])
+        withExtendedLifetime(secondStream) {}
+
+        XCTAssertEqual(driver.configurations.map(\.sinceWhen), [40, 40])
+        watcher.stop()
     }
 
     func testDeliverySucceedsBeforeCleanupAndIsRejectedAfterRelease() async {
@@ -138,13 +192,13 @@ final class FSEventWatcherTests: XCTestCase {
 
         XCTAssertTrue(delivered)
         let received = await iterator.next()
-        XCTAssertEqual(received, [root])
+        XCTAssertEqual(received?.paths, [root])
 
         watcher.stop()
 
         XCTAssertFalse(driver.callbackContextIsAlive)
         XCTAssertEqual(driver.callbackReleaseCount, 1)
-        XCTAssertEqual(driver.operationCountsAtCallbackRelease, [5])
+        XCTAssertEqual(driver.operationCountsAtCallbackRelease, [6])
         XCTAssertFalse(driver.emit([FSEventDriverEvent(path: root.path, flags: 0)]))
     }
 
@@ -161,7 +215,40 @@ final class FSEventWatcherTests: XCTestCase {
 
         var iterator = stream.makeAsyncIterator()
         let received = await iterator.next()
-        XCTAssertEqual(received, Set([root]))
+        XCTAssertEqual(received?.paths, Set([root]))
+        watcher.stop()
+    }
+
+    func testDroppedBufferedDeliveryRetainsTerminalCheckpointThroughRootRecovery() async {
+        let driver = RecordingFSEventStreamDriver(currentEventID: 100)
+        let watcher = FSEventWatcher(driver: driver)
+        let root = URL(fileURLWithPath: "/tmp/claude").standardizedFileURL
+        let stream = watcher.events(for: [root])
+
+        XCTAssertTrue(driver.emit([
+            FSEventDriverEvent(
+                path: root.appending(path: "first.jsonl").path,
+                flags: 0,
+                eventID: 101
+            )
+        ]))
+        XCTAssertTrue(driver.emit([
+            FSEventDriverEvent(
+                path: root.appending(path: "second.jsonl").path,
+                flags: 0,
+                eventID: 102
+            )
+        ]))
+
+        var iterator = stream.makeAsyncIterator()
+        let recovered = await iterator.next()
+        XCTAssertEqual(recovered?.paths, [root])
+        XCTAssertEqual(recovered?.checkpoint, SourceEventCheckpoint(eventID: 102))
+        watcher.acknowledge(recovered?.checkpoint)
+
+        let resumed = watcher.events(for: [root])
+        withExtendedLifetime(resumed) {}
+        XCTAssertEqual(driver.configurations.map(\.sinceWhen), [100, 102])
         watcher.stop()
     }
 
@@ -185,7 +272,7 @@ final class FSEventWatcherTests: XCTestCase {
 
         var iterator = stream.makeAsyncIterator()
         let received = await iterator.next()
-        XCTAssertEqual(received, Set(roots))
+        XCTAssertEqual(received?.paths, Set(roots))
         watcher.stop()
     }
 
@@ -213,7 +300,7 @@ final class FSEventWatcherTests: XCTestCase {
 
         var iterator = stream.makeAsyncIterator()
         let received = await iterator.next()
-        XCTAssertEqual(received, Set(roots))
+        XCTAssertEqual(received?.paths, Set(roots))
         watcher.stop()
     }
 
@@ -252,12 +339,12 @@ final class FSEventWatcherTests: XCTestCase {
 
         XCTAssertEqual(
             driver.operations,
-            [.schedule, .start(true), .stop, .invalidate, .release]
+            [.schedule, .start(true), .flushSync, .stop, .invalidate, .release]
         )
-        XCTAssertEqual(driver.callbackLivenessAtOperation, [true, true, true, true, true])
+        XCTAssertEqual(driver.callbackLivenessAtOperation, [true, true, true, true, true, true])
         XCTAssertFalse(driver.callbackContextIsAlive)
         XCTAssertEqual(driver.callbackReleaseCount, 1)
-        XCTAssertEqual(driver.operationCountsAtCallbackRelease, [5])
+        XCTAssertEqual(driver.operationCountsAtCallbackRelease, [6])
     }
 }
 
@@ -306,6 +393,7 @@ private final class RecordingFSEventStreamDriver: FSEventStreamDriving, @uncheck
     enum Operation: Equatable {
         case schedule
         case start(Bool)
+        case flushSync
         case stop
         case invalidate
         case release
@@ -313,19 +401,22 @@ private final class RecordingFSEventStreamDriver: FSEventStreamDriving, @uncheck
 
     private let lock = NSLock()
     private let startResult: Bool
+    private let recordedCurrentEventID: UInt64
     private var handle: FSEventStreamHandle?
     private var recordedOperations: [Operation] = []
     private var recordedCallbackLiveness: [Bool] = []
     private var recordedCallbackReleaseCount = 0
     private var recordedOperationCountsAtCallbackRelease: [Int] = []
-    private var recordedConfiguration: FSEventStreamConfiguration?
+    private var recordedConfigurations: [FSEventStreamConfiguration] = []
     private var recordedCreateCount = 0
 
-    init(startResult: Bool = true) {
+    init(startResult: Bool = true, currentEventID: UInt64 = 0) {
         self.startResult = startResult
+        recordedCurrentEventID = currentEventID
     }
 
-    var configuration: FSEventStreamConfiguration? { lock.withLock { recordedConfiguration } }
+    var configuration: FSEventStreamConfiguration? { lock.withLock { recordedConfigurations.last } }
+    var configurations: [FSEventStreamConfiguration] { lock.withLock { recordedConfigurations } }
     var createCount: Int { lock.withLock { recordedCreateCount } }
     var operations: [Operation] { lock.withLock { recordedOperations } }
     var callbackLivenessAtOperation: [Bool] { lock.withLock { recordedCallbackLiveness } }
@@ -337,13 +428,15 @@ private final class RecordingFSEventStreamDriver: FSEventStreamDriving, @uncheck
         lock.withLock { handle }?.hasLiveCallbackContext ?? false
     }
 
+    func currentEventID() -> UInt64 { recordedCurrentEventID }
+
     func create(
         configuration: FSEventStreamConfiguration,
         callback: @escaping @Sendable (FSEventDriverBatch) -> Void
     ) -> FSEventStreamHandle? {
         lock.withLock {
             recordedCreateCount += 1
-            recordedConfiguration = configuration
+            recordedConfigurations.append(configuration)
             let handle = FSEventStreamHandle(callback: callback, onCallbackRelease: { [weak self] in
                 guard let self else { return }
                 self.lock.withLock {
@@ -365,6 +458,10 @@ private final class RecordingFSEventStreamDriver: FSEventStreamDriving, @uncheck
         return startResult
     }
 
+    func flushSync(_ handle: FSEventStreamHandle) {
+        record(.flushSync, handle: handle)
+    }
+
     func stop(_ handle: FSEventStreamHandle) {
         record(.stop, handle: handle)
     }
@@ -381,7 +478,8 @@ private final class RecordingFSEventStreamDriver: FSEventStreamDriving, @uncheck
         emit(FSEventDriverBatch(
             events: events,
             overflowed: false,
-            highestConsumedEventID: events.map(\.eventID).max()
+            highestConsumedEventID: events.map(\.eventID).max(),
+            terminalEventID: events.last?.eventID
         ))
     }
 

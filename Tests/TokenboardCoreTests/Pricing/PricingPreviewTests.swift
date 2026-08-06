@@ -89,17 +89,82 @@ final class PricingPreviewTests: XCTestCase {
         XCTAssertEqual(preview.candidateKnownUSD, Decimal(string: "0.10"))
     }
 
-    private func usageRow(quantity: Int64) -> DailyUsageRow {
+    func testNewlyPricedCountsOnlyPerRowTransitionsAndReportsStructuredGaps() throws {
+        let current = PricingSnapshot(
+            catalogIDs: ["current"],
+            rates: [StoredPriceRate(
+                provider: .codex,
+                canonicalModelID: "gpt-current",
+                metric: .inputUncached,
+                usdPerMillion: Decimal(string: "1")!,
+                effectiveFrom: "2026-01-01",
+                effectiveTo: nil,
+                provenanceURL: URL(string: "https://openai.com/api/pricing/")!,
+                verifiedAt: "2026-08-05"
+            )],
+            aliases: [StoredModelAlias(
+                provider: .codex,
+                observedModelID: "gpt-current",
+                canonicalModelID: "gpt-current",
+                effectiveFrom: "2026-01-01",
+                effectiveTo: nil
+            )]
+        )
+        let candidate = try validatedCandidate(effectiveFrom: "2026-08-05")
+        let rows = [
+            usageRow(quantity: 50, model: "gpt-current", day: "2026-08-05"),
+            usageRow(quantity: 20, model: "gpt-preview", day: "2026-08-05"),
+            usageRow(quantity: 30, model: "gpt-preview", day: "2026-08-04"),
+            usageRow(
+                quantity: 40,
+                model: "gpt-preview",
+                day: "2026-08-05",
+                metric: .inputCacheRead
+            )
+        ]
+
+        let preview = try PricingPreview.make(
+            rows: rows,
+            currentPricing: current,
+            candidate: candidate
+        )
+
+        XCTAssertEqual(preview.newlyPricedTokens, 20)
+        XCTAssertEqual(preview.remainingUnpricedTokens, 70)
+        XCTAssertEqual(preview.unresolvedGaps, [
+            PricingGap(
+                provider: .codex,
+                observedModelID: "gpt-preview",
+                metric: .inputUncached,
+                effectiveDate: "2026-08-04",
+                unpricedTokens: 30
+            ),
+            PricingGap(
+                provider: .codex,
+                observedModelID: "gpt-preview",
+                metric: .inputCacheRead,
+                effectiveDate: "2026-08-05",
+                unpricedTokens: 40
+            )
+        ])
+    }
+
+    private func usageRow(
+        quantity: Int64,
+        model: String = "gpt-preview",
+        day: String = "2026-08-05",
+        metric: UsageMetric = .inputUncached
+    ) -> DailyUsageRow {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "Europe/Amsterdam")!
         return DailyUsageRow(
             localDay: LocalDay(
-                date: ISO8601DateFormatter().date(from: "2026-08-05T12:00:00Z")!,
+                date: ISO8601DateFormatter().date(from: "\(day)T12:00:00Z")!,
                 calendar: calendar
             ),
             provider: .codex,
-            observedModelID: "gpt-preview",
-            metric: .inputUncached,
+            observedModelID: model,
+            metric: metric,
             aggregation: .additive,
             quantity: quantity
         )

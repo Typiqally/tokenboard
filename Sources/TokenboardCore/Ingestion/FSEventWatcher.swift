@@ -24,6 +24,7 @@ struct FSEventDriverBatch: Equatable, Sendable {
     let events: [FSEventDriverEvent]
     let overflowed: Bool
     let highestConsumedEventID: UInt64?
+    let terminalEventID: UInt64?
 }
 
 enum NativeFSEventBatchConverter {
@@ -54,10 +55,17 @@ enum NativeFSEventBatchConverter {
                 ))
             }
         }
+        let terminalEventID: UInt64?
+        if count > accessorLimit {
+            terminalEventID = eventIDAt(count - 1)
+        } else {
+            terminalEventID = highestConsumedEventID
+        }
         return FSEventDriverBatch(
             events: events,
             overflowed: count > boundedMaximum,
-            highestConsumedEventID: highestConsumedEventID
+            highestConsumedEventID: highestConsumedEventID,
+            terminalEventID: terminalEventID
         )
     }
 }
@@ -150,18 +158,24 @@ private final class FSEventCallbackContext: @unchecked Sendable {
 }
 
 protocol FSEventStreamDriving: Sendable {
+    func currentEventID() -> UInt64
     func create(
         configuration: FSEventStreamConfiguration,
         callback: @escaping @Sendable (FSEventDriverBatch) -> Void
     ) -> FSEventStreamHandle?
     func schedule(_ handle: FSEventStreamHandle, on queue: DispatchQueue)
     func start(_ handle: FSEventStreamHandle) -> Bool
+    func flushSync(_ handle: FSEventStreamHandle)
     func stop(_ handle: FSEventStreamHandle)
     func invalidate(_ handle: FSEventStreamHandle)
     func release(_ handle: FSEventStreamHandle)
 }
 
 private struct NativeFSEventStreamDriver: FSEventStreamDriving {
+    func currentEventID() -> UInt64 {
+        UInt64(FSEventsGetCurrentEventId())
+    }
+
     func create(
         configuration: FSEventStreamConfiguration,
         callback: @escaping @Sendable (FSEventDriverBatch) -> Void
@@ -227,6 +241,11 @@ private struct NativeFSEventStreamDriver: FSEventStreamDriving {
         return FSEventStreamStart(stream)
     }
 
+    func flushSync(_ handle: FSEventStreamHandle) {
+        guard let stream = handle.nativeStream else { return }
+        FSEventStreamFlushSync(stream)
+    }
+
     func stop(_ handle: FSEventStreamHandle) {
         guard let stream = handle.nativeStream else { return }
         FSEventStreamStop(stream)
@@ -250,13 +269,15 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
 
     private struct StreamState {
         let handle: FSEventStreamHandle
-        let continuation: AsyncStream<Set<URL>>.Continuation
+        let continuation: AsyncStream<SourceEventBatch>.Continuation
     }
 
     private let lock = NSLock()
     private let queue = DispatchQueue(label: "com.tokenboard.source-events")
     private let driver: any FSEventStreamDriving
     private var state: StreamState?
+    private var baselineEventID: UInt64?
+    private var lastAcknowledgedEventID: UInt64?
 
     public convenience init() {
         self.init(driver: NativeFSEventStreamDriver())
@@ -270,7 +291,7 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
         stop()
     }
 
-    public func events(for roots: [URL]) -> AsyncStream<Set<URL>> {
+    public func events(for roots: [URL]) -> AsyncStream<SourceEventBatch> {
         stop()
         let resolvedRoots = roots.map(\.standardizedFileURL)
         return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
@@ -285,19 +306,44 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
                     | kFSEventStreamCreateFlagWatchRoot
                     | kFSEventStreamCreateFlagNoDefer
             )
+            let sinceWhen = lock.withLock { () -> UInt64 in
+                if let lastAcknowledgedEventID { return lastAcknowledgedEventID }
+                if let baselineEventID { return baselineEventID }
+                let current = driver.currentEventID()
+                baselineEventID = current
+                return current
+            }
             let configuration = FSEventStreamConfiguration(
                 roots: resolvedRoots.map(\.path),
-                sinceWhen: UInt64(kFSEventStreamEventIdSinceNow),
+                sinceWhen: sinceWhen,
                 latency: 0.5,
                 flags: createFlags
             )
             guard let handle = driver.create(configuration: configuration, callback: { batch in
-                let changed = batch.overflowed
+                let requiresRootRecovery = batch.overflowed || batch.events.contains { event in
+                    event.flags & UInt32(
+                        kFSEventStreamEventFlagMustScanSubDirs
+                            | kFSEventStreamEventFlagUserDropped
+                            | kFSEventStreamEventFlagKernelDropped
+                            | kFSEventStreamEventFlagEventIdsWrapped
+                    ) != 0
+                }
+                let changed = requiresRootRecovery
                     ? Set(resolvedRoots)
                     : Self.changedURLs(from: batch.events, roots: resolvedRoots)
                 if !changed.isEmpty {
-                    if case .dropped = continuation.yield(changed) {
-                        continuation.yield(Set(resolvedRoots))
+                    let checkpoint = batch.terminalEventID.map {
+                        SourceEventCheckpoint(eventID: $0)
+                    }
+                    let delivery = SourceEventBatch(
+                        paths: changed,
+                        checkpoint: checkpoint
+                    )
+                    if case .dropped = continuation.yield(delivery) {
+                        continuation.yield(SourceEventBatch(
+                            paths: Set(resolvedRoots),
+                            checkpoint: checkpoint
+                        ))
                     }
                 }
             }) else {
@@ -324,12 +370,22 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
         }
     }
 
+    public func acknowledge(_ checkpoint: SourceEventCheckpoint?) {
+        guard let checkpoint else { return }
+        lock.withLock {
+            if checkpoint.eventID >= (lastAcknowledgedEventID ?? baselineEventID ?? 0) {
+                lastAcknowledgedEventID = checkpoint.eventID
+            }
+        }
+    }
+
     public func stop() {
         let priorState = lock.withLock { () -> StreamState? in
             defer { state = nil }
             return state
         }
         guard let priorState else { return }
+        driver.flushSync(priorState.handle)
         driver.stop(priorState.handle)
         driver.invalidate(priorState.handle)
         driver.release(priorState.handle)

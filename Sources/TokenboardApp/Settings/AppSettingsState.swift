@@ -18,9 +18,11 @@ struct PricingSettingsState: Equatable, Sendable {
     var pendingCandidate: PendingPricingCandidate?
     var preview: PricingPreview?
     var validationConflicts: [String]
+    var inboxStatus: PricingInboxStatus
 
     var canApply: Bool {
-        pendingCandidate != nil
+        if case .valid = inboxStatus {} else { return false }
+        return pendingCandidate != nil
             && preview != nil
             && validationConflicts.isEmpty
             && preview?.diff.conflicts.isEmpty == true
@@ -33,7 +35,8 @@ struct PricingSettingsState: Equatable, Sendable {
         unpricedModels: [],
         pendingCandidate: nil,
         preview: nil,
-        validationConflicts: []
+        validationConflicts: [],
+        inboxStatus: .empty
     )
 }
 
@@ -56,12 +59,14 @@ struct AppSettingsState: Equatable, Sendable {
     var diagnostics: SettingsDiagnosticsState
     var statusMessage: String?
     var isLoading: Bool
+    var isSourceMutationInProgress: Bool
 
     static let initial = AppSettingsState(
         sources: [:],
         pricing: .empty,
         diagnostics: .empty,
         statusMessage: nil,
-        isLoading: false
+        isLoading: false,
+        isSourceMutationInProgress: false
     )
 }

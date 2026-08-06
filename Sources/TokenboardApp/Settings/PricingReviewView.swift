@@ -97,7 +97,12 @@ struct PricingReviewView: View {
         let pricing = model.settingsState.pricing
         var values = pricing.validationConflicts
         values.append(contentsOf: pricing.preview?.diff.conflicts ?? [])
-        if let remaining = pricing.preview?.remainingUnpricedTokens, remaining > 0 {
+        values.append(contentsOf: pricing.preview?.unresolvedGaps.map { gap in
+            "\(gap.provider.rawValue)/\(gap.observedModelID) · \(gap.metric.rawValue) · \(gap.effectiveDate) · \(ValueFormatter.exactTokens(gap.unpricedTokens)) unpriced"
+        } ?? [])
+        if pricing.preview?.unresolvedGaps.isEmpty == true,
+           let remaining = pricing.preview?.remainingUnpricedTokens,
+           remaining > 0 {
             values.append("\(ValueFormatter.exactTokens(remaining)) tokens remain unpriced")
         }
         return values.isEmpty ? ["None"] : values

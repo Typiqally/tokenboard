@@ -1,12 +1,49 @@
 import Darwin
 import Dispatch
 import Foundation
+import CryptoKit
+
+public struct PricingCandidateIdentity: Equatable, Hashable, Sendable {
+    public let digest: String
+
+    public init(canonicalJSON: Data) {
+        digest = SHA256.hash(data: canonicalJSON).map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+public enum PricingInboxInvalidReason: Equatable, Sendable {
+    case invalidCatalog
+    case unsafeFile
+    case candidateTooLarge
+    case unreadableCandidate
+}
+
+public enum PricingInboxStatus: Equatable, Sendable {
+    case empty
+    case valid(PendingPricingCandidate)
+    case invalid(PricingInboxInvalidReason)
+    case applying(PricingCandidateIdentity)
+    case appliedFinalizing(PricingCandidateIdentity)
+    case rejecting(PricingCandidateIdentity)
+    case rejectedFinalizing(PricingCandidateIdentity)
+}
+
+public enum PricingApplyOutcome: Equatable, Sendable {
+    case finalized
+    case committedFinalizationPending
+}
+
+public enum PricingRejectOutcome: Equatable, Sendable {
+    case finalized
+    case rejectedFinalizationPending
+}
 
 public struct PendingPricingCandidate: Equatable, Sendable {
     public let catalog: ValidatedPricingCatalog
     public let canonicalJSON: Data
     public let diff: CatalogDiff
     public let sourceURL: URL
+    public let identity: PricingCandidateIdentity
 
     public init(
         catalog: ValidatedPricingCatalog,
@@ -18,6 +55,7 @@ public struct PendingPricingCandidate: Equatable, Sendable {
         self.canonicalJSON = canonicalJSON
         self.diff = diff
         self.sourceURL = sourceURL
+        identity = PricingCandidateIdentity(canonicalJSON: canonicalJSON)
     }
 }
 
@@ -57,6 +95,7 @@ public actor PricingInbox {
     private var isStarting = false
     private var isDetecting = false
     private var detectionRequested = false
+    private var resolution: CandidateResolution?
 
     public init(
         ledger: any LedgerStore,
@@ -147,6 +186,7 @@ public actor PricingInbox {
             activeCatalog = nil
             activeSnapshot = nil
             state = .idle
+            resolution = nil
             throw error
         }
     }
@@ -157,7 +197,7 @@ public actor PricingInbox {
             throw PricingInboxError.resolutionInProgress
         case .committed:
             throw PricingInboxError.candidateAlreadyApplied
-        case .idle, .pending:
+        case .idle, .pending, .invalid:
             break
         }
         guard started || isStarting else { return }
@@ -168,11 +208,31 @@ public actor PricingInbox {
         activeCatalog = nil
         activeSnapshot = nil
         state = .idle
+        resolution = nil
     }
 
     public func pendingCandidate() -> PendingPricingCandidate? {
         guard case let .pending(record) = state else { return nil }
         return record.preview
+    }
+
+    public func status() -> PricingInboxStatus {
+        switch state {
+        case .idle:
+            .empty
+        case let .invalid(reason):
+            .invalid(reason)
+        case let .pending(record):
+            .valid(record.preview)
+        case let .resolving(record):
+            resolution == .rejecting
+                ? .rejecting(record.preview.identity)
+                : .applying(record.preview.identity)
+        case let .rejectedFinalizing(record):
+            .rejectedFinalizing(record.identity)
+        case let .committed(record):
+            .appliedFinalizing(record.preview.identity)
+        }
     }
 
     public func exportCurrentSnapshot() throws {
@@ -193,10 +253,45 @@ public actor PricingInbox {
         case let .committed(committed):
             try finalizeCommitted(committed)
             return
-        case .idle:
+        case .idle, .invalid:
             throw PricingInboxError.noPendingCandidate
         case let .pending(pending):
             try await apply(pending)
+        }
+    }
+
+    public func applyPending(
+        matching identity: PricingCandidateIdentity
+    ) async throws -> PricingApplyOutcome {
+        switch state {
+        case .resolving, .rejectedFinalizing:
+            throw PricingInboxError.resolutionInProgress
+        case let .committed(committed):
+            guard committed.preview.identity == identity else {
+                throw PricingInboxError.candidateChanged
+            }
+            do {
+                try finalizeCommitted(committed)
+                return .finalized
+            } catch {
+                return .committedFinalizationPending
+            }
+        case .idle, .invalid:
+            throw PricingInboxError.noPendingCandidate
+        case let .pending(pending):
+            guard pending.preview.identity == identity else {
+                throw PricingInboxError.candidateChanged
+            }
+            do {
+                try await apply(pending)
+                return .finalized
+            } catch {
+                if case let .committed(committed) = state,
+                   committed.preview.identity == identity {
+                    return .committedFinalizationPending
+                }
+                throw error
+            }
         }
     }
 
@@ -210,12 +305,13 @@ public actor PricingInbox {
             return
         case .committed:
             throw PricingInboxError.candidateAlreadyApplied
-        case .idle:
+        case .idle, .invalid:
             throw PricingInboxError.noPendingCandidate
         case let .pending(record):
             pending = record
         }
 
+        resolution = .rejecting
         state = .resolving(pending)
         do {
             let isolated = try isolateAndVerify(pending)
@@ -225,7 +321,10 @@ public actor PricingInbox {
                 catalogID: isolated.preview.catalog.catalogID,
                 directory: .rejected
             )
-            let rejected = RejectedRecord(processingName: isolated.location.processingName)
+            let rejected = RejectedRecord(
+                identity: isolated.preview.identity,
+                processingName: isolated.location.processingName
+            )
             do {
                 try fileSystem.removeInbox(name: rejected.processingName)
             } catch {
@@ -235,10 +334,36 @@ public actor PricingInbox {
                 throw error
             }
             state = .idle
+            resolution = nil
             requestDetectionAfterResolution()
         } catch {
             if case .rejectedFinalizing = state { throw error }
             restorePreCommitCandidate(pendingRecordFromState(fallback: pending))
+            throw error
+        }
+    }
+
+    public func rejectPending(
+        matching identity: PricingCandidateIdentity
+    ) async throws -> PricingRejectOutcome {
+        switch state {
+        case let .pending(record) where record.preview.identity != identity:
+            throw PricingInboxError.candidateChanged
+        case let .rejectedFinalizing(record) where record.identity != identity:
+            throw PricingInboxError.candidateChanged
+        case let .committed(record) where record.preview.identity != identity:
+            throw PricingInboxError.candidateChanged
+        default:
+            break
+        }
+        do {
+            try await rejectPending()
+            return .finalized
+        } catch {
+            if case let .rejectedFinalizing(record) = state,
+               record.identity == identity {
+                return .rejectedFinalizationPending
+            }
             throw error
         }
     }
@@ -249,10 +374,12 @@ public actor PricingInbox {
         }
         try fileSystem.removeInbox(name: rejected.processingName)
         state = .idle
+        resolution = nil
         requestDetectionAfterResolution()
     }
 
     private func apply(_ pending: PendingRecord) async throws {
+        resolution = .applying
         state = .resolving(pending)
         let isolated: PendingRecord
         do {
@@ -301,6 +428,7 @@ public actor PricingInbox {
         )
         try fileSystem.removeInbox(name: committed.processingName)
         state = .idle
+        resolution = nil
         requestDetectionAfterResolution()
     }
 
@@ -367,9 +495,11 @@ public actor PricingInbox {
                 return
             }
             state = .pending(restored)
+            resolution = nil
             requestDetectionAfterResolution()
         } catch {
             state = .idle
+            resolution = nil
             requestDetectionAfterResolution()
         }
     }
@@ -380,7 +510,7 @@ public actor PricingInbox {
     }
 
     private func requestDetectionAfterResolution() {
-        guard detectionRequested else { return }
+        detectionRequested = true
         Task { await self.requestCandidateDetection() }
     }
 
@@ -398,11 +528,13 @@ public actor PricingInbox {
     private func detectCandidate() {
         guard let activeSnapshot else {
             state = .idle
+            resolution = nil
             return
         }
         do {
             guard let opened = try fileSystem.readIfPresent(in: .inbox, name: Self.candidateFilename) else {
                 state = .idle
+                resolution = nil
                 return
             }
             let catalog = try validate(opened.data)
@@ -417,8 +549,10 @@ public actor PricingInbox {
                 identity: opened.identity,
                 location: .candidate
             ))
+            resolution = nil
         } catch {
-            state = .idle
+            state = .invalid(Self.invalidReason(for: error))
+            resolution = nil
         }
     }
 
@@ -528,6 +662,19 @@ public actor PricingInbox {
             && name.count > processingFilenamePrefix.count + processingFilenameSuffix.count
     }
 
+    private static func invalidReason(for error: Error) -> PricingInboxInvalidReason {
+        switch error as? PricingInboxError {
+        case .candidateNotRegularFile, .candidateHasMultipleLinks:
+            .unsafeFile
+        case .candidateTooLarge:
+            .candidateTooLarge
+        case .candidateUnavailable:
+            .unreadableCandidate
+        default:
+            .invalidCatalog
+        }
+    }
+
     public static let currentCatalogFilename = "current-tokenboard-pricing.json"
 
     private var candidateURL: URL {
@@ -539,6 +686,7 @@ public actor PricingInbox {
 
 private enum CandidateState: Sendable {
     case idle
+    case invalid(PricingInboxInvalidReason)
     case pending(PendingRecord)
     case resolving(PendingRecord)
     case rejectedFinalizing(RejectedRecord)
@@ -546,7 +694,7 @@ private enum CandidateState: Sendable {
 
     var allowsDetection: Bool {
         switch self {
-        case .idle:
+        case .idle, .invalid:
             true
         case let .pending(record):
             record.location.isCandidate
@@ -568,7 +716,13 @@ private struct CommittedRecord: Sendable {
 }
 
 private struct RejectedRecord: Sendable {
+    let identity: PricingCandidateIdentity
     let processingName: String
+}
+
+private enum CandidateResolution: Sendable {
+    case applying
+    case rejecting
 }
 
 private enum CandidateLocation: Sendable {

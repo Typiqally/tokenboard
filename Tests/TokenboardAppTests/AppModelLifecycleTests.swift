@@ -382,6 +382,35 @@ final class AppModelLifecycleTests: XCTestCase {
         XCTAssertEqual(fileCount, 6)
     }
 
+    func testWarningPreservesIndependentLastSuccessfulScanInSettings() async throws {
+        let dates = IncrementingNow()
+        let setup = try makeSetup(approved: false, now: { dates() })
+        defer { setup.cleanup() }
+        await setup.model.start()
+        await setup.model.startHistoricalImport()
+        let successfulScan = setup.model.state.lastSuccessfulScans[.claudeCode]
+        let baselineCalls = await setup.query.calls()
+        let runID = await setup.coordinator.runID()
+
+        await setup.coordinator.emit(IngestionBatchResult(
+            runID: runID,
+            sequence: 2,
+            scope: .incremental,
+            providers: [.claudeCode: .attention(discoveredFiles: 1, scannedFiles: 1)]
+        ))
+        await setup.query.waitForCompletedCallCount(baselineCalls + 1)
+        await setup.model.refreshSettings()
+
+        guard case .warning = setup.model.state.sourceHealth[.claudeCode] else {
+            return XCTFail("attention did not remain visible")
+        }
+        XCTAssertNotNil(successfulScan)
+        XCTAssertEqual(
+            setup.model.settingsState.sources[.claudeCode]?.lastScan,
+            successfulScan
+        )
+    }
+
     func testManualRefreshQueuedBehindSuspendedEventAppliesInSequenceOnce() async throws {
         let setup = try makeSetup(approved: false)
         defer { setup.cleanup() }
@@ -599,6 +628,101 @@ final class AppModelLifecycleTests: XCTestCase {
         XCTAssertEqual(counts, [0, 0, 0])
     }
 
+    func testApprovedSingleStoredGrantStartsCatchUpAndManualRefresh() async throws {
+        let setup = try makeSetup(
+            approved: true,
+            grantedProviders: [.codex]
+        )
+        defer { setup.cleanup() }
+
+        await setup.model.start()
+
+        var counts = await setup.coordinator.counts()
+        let roots = await setup.coordinator.activeRoots()
+        XCTAssertEqual(counts, [1, 0, 0])
+        XCTAssertEqual(Set(roots.keys), [.codex])
+        XCTAssertTrue(setup.model.state.onboardingRequired)
+
+        await setup.model.refresh()
+
+        counts = await setup.coordinator.counts()
+        XCTAssertEqual(counts, [1, 1, 0])
+    }
+
+    func testApprovedTwoToOneRevokeRelaunchRestoresRemainingRuntime() async throws {
+        let setup = try makeSetup(approved: true)
+        defer { setup.cleanup() }
+        await setup.model.start()
+
+        await setup.model.revokeSource(.claudeCode)
+        XCTAssertNil(setup.defaults.data(forKey: "sourceBookmark.claude_code"))
+        XCTAssertNotNil(setup.defaults.data(forKey: "sourceBookmark.codex"))
+        await setup.model.shutdown()
+
+        let relaunchedCoordinator = LifecycleCoordinator(
+            startGate: nil,
+            startGateCall: 1,
+            refreshGate: nil,
+            stopGate: nil,
+            stopGateCall: 1,
+            failingStartRoot: nil,
+            recorder: nil,
+            restoredInventoryCount: nil,
+            refreshInventoryCount: 0
+        )
+        let relaunched = AppModel(
+            ledger: setup.ledger,
+            queryService: LifecycleQuery(),
+            coordinator: relaunchedCoordinator,
+            pricingInbox: LifecycleInbox(failure: false, failureIsOneShot: false),
+            grantStore: SourceGrantStore(
+                defaults: setup.defaults,
+                bookmarkAccess: setup.access
+            ),
+            preferences: setup.preferences,
+            bundledCatalogData: try bundledCatalogData(),
+            applicationPaths: ApplicationPaths(
+                root: URL(fileURLWithPath: "/tmp/relaunch-support", isDirectory: true)
+            ),
+            now: { Date(timeIntervalSince1970: 1_775_000_000) },
+            calendar: Calendar(identifier: .gregorian),
+            discovery: LifecycleDiscovery(failingRoot: nil, blockingGate: nil),
+            sourcePicker: LifecycleSourcePicker(url: nil)
+        )
+
+        await relaunched.start()
+
+        let relaunchedCounts = await relaunchedCoordinator.counts()
+        let relaunchedRoots = await relaunchedCoordinator.activeRoots()
+        XCTAssertEqual(relaunchedCounts, [1, 0, 0])
+        XCTAssertEqual(Set(relaunchedRoots.keys), [.codex])
+        XCTAssertEqual(relaunched.state.grantedProviders, [.codex])
+        XCTAssertTrue(relaunched.state.onboardingRequired)
+        await relaunched.shutdown()
+    }
+
+    func testApprovedZeroToOneGrantStartsOneRootRuntime() async throws {
+        let source = URL(
+            fileURLWithPath: "/tmp/approved-zero-to-one",
+            isDirectory: true
+        )
+        let setup = try makeSetup(
+            approved: true,
+            grantedProviders: [],
+            pickedSource: source
+        )
+        defer { setup.cleanup() }
+        await setup.model.start()
+
+        await setup.model.chooseSource(.claudeCode)
+
+        let counts = await setup.coordinator.counts()
+        let roots = await setup.coordinator.activeRoots()
+        XCTAssertEqual(counts, [1, 0, 0])
+        XCTAssertEqual(roots[.claudeCode]?.path, source.standardizedFileURL.path)
+        XCTAssertTrue(setup.model.state.onboardingRequired)
+    }
+
     func testApprovedIncompletePairCompletionPublishesBothGrantsAndClearsOnboarding() async throws {
         let source = URL(
             fileURLWithPath: "/tmp/replacement-complete-codex",
@@ -618,12 +742,12 @@ final class AppModelLifecycleTests: XCTestCase {
         XCTAssertFalse(setup.model.state.onboardingRequired)
         XCTAssertEqual(setup.defaults.data(forKey: "sourceBookmark.codex"), Data([9]))
         let counts = await setup.coordinator.counts()
-        XCTAssertEqual(counts, [1, 0, 0])
+        XCTAssertEqual(counts, [2, 0, 1])
         let roots = await setup.coordinator.activeRoots()
         XCTAssertEqual(Set(roots.keys), Set(Provider.allCases))
     }
 
-    func testFailedApprovedIncompletePairRestartDoesNotStartIncompleteOldRuntime() async throws {
+    func testFailedApprovedIncompletePairReplacementRestoresOneRootRuntime() async throws {
         let source = URL(
             fileURLWithPath: "/tmp/replacement-incomplete-restart-failure",
             isDirectory: true
@@ -644,7 +768,9 @@ final class AppModelLifecycleTests: XCTestCase {
         XCTAssertNil(setup.defaults.data(forKey: "sourceBookmark.codex"))
         XCTAssertFalse(setup.model.hasActiveGrant(for: .codex))
         let counts = await setup.coordinator.counts()
-        XCTAssertEqual(counts[0], 1)
+        XCTAssertEqual(counts[0], 3)
+        let roots = await setup.coordinator.activeRoots()
+        XCTAssertEqual(Set(roots.keys), [.claudeCode])
     }
 
     func testFailedReplacementRestartRestoresOldBookmarkGrantAndRuntime() async throws {
@@ -1182,6 +1308,9 @@ private actor LifecycleCoordinator: AppIngestionCoordinating {
         let result = successResult(scope: .inventory, discoveredOverride: inventoryCount)
         if let startGate, starts == startGateCall { await startGate.suspend() }
         return result
+    }
+    func startMonitoring(roots: [Provider: URL]) async throws -> IngestionBatchResult {
+        try await start(roots: roots)
     }
     func refreshAll() async -> IngestionBatchResult {
         refreshes += 1

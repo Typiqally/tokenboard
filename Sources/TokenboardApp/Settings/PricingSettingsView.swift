@@ -58,6 +58,8 @@ struct PricingSettingsView: View {
             LabeledContent("Pending candidate") {
                 Text(pricing.pendingCandidate?.catalog.catalogID ?? "None")
             }
+            Text(inboxStatusDescription(pricing.inboxStatus))
+                .foregroundStyle(.secondary)
             HStack {
                 Button("Review") { showsReview = true }
                     .disabled(pricing.pendingCandidate == nil)
@@ -73,6 +75,24 @@ struct PricingSettingsView: View {
         }
         .sheet(isPresented: $showsReview) {
             PricingReviewView(model: model)
+        }
+    }
+
+    private func inboxStatusDescription(_ status: PricingInboxStatus) -> String {
+        switch status {
+        case .empty: "No candidate detected"
+        case .valid: "Validated candidate ready for review"
+        case let .invalid(reason):
+            switch reason {
+            case .invalidCatalog: "Candidate is invalid"
+            case .unsafeFile: "Candidate file is unsafe"
+            case .candidateTooLarge: "Candidate file is too large"
+            case .unreadableCandidate: "Candidate file cannot be read safely"
+            }
+        case .applying: "Applying validated candidate"
+        case .appliedFinalizing: "Pricing committed; finalizing files"
+        case .rejecting: "Rejecting validated candidate"
+        case .rejectedFinalizing: "Candidate rejected; finalizing files"
         }
     }
 }

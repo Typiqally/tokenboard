@@ -39,37 +39,44 @@ extension AppModel {
         if settingsState.pricing.pendingCandidate == nil {
             await refreshSettings()
         }
-        guard settingsState.pricing.canApply else {
+        guard settingsState.pricing.canApply,
+              let identity = settingsState.pricing.pendingCandidate?.identity else {
             setSettingsStatus("Pricing candidate has conflicts that block Apply")
             return
         }
         setSettingsLoading(true)
         do {
-            try await pricingInbox.applyPending()
+            let outcome = try await pricingInbox.applyPending(matching: identity)
             await querySelectedSummary()
             await refreshSettings(
-                statusMessage: "Pricing applied · API-equivalent value refreshed"
+                statusMessage: outcome == .finalized
+                    ? "Pricing applied · API-equivalent value refreshed"
+                    : "Pricing applied · File finalization will retry"
             )
         } catch {
-            setSettingsLoading(false)
-            setSettingsStatus("Pricing apply failed: \(Self.errorDescription(error))")
+            await refreshSettings(statusMessage: error as? PricingInboxError == .candidateChanged
+                ? "Pricing candidate changed · Review the replacement before applying"
+                : "Pricing apply failed · Active pricing unchanged")
         }
     }
 
     func rejectPendingPricing() async {
-        guard settingsState.pricing.pendingCandidate != nil else {
+        guard let identity = settingsState.pricing.pendingCandidate?.identity else {
             setSettingsStatus("No pending pricing candidate")
             return
         }
         setSettingsLoading(true)
         do {
-            try await pricingInbox.rejectPending()
+            let outcome = try await pricingInbox.rejectPending(matching: identity)
             await refreshSettings(
-                statusMessage: "Pricing candidate rejected · Active pricing unchanged"
+                statusMessage: outcome == .finalized
+                    ? "Pricing candidate rejected · Active pricing unchanged"
+                    : "Pricing rejected · File finalization will retry"
             )
         } catch {
-            setSettingsLoading(false)
-            setSettingsStatus("Pricing rejection failed: \(Self.errorDescription(error))")
+            await refreshSettings(statusMessage: error as? PricingInboxError == .candidateChanged
+                ? "Pricing candidate changed · Review the replacement before rejecting"
+                : "Pricing rejection failed · Active pricing unchanged")
         }
     }
 
@@ -79,11 +86,15 @@ extension AppModel {
     }
 
     func revokeSource(_ provider: Provider) async {
-        guard isReadyForSources else { return }
-        if let activity { await activity.task.value }
-        guard isReadyForSources else { return }
+        await startSourceMutation(.revoke(provider))
+    }
 
-        let generation = lifecycleGeneration
+    func runRevocation(
+        provider: Provider,
+        generation: UInt64,
+        mutationID: UInt64
+    ) async {
+        guard acceptsSourceMutation(generation: generation, id: mutationID) else { return }
         let oldRoots = activeRoots()
         let oldCoordinatorWasActive = coordinatorStatus.isActive
         var remainingRoots = oldRoots
@@ -95,7 +106,9 @@ extension AppModel {
                 provider,
                 remainingRoots: remainingRoots
             )
-            guard readyGeneration == generation, accepts(generation) else { return }
+            guard acceptsSourceMutation(generation: generation, id: mutationID) else {
+                return
+            }
             if let runID {
                 coordinatorStatus = .active(runID: runID)
                 discardPendingResults(exceptRunID: runID)
@@ -111,6 +124,7 @@ extension AppModel {
             var next = state
             next.grantedProviders.remove(provider)
             next.sourceFileCounts[provider] = nil
+            next.lastSuccessfulScans[provider] = nil
             next.sourceHealth[provider] = .notGranted
             next.onboardingRequired = true
             commitState(next)
@@ -118,24 +132,34 @@ extension AppModel {
             await refreshSettings(statusMessage: "Source access revoked · Committed totals retained")
         } catch {
             coordinatorStatus = .inactive
-            if oldCoordinatorWasActive, oldRoots.count == Provider.allCases.count {
+            guard acceptsSourceMutation(generation: generation, id: mutationID) else {
+                return
+            }
+            if oldCoordinatorWasActive, !oldRoots.isEmpty {
                 do {
                     prepareForCoordinatorStart()
                     beginCoordinatorInventoryRequest()
                     let restored: IngestionBatchResult
                     do {
-                        restored = try await coordinator.start(roots: oldRoots)
+                        restored = try await coordinator.startMonitoring(roots: oldRoots)
                     } catch {
                         completeCoordinatorInventoryRequest()
                         throw error
                     }
-                    guard readyGeneration == generation, accepts(generation) else {
+                    guard acceptsSourceMutation(
+                        generation: generation,
+                        id: mutationID
+                    ) else {
                         completeCoordinatorInventoryRequest()
                         return
                     }
                     await activateRestoredCoordinator(restored, generation: generation)
                 } catch {
                     coordinatorStatus = .inactive
+                    guard acceptsSourceMutation(
+                        generation: generation,
+                        id: mutationID
+                    ) else { return }
                     publishWarning(
                         "Historical import paused: \(Self.errorDescription(error))"
                     )
@@ -163,7 +187,13 @@ extension AppModel {
             let pricing = try await ledger.pricingSnapshot()
             let rows = try await ledger.usageRows(in: interval, calendar: calendar)
             let skippedCount = try await ledger.skippedRecordCount()
-            let pending = await pricingInbox.pendingCandidate()
+            let inboxStatus = await pricingInbox.status()
+            let pending: PendingPricingCandidate?
+            if case let .valid(candidate) = inboxStatus {
+                pending = candidate
+            } else {
+                pending = nil
+            }
             let preview = try pending.map {
                 try PricingPreview.make(
                     rows: rows,
@@ -183,7 +213,8 @@ extension AppModel {
                     unpricedModels: try unpricedModels(rows: rows, pricing: pricing),
                     pendingCandidate: pending,
                     preview: preview,
-                    validationConflicts: []
+                    validationConflicts: [],
+                    inboxStatus: inboxStatus
                 ),
                 diagnostics: SettingsDiagnosticsState(
                     skippedRecordCount: skippedCount,
@@ -193,7 +224,8 @@ extension AppModel {
                     ]
                 ),
                 statusMessage: statusMessage,
-                isLoading: false
+                isLoading: false,
+                isSourceMutationInProgress: sourceMutation != nil
             ))
         } catch {
             setSettingsLoading(false)
@@ -204,12 +236,6 @@ extension AppModel {
     private func sourceSettings() -> [Provider: SourceSettingsState] {
         Dictionary(uniqueKeysWithValues: Provider.allCases.map { provider in
             let health = state.sourceHealth[provider] ?? .notGranted
-            let lastScan: Date?
-            if case let .healthy(_, updated) = health {
-                lastScan = updated
-            } else {
-                lastScan = nil
-            }
             return (
                 provider,
                 SourceSettingsState(
@@ -219,7 +245,7 @@ extension AppModel {
                         ? "Not granted"
                         : "Read-only access",
                     fileCount: state.sourceFileCounts[provider, default: 0],
-                    lastScan: lastScan,
+                    lastScan: state.lastSuccessfulScans[provider],
                     health: health
                 )
             )
@@ -250,6 +276,12 @@ extension AppModel {
     private func setSettingsStatus(_ status: String) {
         var next = settingsState
         next.statusMessage = status
+        commitSettingsState(next)
+    }
+
+    func setSourceMutationInProgress(_ inProgress: Bool) {
+        var next = settingsState
+        next.isSourceMutationInProgress = inProgress
         commitSettingsState(next)
     }
 }

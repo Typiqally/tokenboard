@@ -7,6 +7,8 @@ extension AppModel {
         Provider.allCases.allSatisfy { activeGrants[$0] != nil }
     }
 
+    var hasAnyGrant: Bool { !activeGrants.isEmpty }
+
     var isReadyForSources: Bool {
         state.lifecycle == .ready && readyGeneration == lifecycleGeneration
     }
@@ -94,7 +96,7 @@ extension AppModel {
 
     func finishStartupBehavior() async {
         guard isReadyForSources else { return }
-        if preferences.historicalImportApproved, hasEveryGrant {
+        if preferences.historicalImportApproved, hasAnyGrant {
             await launchIngestion(refreshExisting: false)
         } else if preferences.historicalImportApproved {
             await querySelectedSummary()

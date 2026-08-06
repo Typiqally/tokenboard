@@ -18,6 +18,7 @@ final class AppModel: ObservableObject {
     var selectedDisplayMetric: DisplayMetric { state.selectedDisplayMetric }
     var lastUpdated: Date? { state.lastUpdated }
     var canStartHistoricalImport: Bool { state.canStartHistoricalImport }
+    var isSourceMutationInProgress: Bool { sourceMutation != nil }
 
     let ledger: any AppLedgerRuntime
     let queryService: any AppUsageQuerying
@@ -40,8 +41,10 @@ final class AppModel: ObservableObject {
     var queryGeneration: UInt64 = 0
     var inFlightQueries: [UInt64: Task<Result<UsageSummary, Error>, Never>] = [:]
     var activityGeneration: UInt64 = 0
+    var sourceMutationGeneration: UInt64 = 0
     var startupTask: Task<Void, Never>?
     var activity: AppRuntimeActivity?
+    var sourceMutation: AppRuntimeActivity?
     var shutdownTask: Task<Void, Never>?
     var resultConsumerTask: Task<Void, Never>?
     var pendingIngestionResults: [IngestionResultKey: IngestionBatchResult] = [:]
@@ -128,13 +131,11 @@ final class AppModel: ObservableObject {
         guard await ensureReady(retryFailed: true) else { return }
         guard isReadyForSources else { return }
         guard preferences.historicalImportApproved,
-              hasEveryGrant else {
+              hasAnyGrant else {
             var next = state
             next.onboardingRequired = true
             state = next
-            if preferences.historicalImportApproved {
-                await querySelectedSummary()
-            }
+            if preferences.historicalImportApproved { await querySelectedSummary() }
             return
         }
         if let activity {
@@ -168,15 +169,7 @@ final class AppModel: ObservableObject {
     }
 
     func chooseSource(_ provider: Provider) async {
-        guard isReadyForSources else { return }
-        if let activity { await activity.task.value }
-        guard isReadyForSources else { return }
-        do {
-            guard let url = try sourcePicker.select(provider: provider) else { return }
-            await launchReplacement(provider: provider, url: url)
-        } catch {
-            return
-        }
+        await startSourceMutation(.choose(provider))
     }
 
     func openPricing() { onOpenPricing?() }
@@ -199,14 +192,17 @@ final class AppModel: ObservableObject {
         guard state.lifecycle != .stopped else { return }
 
         lifecycleGeneration &+= 1
+        sourceMutationGeneration &+= 1
         readyGeneration = nil
         queryGeneration &+= 1
         let startup = startupTask
         let currentActivity = activity?.task
+        let currentSourceMutation = sourceMutation?.task
         let currentResultConsumer = resultConsumerTask
         let currentQueries = Array(inFlightQueries.values)
         startup?.cancel()
         currentActivity?.cancel()
+        currentSourceMutation?.cancel()
         currentResultConsumer?.cancel()
         currentQueries.forEach { $0.cancel() }
         pendingIngestionResults.removeAll()
@@ -225,6 +221,7 @@ final class AppModel: ObservableObject {
         }
         await startup?.value
         await currentActivity?.value
+        await currentSourceMutation?.value
         await currentResultConsumer?.value
         for query in currentQueries { _ = await query.value }
 
@@ -236,6 +233,7 @@ final class AppModel: ObservableObject {
         inboxStatus = .inactive
         startupTask = nil
         activity = nil
+        sourceMutation = nil
         resultConsumerTask = nil
         lastAppliedSequence.removeAll()
         isProcessingIngestionResults = false
@@ -248,6 +246,7 @@ final class AppModel: ObservableObject {
         next.presentation = nil
         next.grantedProviders = []
         next.sourceFileCounts = [:]
+        next.lastSuccessfulScans = [:]
         next.sourceHealth = [.claudeCode: .notGranted, .codex: .notGranted]
         next.lastUpdated = nil
         next.isImporting = false

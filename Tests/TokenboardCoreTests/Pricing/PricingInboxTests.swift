@@ -62,9 +62,11 @@ final class PricingInboxTests: XCTestCase {
         try await setup.inbox.start()
 
         let pending = await setup.inbox.pendingCandidate()
+        let status = await setup.inbox.status()
         let applyCalls = await setup.ledger.applyCallCount()
         let snapshotCalls = await setup.ledger.snapshotCallCount()
         XCTAssertNil(pending)
+        XCTAssertEqual(status, .invalid(.invalidCatalog))
         XCTAssertEqual(applyCalls, 0)
         XCTAssertEqual(snapshotCalls, 0)
     }
@@ -156,6 +158,30 @@ final class PricingInboxTests: XCTestCase {
 
         let appliedID = await setup.ledger.lastAppliedCatalogID()
         XCTAssertTrue(appliedID != "candidate-original")
+    }
+
+    func testReviewedIdentityRejectsReplacementAndRequiresFreshApproval() async throws {
+        let setup = try makeSetup()
+        try FileManager.default.createDirectory(at: setup.inboxURL, withIntermediateDirectories: true)
+        let candidateURL = setup.inboxURL.appending(path: PricingInbox.candidateFilename)
+        try candidateData(id: "approved-original").write(to: candidateURL)
+        try await setup.inbox.start()
+        let detected = await setup.inbox.pendingCandidate()
+        let approved = try XCTUnwrap(detected)
+        try candidateData(id: "unapproved-replacement").write(to: candidateURL, options: .atomic)
+
+        await assertInboxError(.candidateChanged) {
+            _ = try await setup.inbox.applyPending(matching: approved.identity)
+        }
+        let refreshed = await eventually {
+            await setup.inbox.pendingCandidate()?.catalog.catalogID == "unapproved-replacement"
+        }
+
+        XCTAssertTrue(refreshed)
+        let replacement = await setup.inbox.pendingCandidate()
+        let applyCalls = await setup.ledger.applyCallCount()
+        XCTAssertNotEqual(replacement?.identity, approved.identity)
+        XCTAssertEqual(applyCalls, 0)
     }
 
     func testBundledFallbackHistoryIsNotReportedAsNewButTrueAdditionIs() async throws {
@@ -395,6 +421,41 @@ final class PricingInboxTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(
             atPath: root.appending(path: "Pricing/Applied/postcommit-export.json").path
         ))
+    }
+
+    func testReviewedApplyReportsCommittedFinalizationPendingAndRetryFinalizesOnly() async throws {
+        let root = try makeRoot(label: "ReviewedPostCommit")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try candidateData(id: "reviewed-postcommit").write(
+            to: root.appending(path: "Pricing/Inbox/\(PricingInbox.candidateFilename)")
+        )
+        let ledger = PricingInboxTestLedger(latestApplied: nil)
+        let fileSystem = RecordingPricingInboxFileSystem()
+        let inbox = PricingInbox(
+            ledger: ledger,
+            applicationSupportDirectory: root,
+            bundledCatalogData: bundledData(),
+            fileSystem: fileSystem
+        )
+        try await inbox.start()
+        let detected = await inbox.pendingCandidate()
+        let reviewed = try XCTUnwrap(detected)
+        fileSystem.failNext(.replaceCanonical(.pricing, PricingInbox.currentCatalogFilename))
+
+        let first = try await inbox.applyPending(matching: reviewed.identity)
+
+        XCTAssertEqual(first, .committedFinalizationPending)
+        let pendingFinalization = await inbox.status()
+        let firstApplyCalls = await ledger.applyCallCountValue()
+        XCTAssertEqual(pendingFinalization, .appliedFinalizing(reviewed.identity))
+        XCTAssertEqual(firstApplyCalls, 1)
+
+        let retry = try await inbox.applyPending(matching: reviewed.identity)
+        XCTAssertEqual(retry, .finalized)
+        let finalStatus = await inbox.status()
+        let finalApplyCalls = await ledger.applyCallCountValue()
+        XCTAssertEqual(finalStatus, .empty)
+        XCTAssertEqual(finalApplyCalls, 1)
     }
 
     func testPostCommitArchiveFailureRetriesFinalizationWithoutReapplying() async throws {

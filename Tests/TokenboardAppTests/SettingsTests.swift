@@ -58,6 +58,41 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(setup.model.settingsState.statusMessage, "Pricing applied · API-equivalent value refreshed")
     }
 
+    func testCommittedFinalizationPendingStillRefreshesSummaryAndPublishesSafeStatus() async throws {
+        let setup = try makeSetup(
+            candidate: validatedCandidate(),
+            applyOutcome: .committedFinalizationPending
+        )
+        defer { setup.cleanup() }
+        await setup.model.start()
+        await setup.model.refreshSettings()
+        let callsBefore = await setup.query.callCount()
+
+        await setup.model.applyPendingPricing()
+
+        let callsAfter = await setup.query.callCount()
+        XCTAssertEqual(callsAfter, callsBefore + 1)
+        XCTAssertEqual(
+            setup.model.settingsState.statusMessage,
+            "Pricing applied · File finalization will retry"
+        )
+    }
+
+    func testInvalidInboxStatusIsVisibleAndApplyRemainsDisabled() async throws {
+        let setup = try makeSetup(
+            candidate: nil,
+            pricingInboxStatus: .invalid(.invalidCatalog)
+        )
+        defer { setup.cleanup() }
+        await setup.model.start()
+
+        await setup.model.refreshSettings()
+
+        XCTAssertEqual(setup.model.settingsState.pricing.inboxStatus, .invalid(.invalidCatalog))
+        XCTAssertNil(setup.model.settingsState.pricing.pendingCandidate)
+        XCTAssertFalse(setup.model.settingsState.pricing.canApply)
+    }
+
     func testConflictBlocksApplyAndLeavesCandidatePending() async throws {
         let current = PricingSnapshot(
             catalogIDs: ["current"],
@@ -185,6 +220,96 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(evidence.stopped, 0)
     }
 
+    func testChangeThenRevokeSharesOneMutationAndKeepsReplacementGrantAtomic() async throws {
+        let gate = SettingsMutationGate()
+        let replacement = URL(fileURLWithPath: "/private/tmp/change-wins", isDirectory: true)
+        let setup = try makeSetup(
+            candidate: nil,
+            grantedProviders: Set(Provider.allCases),
+            approved: true,
+            pickerURL: replacement,
+            coordinatorMutationGate: gate
+        )
+        defer { setup.cleanup() }
+        await setup.model.start()
+        await setup.coordinator.resetEvidence()
+
+        let change = Task { await setup.model.changeSource(.claudeCode) }
+        await gate.waitUntilEntered()
+        XCTAssertTrue(setup.model.settingsState.isSourceMutationInProgress)
+        let revoke = Task { await setup.model.revokeSource(.claudeCode) }
+        await Task.yield()
+        await gate.release()
+        await change.value
+        await revoke.value
+
+        let evidence = await setup.coordinator.evidence()
+        XCTAssertEqual(evidence.replacedProviders, [.claudeCode])
+        XCTAssertEqual(evidence.revokedProviders, [])
+        XCTAssertTrue(setup.model.hasActiveGrant(for: .claudeCode))
+        XCTAssertEqual(
+            try setup.grantStore.grant(for: .claudeCode)?.lastPathComponent,
+            replacement.lastPathComponent
+        )
+        XCTAssertEqual(setup.access.stopCount, 1)
+        XCTAssertFalse(setup.model.settingsState.isSourceMutationInProgress)
+    }
+
+    func testRevokeThenChangeSharesOneMutationAndKeepsRevocationAtomic() async throws {
+        let gate = SettingsMutationGate()
+        let setup = try makeSetup(
+            candidate: nil,
+            grantedProviders: Set(Provider.allCases),
+            approved: true,
+            pickerURL: URL(fileURLWithPath: "/private/tmp/change-loses", isDirectory: true),
+            coordinatorMutationGate: gate
+        )
+        defer { setup.cleanup() }
+        await setup.model.start()
+        await setup.coordinator.resetEvidence()
+
+        let revoke = Task { await setup.model.revokeSource(.claudeCode) }
+        await gate.waitUntilEntered()
+        let change = Task { await setup.model.changeSource(.claudeCode) }
+        await Task.yield()
+        await gate.release()
+        await revoke.value
+        await change.value
+
+        let evidence = await setup.coordinator.evidence()
+        XCTAssertEqual(evidence.revokedProviders, [.claudeCode])
+        XCTAssertEqual(evidence.replacedProviders, [])
+        XCTAssertFalse(setup.model.hasActiveGrant(for: .claudeCode))
+        XCTAssertNil(try setup.grantStore.grant(for: .claudeCode))
+        XCTAssertEqual(setup.access.stopCount, 1)
+    }
+
+    func testConcurrentRevokesShareOneMutationAndCloseGrantOnce() async throws {
+        let gate = SettingsMutationGate()
+        let setup = try makeSetup(
+            candidate: nil,
+            grantedProviders: Set(Provider.allCases),
+            approved: true,
+            coordinatorMutationGate: gate
+        )
+        defer { setup.cleanup() }
+        await setup.model.start()
+        await setup.coordinator.resetEvidence()
+
+        let first = Task { await setup.model.revokeSource(.claudeCode) }
+        await gate.waitUntilEntered()
+        let second = Task { await setup.model.revokeSource(.claudeCode) }
+        await Task.yield()
+        await gate.release()
+        await first.value
+        await second.value
+
+        let evidence = await setup.coordinator.evidence()
+        XCTAssertEqual(evidence.revokedProviders, [.claudeCode])
+        XCTAssertEqual(setup.access.stopCount, 1)
+        XCTAssertNil(try setup.grantStore.grant(for: .claudeCode))
+    }
+
     func testRevealLocalDataSelectsOnlyTheApplicationSupportRoot() throws {
         let setup = try makeSetup(candidate: nil)
         defer { setup.cleanup() }
@@ -194,19 +319,43 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(setup.revealer.selections, [[setup.paths.root]])
     }
 
-    func testSettingsWindowCreatesAndReleasesSwiftUIViewStateOnDemand() throws {
+    func testSettingsWindowCreatesAndReleasesSwiftUIViewStateOnDemand() async throws {
         let setup = try makeSetup(candidate: nil)
         defer { setup.cleanup() }
+        let service = SettingsLoginService()
+        weak var releasedController: LaunchAtLoginController?
+        var creationCount = 0
         let controller = SettingsWindowController(
             model: setup.model,
-            launchAtLogin: LaunchAtLoginController(service: SettingsLoginService())
+            launchAtLoginFactory: {
+                creationCount += 1
+                let value = LaunchAtLoginController(service: service)
+                releasedController = value
+                return value
+            }
         )
 
         XCTAssertFalse(controller.isSettingsViewLoaded)
         controller.showWindow(nil)
         XCTAssertTrue(controller.isSettingsViewLoaded)
+        XCTAssertEqual(creationCount, 1)
+        XCTAssertEqual(controller.currentLaunchAtLoginEnabled, false)
+
+        service.isEnabled = true
+        controller.showWindow(nil)
+        XCTAssertEqual(controller.currentLaunchAtLoginEnabled, true)
+
         controller.close()
         XCTAssertFalse(controller.isSettingsViewLoaded)
+        for _ in 0..<20 where releasedController != nil {
+            try? await Task.sleep(for: .milliseconds(1))
+        }
+        XCTAssertNil(releasedController)
+
+        controller.showWindow(nil)
+        XCTAssertEqual(creationCount, 2)
+        XCTAssertEqual(controller.currentLaunchAtLoginEnabled, true)
+        controller.close()
     }
 
     func testLaunchAtLoginUsesMainAppServiceAndPublishesRegistrationErrors() throws {
@@ -233,7 +382,10 @@ final class SettingsTests: XCTestCase {
         pricing: PricingSnapshot = PricingSnapshot(catalogIDs: ["current"], rates: [], aliases: []),
         grantedProviders: Set<Provider> = [],
         approved: Bool = false,
-        pickerURL: URL? = nil
+        pickerURL: URL? = nil,
+        coordinatorMutationGate: SettingsMutationGate? = nil,
+        pricingInboxStatus: PricingInboxStatus? = nil,
+        applyOutcome: PricingApplyOutcome = .finalized
     ) throws -> SettingsSetup {
         let suite = "SettingsTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
@@ -257,10 +409,12 @@ final class SettingsTests: XCTestCase {
         let inbox = SettingsInbox(
             candidate: candidate,
             ledger: ledger,
-            recorder: recorder
+            recorder: recorder,
+            forcedStatus: pricingInboxStatus,
+            applyOutcome: applyOutcome
         )
         let query = SettingsQuery()
-        let coordinator = SettingsCoordinator()
+        let coordinator = SettingsCoordinator(mutationGate: coordinatorMutationGate)
         let pasteboard = SettingsPasteboard(recorder: recorder)
         let revealer = SettingsRevealer()
         let grantStore = SourceGrantStore(defaults: defaults, bookmarkAccess: access)
@@ -461,6 +615,7 @@ private actor SettingsQuery: AppUsageQuerying {
 }
 
 private actor SettingsCoordinator: AppIngestionCoordinating {
+    private let mutationGate: SettingsMutationGate?
     private var runID: UInt64 = 0
     private var sequence: UInt64 = 0
     private var stopped = 0
@@ -468,12 +623,19 @@ private actor SettingsCoordinator: AppIngestionCoordinating {
     private var revokedProviders: [Provider] = []
     private var lastRoots: [Provider: URL]?
 
+    init(mutationGate: SettingsMutationGate? = nil) {
+        self.mutationGate = mutationGate
+    }
+
     func results() -> AsyncStream<IngestionBatchResult> { AsyncStream { _ in } }
     func start(roots: [Provider: URL]) -> IngestionBatchResult {
         runID += 1
         sequence = 1
         lastRoots = roots
         return result(providers: Set(roots.keys))
+    }
+    func startMonitoring(roots: [Provider: URL]) -> IngestionBatchResult {
+        start(roots: roots)
     }
     func refreshAll() -> IngestionBatchResult {
         sequence += 1
@@ -484,14 +646,19 @@ private actor SettingsCoordinator: AppIngestionCoordinating {
         _ provider: Provider,
         with root: URL,
         roots: [Provider: URL]
-    ) -> IngestionBatchResult {
+    ) async -> IngestionBatchResult {
+        if let mutationGate { await mutationGate.suspend() }
         runID += 1
         sequence = 1
         replacedProviders.append(provider)
         lastRoots = roots
         return result(providers: [provider])
     }
-    func revokeSource(_ provider: Provider, remainingRoots: [Provider: URL]) -> UInt64? {
+    func revokeSource(
+        _ provider: Provider,
+        remainingRoots: [Provider: URL]
+    ) async -> UInt64? {
+        if let mutationGate { await mutationGate.suspend() }
         revokedProviders.append(provider)
         lastRoots = remainingRoots
         guard !remainingRoots.isEmpty else { return nil }
@@ -524,16 +691,54 @@ private actor SettingsCoordinator: AppIngestionCoordinating {
     }
 }
 
+private actor SettingsMutationGate {
+    private var entered = false
+    private var released = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var enteredWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func suspend() async {
+        entered = true
+        let observers = enteredWaiters
+        enteredWaiters.removeAll()
+        observers.forEach { $0.resume() }
+        guard !released else { return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    func waitUntilEntered() async {
+        guard !entered else { return }
+        await withCheckedContinuation { enteredWaiters.append($0) }
+    }
+
+    func release() {
+        released = true
+        let suspended = waiters
+        waiters.removeAll()
+        suspended.forEach { $0.resume() }
+    }
+}
+
 private actor SettingsInbox: AppPricingInboxWatching {
     private var candidate: PendingPricingCandidate?
     private let ledger: SettingsLedger
     private let recorder: SettingsRecorder
     private var applyCount = 0
     private var rejectCount = 0
+    private let forcedStatus: PricingInboxStatus?
+    private let applyOutcome: PricingApplyOutcome
 
-    init(candidate: ValidatedPricingCatalog?, ledger: SettingsLedger, recorder: SettingsRecorder) {
+    init(
+        candidate: ValidatedPricingCatalog?,
+        ledger: SettingsLedger,
+        recorder: SettingsRecorder,
+        forcedStatus: PricingInboxStatus? = nil,
+        applyOutcome: PricingApplyOutcome = .finalized
+    ) {
         self.ledger = ledger
         self.recorder = recorder
+        self.forcedStatus = forcedStatus
+        self.applyOutcome = applyOutcome
         if let candidate {
             self.candidate = PendingPricingCandidate(
                 catalog: candidate,
@@ -547,13 +752,34 @@ private actor SettingsInbox: AppPricingInboxWatching {
     func start() {}
     func stop() {}
     func pendingCandidate() -> PendingPricingCandidate? { candidate }
+    func status() -> PricingInboxStatus {
+        forcedStatus ?? candidate.map(PricingInboxStatus.valid) ?? .empty
+    }
     func exportCurrentSnapshot() { recorder.append("inbox.export") }
     func applyPending() async {
         applyCount += 1
         if let candidate { await ledger.install(candidate.catalog) }
         candidate = nil
     }
+    func applyPending(
+        matching identity: PricingCandidateIdentity
+    ) async throws -> PricingApplyOutcome {
+        guard candidate?.identity == identity else {
+            throw PricingInboxError.candidateChanged
+        }
+        await applyPending()
+        return applyOutcome
+    }
     func rejectPending() { rejectCount += 1; candidate = nil }
+    func rejectPending(
+        matching identity: PricingCandidateIdentity
+    ) throws -> PricingRejectOutcome {
+        guard candidate?.identity == identity else {
+            throw PricingInboxError.candidateChanged
+        }
+        rejectPending()
+        return .finalized
+    }
     func counts() -> (apply: Int, reject: Int) { (applyCount, rejectCount) }
 }
 

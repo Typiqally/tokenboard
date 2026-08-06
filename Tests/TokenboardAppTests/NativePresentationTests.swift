@@ -238,6 +238,9 @@ private actor PresentationCoordinator: AppIngestionCoordinating {
     func start(roots: [Provider: URL]) throws -> IngestionBatchResult {
         IngestionBatchResult(runID: 1, sequence: 1, scope: .inventory, providers: [:])
     }
+    func startMonitoring(roots: [Provider: URL]) throws -> IngestionBatchResult {
+        try start(roots: roots)
+    }
     func refreshAll() -> IngestionBatchResult {
         IngestionBatchResult(runID: 1, sequence: 2, scope: .inventory, providers: [:])
     }

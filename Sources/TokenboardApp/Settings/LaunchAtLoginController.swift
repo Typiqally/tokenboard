@@ -35,6 +35,11 @@ final class LaunchAtLoginController: ObservableObject {
         isEnabled = service.isEnabled
     }
 
+    func refreshStatus() {
+        isEnabled = service.isEnabled
+        errorMessage = nil
+    }
+
     func setEnabled(_ enabled: Bool) throws {
         do {
             if enabled {

@@ -4,14 +4,21 @@ import SwiftUI
 @MainActor
 final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     private let model: AppModel
-    private let launchAtLogin: LaunchAtLoginController
+    private let launchAtLoginFactory: @MainActor () -> LaunchAtLoginController
+    private var launchAtLogin: LaunchAtLoginController?
     private var hostingController: NSHostingController<SettingsView>?
 
     var isSettingsViewLoaded: Bool { hostingController != nil }
+    var currentLaunchAtLoginEnabled: Bool? { launchAtLogin?.isEnabled }
 
-    init(model: AppModel, launchAtLogin: LaunchAtLoginController? = nil) {
+    init(
+        model: AppModel,
+        launchAtLoginFactory: @escaping @MainActor () -> LaunchAtLoginController = {
+            LaunchAtLoginController()
+        }
+    ) {
         self.model = model
-        self.launchAtLogin = launchAtLogin ?? LaunchAtLoginController()
+        self.launchAtLoginFactory = launchAtLoginFactory
         super.init(window: nil)
     }
 
@@ -23,6 +30,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     override func showWindow(_ sender: Any?) {
         if hostingController == nil {
             loadSettingsWindow()
+        } else {
+            launchAtLogin?.refreshStatus()
         }
         super.showWindow(sender)
         window?.makeKeyAndOrderFront(sender)
@@ -40,6 +49,9 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func loadSettingsWindow() {
+        let launchAtLogin = launchAtLoginFactory()
+        launchAtLogin.refreshStatus()
+        self.launchAtLogin = launchAtLogin
         let hostingController = NSHostingController(
             rootView: SettingsView(model: model, launchAtLogin: launchAtLogin)
         )
@@ -62,7 +74,9 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         guard hostingController != nil || window != nil else { return }
         window?.delegate = nil
         window?.contentViewController = nil
+        window?.contentView = nil
         hostingController = nil
+        launchAtLogin = nil
         window = nil
     }
 }

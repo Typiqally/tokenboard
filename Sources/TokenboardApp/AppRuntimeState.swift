@@ -30,6 +30,7 @@ protocol AppUsageQuerying: Sendable {
 protocol AppIngestionCoordinating: Sendable {
     func results() async -> AsyncStream<IngestionBatchResult>
     func start(roots: [Provider: URL]) async throws -> IngestionBatchResult
+    func startMonitoring(roots: [Provider: URL]) async throws -> IngestionBatchResult
     func refreshAll() async -> IngestionBatchResult
     func replaceSource(
         _ provider: Provider,
@@ -47,9 +48,38 @@ protocol AppPricingInboxWatching: Sendable {
     func start() async throws
     func stop() async throws
     func pendingCandidate() async -> PendingPricingCandidate?
+    func status() async -> PricingInboxStatus
     func exportCurrentSnapshot() async throws
     func applyPending() async throws
+    func applyPending(matching identity: PricingCandidateIdentity) async throws -> PricingApplyOutcome
     func rejectPending() async throws
+    func rejectPending(matching identity: PricingCandidateIdentity) async throws -> PricingRejectOutcome
+}
+
+extension AppPricingInboxWatching {
+    func status() async -> PricingInboxStatus {
+        await pendingCandidate().map(PricingInboxStatus.valid) ?? .empty
+    }
+
+    func applyPending(
+        matching identity: PricingCandidateIdentity
+    ) async throws -> PricingApplyOutcome {
+        guard await pendingCandidate()?.identity == identity else {
+            throw PricingInboxError.candidateChanged
+        }
+        try await applyPending()
+        return .finalized
+    }
+
+    func rejectPending(
+        matching identity: PricingCandidateIdentity
+    ) async throws -> PricingRejectOutcome {
+        guard await pendingCandidate()?.identity == identity else {
+            throw PricingInboxError.candidateChanged
+        }
+        try await rejectPending()
+        return .finalized
+    }
 }
 
 extension SQLiteLedger: AppLedgerRuntime {}
@@ -71,6 +101,7 @@ struct AppPublishedState: Equatable, Sendable {
     var presentation: MenuPresentation?
     var sourceHealth: [Provider: SourceHealth]
     var sourceFileCounts: [Provider: Int]
+    var lastSuccessfulScans: [Provider: Date]
     var grantedProviders: Set<Provider>
     var onboardingRequired: Bool
     var historicalImportApproved: Bool
@@ -89,6 +120,7 @@ struct AppPublishedState: Equatable, Sendable {
             presentation: nil,
             sourceHealth: [.claudeCode: .notGranted, .codex: .notGranted],
             sourceFileCounts: [:],
+            lastSuccessfulScans: [:],
             grantedProviders: [],
             onboardingRequired: false,
             historicalImportApproved: historicalImportApproved,
@@ -123,6 +155,11 @@ extension AppRuntimeStatus {
 struct AppRuntimeActivity {
     let id: UInt64
     let task: Task<Void, Never>
+}
+
+enum AppSourceMutationRequest: Sendable {
+    case choose(Provider)
+    case revoke(Provider)
 }
 
 struct IngestionResultKey: Hashable {

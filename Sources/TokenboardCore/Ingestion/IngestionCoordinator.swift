@@ -174,6 +174,7 @@ public actor IngestionCoordinator {
     private var activeBatchScope: IngestionBatchScope?
     private var activeBatchRunID: UInt64?
     private var activeInventoryProviders: Set<Provider>?
+    private var activeBatchInputs: [WorkInput] = []
     private var activeInventoryContinuations: [
         CheckedContinuation<IngestionBatchResult, Never>
     ] = []
@@ -251,16 +252,32 @@ public actor IngestionCoordinator {
     }
 
     public func start(roots suppliedRoots: [Provider: URL]) async throws -> IngestionBatchResult {
+        let canonicalRoots = try IngestionRootValidator.validate(suppliedRoots)
+        return try await startMonitoring(canonicalRoots: canonicalRoots)
+    }
+
+    public func startMonitoring(
+        roots suppliedRoots: [Provider: URL]
+    ) async throws -> IngestionBatchResult {
+        let canonicalRoots = try IngestionRootValidator.validateMonitoringRoots(suppliedRoots)
+        guard !canonicalRoots.isEmpty else {
+            throw IngestionCoordinatorError.missingRoot(.claudeCode)
+        }
+        return try await startMonitoring(canonicalRoots: canonicalRoots)
+    }
+
+    private func startMonitoring(
+        canonicalRoots: [Provider: URL]
+    ) async throws -> IngestionBatchResult {
         startGeneration &+= 1
         let startID = startGeneration
-        let canonicalRoots = try IngestionRootValidator.validate(suppliedRoots)
         let runID = try await activateMonitoring(
             roots: canonicalRoots,
             startID: startID
         )
         let result = await enqueueInventoryAndWait(
             runID: runID,
-            providers: Set(Provider.allCases)
+            providers: Set(canonicalRoots.keys)
         )
         guard startGeneration == startID,
               activeRunID == runID else { throw CancellationError() }
@@ -319,6 +336,12 @@ public actor IngestionCoordinator {
         roots canonicalRoots: [Provider: URL],
         startID: UInt64
     ) async throws -> UInt64 {
+        let priorEventTask = eventTask
+        watcher.stop()
+        eventTask = nil
+        await priorEventTask?.value
+        guard startGeneration == startID else { throw CancellationError() }
+        let retainedEventPaths = retainedEventPaths(whenTransitioningTo: canonicalRoots)
         await stopWithBarrier()
         guard startGeneration == startID else { throw CancellationError() }
         stopBarrier = nil
@@ -330,10 +353,16 @@ public actor IngestionCoordinator {
         let orderedRoots = Provider.allCases.compactMap { roots[$0] }
         let events = watcher.events(for: orderedRoots)
         eventTask = Task { [weak self] in
-            for await paths in events {
+            for await batch in events {
                 guard !Task.isCancelled else { break }
-                await self?.receive(paths: paths, runID: runID)
+                await self?.receive(batch: batch, runID: runID)
             }
+        }
+        if !retainedEventPaths.isEmpty {
+            _ = await enqueueEventAndWait(
+                runID: runID,
+                paths: retainedEventPaths
+            )
         }
         return runID
     }
@@ -404,13 +433,15 @@ public actor IngestionCoordinator {
         activeWorkTask = nil
         drainTask = nil
         activeInventoryProviders = nil
+        activeBatchInputs.removeAll()
         failRemainingBatches()
         roots.removeAll()
     }
 
-    private func receive(paths: Set<URL>, runID: UInt64) {
+    private func receive(batch: SourceEventBatch, runID: UInt64) {
         guard activeRunID == runID, !roots.isEmpty else { return }
-        mergePendingEventPaths(paths)
+        mergePendingEventPaths(batch.paths)
+        watcher.acknowledge(batch.checkpoint)
         debounceGeneration &+= 1
         let generation = debounceGeneration
         debounceTask?.cancel()
@@ -445,6 +476,36 @@ public actor IngestionCoordinator {
                 }
             }
         }
+    }
+
+    private func retainedEventPaths(
+        whenTransitioningTo newRoots: [Provider: URL]
+    ) -> Set<URL> {
+        let retainedProviders = Set(roots.compactMap { provider, root in
+            newRoots[provider] == root ? provider : nil
+        })
+        guard !retainedProviders.isEmpty else { return [] }
+        var retained = Set(pendingEventPaths.filter {
+            guard let provider = providerAndRoot(containing: $0)?.0 else { return false }
+            return retainedProviders.contains(provider)
+        })
+        for provider in pendingEventRootProviders.intersection(retainedProviders) {
+            if let root = roots[provider] { retained.insert(root) }
+        }
+        for provider in followUpDirtyProviders.intersection(retainedProviders) {
+            if let root = roots[provider] { retained.insert(root) }
+        }
+        let queuedInputs = pendingBatches
+            .filter { $0.scope == .incremental }
+            .flatMap(\.inputs)
+        let inFlightInputs = activeBatchScope == .incremental ? activeBatchInputs : []
+        for input in queuedInputs + inFlightInputs where retainedProviders.contains(input.provider) {
+            retained.insert(input.url)
+        }
+        if retained.count > Self.maximumPendingEventPaths {
+            return Set(retainedProviders.compactMap { roots[$0] })
+        }
+        return retained
     }
 
     private func mergePendingEventPaths(_ paths: Set<URL>) {
@@ -575,6 +636,37 @@ public actor IngestionCoordinator {
         startDrainIfNeeded()
     }
 
+    private func enqueueEventAndWait(
+        runID: UInt64,
+        paths: Set<URL>
+    ) async -> IngestionBatchResult {
+        let inputs = paths.sorted(by: { $0.path < $1.path }).compactMap { path in
+            providerAndRoot(containing: path).map { provider, root in
+                WorkInput(url: path, root: root, provider: provider)
+            }
+        }
+        return await withCheckedContinuation { continuation in
+            guard !inputs.isEmpty else {
+                continuation.resume(returning: IngestionBatchResult(
+                    runID: runID,
+                    sequence: nextSequence,
+                    scope: .incremental,
+                    providers: [:]
+                ))
+                return
+            }
+            pendingBatches.append(QueuedBatch(
+                runID: runID,
+                scope: .incremental,
+                inventoryProviders: nil,
+                inputs: inputs,
+                failedProviders: [],
+                continuations: [continuation]
+            ))
+            startDrainIfNeeded()
+        }
+    }
+
     private func startDrainIfNeeded() {
         guard drainTask == nil, !pendingBatches.isEmpty else { return }
         let drainEntryHook = self.drainEntryHook
@@ -600,6 +692,7 @@ public actor IngestionCoordinator {
             activeBatchScope = queued.scope
             activeBatchRunID = queued.runID
             activeInventoryProviders = queued.inventoryProviders
+            activeBatchInputs = queued.inputs
             activeInventoryContinuations = queued.continuations
             let scanner = self.scanner
             let discovery = self.discovery
@@ -611,6 +704,7 @@ public actor IngestionCoordinator {
                 activeBatchScope = nil
                 activeBatchRunID = nil
                 activeInventoryProviders = nil
+                activeBatchInputs.removeAll()
                 break
             }
             let workTask = Task.detached(priority: .utility) {
@@ -630,6 +724,7 @@ public actor IngestionCoordinator {
             activeBatchScope = nil
             activeBatchRunID = nil
             activeInventoryProviders = nil
+            activeBatchInputs.removeAll()
             if queued.scope == .inventory || !execution.progress.isEmpty {
                 nextSequence &+= 1
                 let result = IngestionBatchResult(

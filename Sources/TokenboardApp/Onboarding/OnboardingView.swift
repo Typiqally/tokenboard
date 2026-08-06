@@ -71,6 +71,7 @@ struct OnboardingView: View {
             Button(model.hasActiveGrant(for: provider) ? "Change" : "Grant") {
                 Task { await model.chooseSource(provider) }
             }
+            .disabled(model.isSourceMutationInProgress)
             .disabled(!actionState.canSelectSources)
             .accessibilityLabel(
                 model.hasActiveGrant(for: provider)
