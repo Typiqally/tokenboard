@@ -97,6 +97,110 @@ final class IngestionCoordinatorTests: XCTestCase {
         await coordinator.stop()
     }
 
+    func testReplacingOneSourceInventoriesOnlyThatProviderAndKeepsBothRootsWatched() async throws {
+        let setup = try makeSetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let watcher = FakeSourceEventWatcher()
+        let scanner = RecordingScanner()
+        let coordinator = IngestionCoordinator(
+            scanner: scanner,
+            watcher: watcher,
+            clock: ManualIngestionClock(),
+            calendar: calendar
+        )
+        _ = try await coordinator.start(roots: setup.roots)
+        await scanner.reset()
+
+        let replacementRoot = setup.directory.appending(path: "claude-replacement")
+        try FileManager.default.createDirectory(at: replacementRoot, withIntermediateDirectories: true)
+        let replacementFile = replacementRoot.appending(path: "replacement.jsonl")
+        try Data().write(to: replacementFile)
+        var roots = setup.roots
+        roots[.claudeCode] = replacementRoot
+
+        let result = try await coordinator.replaceSource(
+            .claudeCode,
+            with: replacementRoot,
+            roots: roots
+        )
+
+        let scannedURLs = await scanner.scannedURLs
+        let scannedProviders = await scanner.scannedProviders
+        XCTAssertEqual(scannedURLs, [replacementFile])
+        XCTAssertEqual(scannedProviders, [.claudeCode])
+        XCTAssertEqual(
+            result.providers,
+            [.claudeCode: .success(discoveredFiles: 1, scannedFiles: 1)]
+        )
+        XCTAssertEqual(
+            watcher.requestedRoots.map(\.path),
+            [replacementRoot.path, setup.codexRoot.path]
+        )
+        await coordinator.stop()
+    }
+
+    func testReplacingTheOnlyRemainingSourceKeepsOneRootWatched() async throws {
+        let setup = try makeSetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let watcher = FakeSourceEventWatcher()
+        let scanner = RecordingScanner()
+        let coordinator = IngestionCoordinator(
+            scanner: scanner,
+            watcher: watcher,
+            clock: ManualIngestionClock(),
+            calendar: calendar
+        )
+
+        _ = try await coordinator.revokeSource(
+            .claudeCode,
+            remainingRoots: [.codex: setup.codexRoot]
+        )
+        await scanner.reset()
+        let replacement = setup.directory.appending(path: "codex-replacement")
+        try FileManager.default.createDirectory(at: replacement, withIntermediateDirectories: true)
+        let replacementFile = replacement.appending(path: "replacement.jsonl")
+        try Data().write(to: replacementFile)
+        let result = try await coordinator.replaceSource(
+            .codex,
+            with: replacement,
+            roots: [.codex: replacement]
+        )
+
+        let scannedURLs = await scanner.scannedURLs
+        let scannedProviders = await scanner.scannedProviders
+        XCTAssertEqual(watcher.requestedRoots, [replacement.standardizedFileURL])
+        XCTAssertEqual(Set(result.providers.keys), [.codex])
+        XCTAssertEqual(scannedURLs, [replacementFile])
+        XCTAssertEqual(scannedProviders, [.codex])
+        await coordinator.stop()
+    }
+
+    func testRevokingOneSourceKeepsOnlyTheOtherRootWatchedWithoutRescanningIt() async throws {
+        let setup = try makeSetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let watcher = FakeSourceEventWatcher()
+        let scanner = RecordingScanner()
+        let coordinator = IngestionCoordinator(
+            scanner: scanner,
+            watcher: watcher,
+            clock: ManualIngestionClock(),
+            calendar: calendar
+        )
+        _ = try await coordinator.start(roots: setup.roots)
+        await scanner.reset()
+
+        try await coordinator.revokeSource(
+            .claudeCode,
+            remainingRoots: [.codex: setup.codexRoot]
+        )
+
+        let scannedURLs = await scanner.scannedURLs
+        XCTAssertEqual(scannedURLs, [])
+        XCTAssertEqual(watcher.requestedRoots.map(\.path), [setup.codexRoot.path])
+        XCTAssertEqual(watcher.eventsRequestCount, 2)
+        await coordinator.stop()
+    }
+
     func testCatchUpReportsAttentionAndFailureWithoutPathsOrMessages() async throws {
         let setup = try makeSetup()
         defer { try? FileManager.default.removeItem(at: setup.directory) }

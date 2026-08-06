@@ -596,7 +596,7 @@ final class AppModelLifecycleTests: XCTestCase {
         XCTAssertEqual(setup.model.state.sourceFileCounts[.claudeCode], 2)
         XCTAssertEqual(setup.model.state.grantedProviders, [.claudeCode])
         let counts = await setup.coordinator.counts()
-        XCTAssertEqual(counts, [0, 0, 1])
+        XCTAssertEqual(counts, [0, 0, 0])
     }
 
     func testApprovedIncompletePairCompletionPublishesBothGrantsAndClearsOnboarding() async throws {
@@ -618,7 +618,7 @@ final class AppModelLifecycleTests: XCTestCase {
         XCTAssertFalse(setup.model.state.onboardingRequired)
         XCTAssertEqual(setup.defaults.data(forKey: "sourceBookmark.codex"), Data([9]))
         let counts = await setup.coordinator.counts()
-        XCTAssertEqual(counts, [1, 0, 1])
+        XCTAssertEqual(counts, [1, 0, 0])
         let roots = await setup.coordinator.activeRoots()
         XCTAssertEqual(Set(roots.keys), Set(Provider.allCases))
     }
@@ -920,6 +920,9 @@ final class AppModelLifecycleTests: XCTestCase {
             grantStore: store,
             preferences: preferences,
             bundledCatalogData: try bundledCatalogData(),
+            applicationPaths: ApplicationPaths(
+                root: URL(fileURLWithPath: "/tmp/\(suite)-support", isDirectory: true)
+            ),
             now: now,
             calendar: Calendar(identifier: .gregorian),
             discovery: LifecycleDiscovery(
@@ -1074,6 +1077,11 @@ private actor LifecycleLedger: AppLedgerRuntime {
         }
         try failIfNeeded(.applyCatalog)
     }
+    func pricingSnapshot() -> PricingSnapshot {
+        PricingSnapshot(catalogIDs: [], rates: [], aliases: [])
+    }
+    func usageRows(in interval: DateInterval?, calendar: Calendar) -> [DailyUsageRow] { [] }
+    func skippedRecordCount() -> Int { 0 }
 
     private func failIfNeeded(_ point: StartupFailurePoint) throws {
         guard failure == point else { return }
@@ -1101,6 +1109,10 @@ private actor LifecycleInbox: AppPricingInboxWatching {
         }
     }
     func stop() { stops += 1 }
+    func pendingCandidate() -> PendingPricingCandidate? { nil }
+    func exportCurrentSnapshot() {}
+    func applyPending() {}
+    func rejectPending() {}
     func counts() -> [Int] { [starts, stops] }
 }
 
@@ -1180,6 +1192,25 @@ private actor LifecycleCoordinator: AppIngestionCoordinating {
         )
         if let refreshGate, refreshes == 1 { await refreshGate.suspend() }
         return result
+    }
+    func replaceSource(
+        _ provider: Provider,
+        with root: URL,
+        roots: [Provider: URL]
+    ) async throws -> IngestionBatchResult {
+        await stop()
+        return try await start(roots: roots)
+    }
+    func revokeSource(
+        _ provider: Provider,
+        remainingRoots: [Provider: URL]
+    ) async -> UInt64? {
+        await stop()
+        roots = remainingRoots
+        guard !remainingRoots.isEmpty else { return nil }
+        currentRunID += 1
+        currentSequence = 0
+        return currentRunID
     }
     func stop() async {
         stops += 1

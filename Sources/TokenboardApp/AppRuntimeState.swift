@@ -11,6 +11,12 @@ protocol AppLedgerRuntime: Sendable {
         origin: String,
         validationSummary: String
     ) async throws
+    func pricingSnapshot() async throws -> PricingSnapshot
+    func usageRows(
+        in interval: DateInterval?,
+        calendar: Calendar
+    ) async throws -> [DailyUsageRow]
+    func skippedRecordCount() async throws -> Int
 }
 
 protocol AppUsageQuerying: Sendable {
@@ -25,12 +31,25 @@ protocol AppIngestionCoordinating: Sendable {
     func results() async -> AsyncStream<IngestionBatchResult>
     func start(roots: [Provider: URL]) async throws -> IngestionBatchResult
     func refreshAll() async -> IngestionBatchResult
+    func replaceSource(
+        _ provider: Provider,
+        with root: URL,
+        roots: [Provider: URL]
+    ) async throws -> IngestionBatchResult
+    func revokeSource(
+        _ provider: Provider,
+        remainingRoots: [Provider: URL]
+    ) async throws -> UInt64?
     func stop() async
 }
 
 protocol AppPricingInboxWatching: Sendable {
     func start() async throws
     func stop() async throws
+    func pendingCandidate() async -> PendingPricingCandidate?
+    func exportCurrentSnapshot() async throws
+    func applyPending() async throws
+    func rejectPending() async throws
 }
 
 extension SQLiteLedger: AppLedgerRuntime {}

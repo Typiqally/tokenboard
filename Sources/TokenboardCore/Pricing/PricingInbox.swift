@@ -29,6 +29,7 @@ public enum PricingInboxError: Error, Equatable, Sendable {
     case resolutionInProgress
     case candidateAlreadyApplied
     case noPendingCandidate
+    case noActiveCatalog
     case candidateUnavailable
     case candidateNotRegularFile
     case candidateHasMultipleLinks
@@ -172,6 +173,17 @@ public actor PricingInbox {
     public func pendingCandidate() -> PendingPricingCandidate? {
         guard case let .pending(record) = state else { return nil }
         return record.preview
+    }
+
+    public func exportCurrentSnapshot() throws {
+        guard started, let activeCatalog else {
+            throw PricingInboxError.noActiveCatalog
+        }
+        try fileSystem.replaceCanonical(
+            activeCatalog.canonicalJSON,
+            in: .pricing,
+            name: Self.currentCatalogFilename
+        )
     }
 
     public func applyPending() async throws {
@@ -516,7 +528,7 @@ public actor PricingInbox {
             && name.count > processingFilenamePrefix.count + processingFilenameSuffix.count
     }
 
-    private static let currentCatalogFilename = "current-tokenboard-pricing.json"
+    public static let currentCatalogFilename = "current-tokenboard-pricing.json"
 
     private var candidateURL: URL {
         applicationSupportDirectory

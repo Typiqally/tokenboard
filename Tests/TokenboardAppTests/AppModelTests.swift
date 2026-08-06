@@ -103,6 +103,9 @@ final class AppModelTests: XCTestCase {
             grantStore: SourceGrantStore(defaults: defaults, bookmarkAccess: access),
             preferences: preferences,
             bundledCatalogData: try bundledCatalogData(),
+            applicationPaths: ApplicationPaths(
+                root: URL(fileURLWithPath: "/tmp/\(suiteName)-support", isDirectory: true)
+            ),
             now: { Date(timeIntervalSince1970: 1_775_000_000) },
             calendar: Calendar(identifier: .gregorian)
         )
@@ -163,6 +166,11 @@ private actor RuntimeLedger: AppLedgerRuntime {
         recorder.append("ledger.applyCatalog")
         appliedCatalog = canonicalJSON
     }
+    func pricingSnapshot() -> PricingSnapshot {
+        PricingSnapshot(catalogIDs: [], rates: [], aliases: [])
+    }
+    func usageRows(in interval: DateInterval?, calendar: Calendar) -> [DailyUsageRow] { [] }
+    func skippedRecordCount() -> Int { 0 }
 }
 
 private actor RuntimeQuery: AppUsageQuerying {
@@ -205,6 +213,19 @@ private actor RuntimeCoordinator: AppIngestionCoordinating {
         recorder.append("coordinator.refresh")
         return result()
     }
+    func replaceSource(
+        _ provider: Provider,
+        with root: URL,
+        roots: [Provider: URL]
+    ) -> IngestionBatchResult {
+        start(roots: roots)
+    }
+    func revokeSource(_ provider: Provider, remainingRoots: [Provider: URL]) -> UInt64? {
+        guard !remainingRoots.isEmpty else { return nil }
+        runID += 1
+        sequence = 0
+        return runID
+    }
     func stop() { recorder.append("coordinator.stop") }
     func counts() -> [Int] { [startCount, refreshCount] }
 
@@ -226,6 +247,10 @@ private actor RuntimePricingInbox: AppPricingInboxWatching {
     init(recorder: OrderedRecorder) { self.recorder = recorder }
     func start() { recorder.append("inbox.start") }
     func stop() { recorder.append("inbox.stop") }
+    func pendingCandidate() -> PendingPricingCandidate? { nil }
+    func exportCurrentSnapshot() {}
+    func applyPending() {}
+    func rejectPending() {}
 }
 
 private final class RuntimeBookmarkAccess: SecurityScopedBookmarkAccessing, @unchecked Sendable {

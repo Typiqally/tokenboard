@@ -5,6 +5,7 @@ import TokenboardCore
 @MainActor
 final class AppModel: ObservableObject {
     @Published private(set) var state: AppPublishedState
+    @Published private(set) var settingsState: AppSettingsState
 
     var onOpenPricing: (() -> Void)?
     var onOpenSettings: (() -> Void)?
@@ -26,9 +27,12 @@ final class AppModel: ObservableObject {
     let sourcePicker: any AppSourcePicking
     let preferences: AppPreferences
     let bundledCatalogData: Data
+    let applicationPaths: ApplicationPaths
     let now: @Sendable () -> Date
     let calendar: Calendar
     let discovery: any LogDiscovering
+    let pasteboard: any AppPlainTextCopying
+    let localDataRevealer: any AppLocalDataRevealing
     var activeGrants: [Provider: ActiveSourceGrant] = [:]
     var lastSummary: UsageSummary?
     var lifecycleGeneration: UInt64 = 0
@@ -57,10 +61,13 @@ final class AppModel: ObservableObject {
         grantStore: SourceGrantStore,
         preferences: AppPreferences,
         bundledCatalogData: Data,
+        applicationPaths: ApplicationPaths,
         now: @escaping @Sendable () -> Date = { Date() },
         calendar: Calendar = .current,
         discovery: any LogDiscovering = LogDiscovery(),
-        sourcePicker: (any AppSourcePicking)? = nil
+        sourcePicker: (any AppSourcePicking)? = nil,
+        pasteboard: (any AppPlainTextCopying)? = nil,
+        localDataRevealer: (any AppLocalDataRevealing)? = nil
     ) {
         self.ledger = ledger
         self.queryService = queryService
@@ -70,14 +77,18 @@ final class AppModel: ObservableObject {
         self.sourcePicker = sourcePicker ?? SourceGrantController()
         self.preferences = preferences
         self.bundledCatalogData = bundledCatalogData
+        self.applicationPaths = applicationPaths
         self.now = now
         self.calendar = calendar
         self.discovery = discovery
+        self.pasteboard = pasteboard ?? GeneralPasteboardTextCopier()
+        self.localDataRevealer = localDataRevealer ?? WorkspaceLocalDataRevealer()
         state = .initial(
             period: preferences.selectedPeriod,
             displayMetric: preferences.selectedDisplayMetric,
             historicalImportApproved: preferences.historicalImportApproved
         )
+        settingsState = .initial
     }
 
     func hasActiveGrant(for provider: Provider) -> Bool {
@@ -86,6 +97,10 @@ final class AppModel: ObservableObject {
 
     func commitState(_ next: AppPublishedState) {
         state = next
+    }
+
+    func commitSettingsState(_ next: AppSettingsState) {
+        settingsState = next
     }
 
     func start() async {

@@ -57,6 +57,23 @@ public actor SQLiteLedger: LedgerStore {
         }
     }
 
+    public func skippedRecordCount() throws -> Int {
+        let connection = try requiredConnection()
+        let statement = try prepare(
+            "SELECT COUNT(*) FROM skipped_records;",
+            using: connection
+        )
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_step(statement) == SQLITE_ROW else {
+            throw failure(sqlite3_errcode(connection.handle), using: connection)
+        }
+        let value = sqlite3_column_int64(statement, 0)
+        guard value >= 0, let count = Int(exactly: value) else {
+            throw LedgerError.corruptData("skipped-record count is invalid")
+        }
+        return count
+    }
+
     public func commit(
         _ usage: [NormalizedUsage],
         skipped: [SkippedRecord],

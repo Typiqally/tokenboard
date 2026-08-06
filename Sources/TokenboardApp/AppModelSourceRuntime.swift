@@ -370,8 +370,9 @@ extension AppModel {
         let oldRoots = activeRoots()
         let oldGrant = activeGrants[provider]
         let oldState = state
+        let hadActiveOldRuntime = coordinatorStatus.isActive
         let hadCompleteOldRuntime = oldRoots.count == Provider.allCases.count
-            && coordinatorStatus.isActive
+            && hadActiveOldRuntime
         var proposedRoots = oldRoots
         proposedRoots[provider] = prepared.root
         proposedRoots = IngestionRootValidator.canonicalize(proposedRoots)
@@ -396,24 +397,26 @@ extension AppModel {
             return
         }
 
-        await coordinator.stop()
-        guard readyGeneration == generation, accepts(generation) else {
-            prepared.close()
-            return
-        }
-        coordinatorStatus = .inactive
-
         let newGrant = grantStore.activate(prepared, for: provider)
         activeGrants[provider] = newGrant
 
-        if preferences.historicalImportApproved, hasEveryGrant {
+        if preferences.historicalImportApproved,
+           hasEveryGrant || hadActiveOldRuntime {
             do {
                 await ensureResultConsumer(generation: generation)
                 prepareForCoordinatorStart()
                 beginCoordinatorInventoryRequest()
                 let result: IngestionBatchResult
                 do {
-                    result = try await coordinator.start(roots: proposedRoots)
+                    if hadActiveOldRuntime {
+                        result = try await coordinator.replaceSource(
+                            provider,
+                            with: prepared.root,
+                            roots: proposedRoots
+                        )
+                    } else {
+                        result = try await coordinator.start(roots: proposedRoots)
+                    }
                 } catch {
                     completeCoordinatorInventoryRequest()
                     throw error
@@ -434,7 +437,7 @@ extension AppModel {
                 oldGrant?.close()
                 var accepted = state
                 accepted.grantedProviders = Set(activeGrants.keys)
-                accepted.onboardingRequired = false
+                accepted.onboardingRequired = !hasEveryGrant
                 commitState(accepted)
                 await submitAndWaitForIngestionResult(
                     result,

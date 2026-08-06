@@ -181,6 +181,29 @@ final class SQLiteLedgerTests: XCTestCase {
         XCTAssertEqual(try connection.queryStrings("SELECT record_hash FROM skipped_records;"), [])
     }
 
+    func testSkippedRecordCountReportsOnlyCommittedUniqueDiagnostics() async throws {
+        let (ledger, _) = try makeLedger()
+        try await ledger.migrate()
+        let first = skippedRecord()
+        let second = SkippedRecord(
+            sourceFingerprint: fingerprintA,
+            byteOffset: 13,
+            recordHash: String(repeating: "e", count: 64),
+            parserVersion: 1,
+            reason: "missing_model"
+        )
+
+        try await ledger.commit(
+            [],
+            skipped: [first, first, second],
+            checkpoint: checkpoint(),
+            calendar: calendar
+        )
+
+        let skippedRecordCount = try await ledger.skippedRecordCount()
+        XCTAssertEqual(skippedRecordCount, 2)
+    }
+
     func testExistingQuantityOverflowRollsBackUsageSkippedRecordsAndCheckpoint() async throws {
         let (ledger, directory) = try makeLedger()
         try await ledger.migrate()

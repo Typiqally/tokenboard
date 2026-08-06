@@ -1,6 +1,6 @@
 import Foundation
 
-public enum AgentPricingSource: String, Sendable {
+public enum AgentPricingSource: String, Hashable, Sendable {
     case tokenboardRepository
     case officialResearch
 }

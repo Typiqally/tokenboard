@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var model: AppModel?
     private var menuController: MenuController?
     private var onboardingController: OnboardingWindowController?
+    private var settingsController: SettingsWindowController?
     private var onboardingObservation: AnyCancellable?
     private var terminationPending = false
 
@@ -32,14 +33,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 pricingInbox: pricingInbox,
                 grantStore: grantStore,
                 preferences: preferences,
-                bundledCatalogData: bundledCatalogData
+                bundledCatalogData: bundledCatalogData,
+                applicationPaths: paths
             )
             self.model = model
             menuController = MenuController(model: model)
             let onboardingController = OnboardingWindowController(model: model)
             self.onboardingController = onboardingController
-            model.onOpenSettings = { [weak onboardingController] in
-                onboardingController?.present()
+            let settingsController = SettingsWindowController(model: model)
+            self.settingsController = settingsController
+            model.onOpenSettings = { [weak settingsController] in
+                settingsController?.showWindow(nil)
+            }
+            model.onOpenPricing = { [weak settingsController] in
+                settingsController?.showWindow(nil)
             }
             onboardingObservation = model.$state
                 .map(\.onboardingRequired)

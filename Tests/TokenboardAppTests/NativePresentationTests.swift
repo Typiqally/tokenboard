@@ -199,7 +199,10 @@ final class NativePresentationTests: XCTestCase {
             pricingInbox: PresentationInbox(),
             grantStore: SourceGrantStore(defaults: defaults, bookmarkAccess: PresentationBookmarkAccess()),
             preferences: preferences,
-            bundledCatalogData: Data()
+            bundledCatalogData: Data(),
+            applicationPaths: ApplicationPaths(
+                root: URL(fileURLWithPath: "/tmp/\(suite)-support", isDirectory: true)
+            )
         )
         return (model, preferences, { defaults.removePersistentDomain(forName: suite) })
     }
@@ -215,6 +218,11 @@ private actor PresentationLedger: AppLedgerRuntime {
         origin: String,
         validationSummary: String
     ) {}
+    func pricingSnapshot() -> PricingSnapshot {
+        PricingSnapshot(catalogIDs: [], rates: [], aliases: [])
+    }
+    func usageRows(in interval: DateInterval?, calendar: Calendar) -> [DailyUsageRow] { [] }
+    func skippedRecordCount() -> Int { 0 }
 }
 
 private actor PresentationQuery: AppUsageQuerying {
@@ -233,12 +241,26 @@ private actor PresentationCoordinator: AppIngestionCoordinating {
     func refreshAll() -> IngestionBatchResult {
         IngestionBatchResult(runID: 1, sequence: 2, scope: .inventory, providers: [:])
     }
+    func replaceSource(
+        _ provider: Provider,
+        with root: URL,
+        roots: [Provider: URL]
+    ) -> IngestionBatchResult {
+        IngestionBatchResult(runID: 2, sequence: 1, scope: .inventory, providers: [:])
+    }
+    func revokeSource(_ provider: Provider, remainingRoots: [Provider: URL]) -> UInt64? {
+        remainingRoots.isEmpty ? nil : 2
+    }
     func stop() {}
 }
 
 private actor PresentationInbox: AppPricingInboxWatching {
     func start() {}
     func stop() {}
+    func pendingCandidate() -> PendingPricingCandidate? { nil }
+    func exportCurrentSnapshot() {}
+    func applyPending() {}
+    func rejectPending() {}
 }
 
 private final class PresentationBookmarkAccess: SecurityScopedBookmarkAccessing, @unchecked Sendable {

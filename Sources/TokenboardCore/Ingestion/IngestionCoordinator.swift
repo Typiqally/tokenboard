@@ -21,6 +21,8 @@ public struct ContinuousIngestionClock: IngestionClock {
 public enum IngestionCoordinatorError: Error, Equatable {
     case missingRoot(Provider)
     case overlappingRoots
+    case replacementRootMismatch(Provider)
+    case revokedRootStillPresent(Provider)
 }
 
 public enum ProviderIngestionResult: Equatable, Sendable {
@@ -68,12 +70,18 @@ public enum IngestionRootValidator {
         for provider in Provider.allCases where suppliedRoots[provider] == nil {
             throw IngestionCoordinatorError.missingRoot(provider)
         }
+        return try validateMonitoringRoots(suppliedRoots)
+    }
+
+    public static func validateMonitoringRoots(
+        _ suppliedRoots: [Provider: URL]
+    ) throws -> [Provider: URL] {
         let roots = canonicalize(suppliedRoots)
-        guard let claudeRoot = roots[.claudeCode],
-              let codexRoot = roots[.codex],
-              !contains(claudeRoot, codexRoot),
-              !contains(codexRoot, claudeRoot) else {
-            throw IngestionCoordinatorError.overlappingRoots
+        if let claudeRoot = roots[.claudeCode], let codexRoot = roots[.codex] {
+            guard !contains(claudeRoot, codexRoot),
+                  !contains(codexRoot, claudeRoot) else {
+                throw IngestionCoordinatorError.overlappingRoots
+            }
         }
         return roots
     }
@@ -137,6 +145,7 @@ public actor IngestionCoordinator {
     private struct QueuedBatch {
         let runID: UInt64
         let scope: IngestionBatchScope
+        let inventoryProviders: Set<Provider>?
         let inputs: [WorkInput]
         let failedProviders: Set<Provider>
         var continuations: [CheckedContinuation<IngestionBatchResult, Never>]
@@ -164,6 +173,7 @@ public actor IngestionCoordinator {
     private var pendingBatches: [QueuedBatch] = []
     private var activeBatchScope: IngestionBatchScope?
     private var activeBatchRunID: UInt64?
+    private var activeInventoryProviders: Set<Provider>?
     private var activeInventoryContinuations: [
         CheckedContinuation<IngestionBatchResult, Never>
     ] = []
@@ -244,7 +254,71 @@ public actor IngestionCoordinator {
         startGeneration &+= 1
         let startID = startGeneration
         let canonicalRoots = try IngestionRootValidator.validate(suppliedRoots)
+        let runID = try await activateMonitoring(
+            roots: canonicalRoots,
+            startID: startID
+        )
+        let result = await enqueueInventoryAndWait(
+            runID: runID,
+            providers: Set(Provider.allCases)
+        )
+        guard startGeneration == startID,
+              activeRunID == runID else { throw CancellationError() }
+        return result
+    }
 
+    public func replaceSource(
+        _ provider: Provider,
+        with root: URL,
+        roots suppliedRoots: [Provider: URL]
+    ) async throws -> IngestionBatchResult {
+        startGeneration &+= 1
+        let startID = startGeneration
+        let canonicalRoots = try IngestionRootValidator.validateMonitoringRoots(suppliedRoots)
+        let canonicalReplacement = IngestionRootValidator.canonicalize([provider: root])[provider]
+        guard canonicalRoots[provider] == canonicalReplacement else {
+            throw IngestionCoordinatorError.replacementRootMismatch(provider)
+        }
+        let runID = try await activateMonitoring(
+            roots: canonicalRoots,
+            startID: startID
+        )
+        let result = await enqueueInventoryAndWait(
+            runID: runID,
+            providers: [provider]
+        )
+        guard startGeneration == startID,
+              activeRunID == runID else { throw CancellationError() }
+        return result
+    }
+
+    @discardableResult
+    public func revokeSource(
+        _ provider: Provider,
+        remainingRoots suppliedRoots: [Provider: URL]
+    ) async throws -> UInt64? {
+        startGeneration &+= 1
+        let startID = startGeneration
+        let canonicalRoots = try IngestionRootValidator.validateMonitoringRoots(suppliedRoots)
+        guard canonicalRoots[provider] == nil else {
+            throw IngestionCoordinatorError.revokedRootStillPresent(provider)
+        }
+        guard !canonicalRoots.isEmpty else {
+            await stopWithBarrier()
+            guard startGeneration == startID else { throw CancellationError() }
+            stopBarrier = nil
+            return nil
+        }
+        return try await activateMonitoring(
+            roots: canonicalRoots,
+            startID: startID
+        )
+    }
+
+    private func activateMonitoring(
+        roots canonicalRoots: [Provider: URL],
+        startID: UInt64
+    ) async throws -> UInt64 {
         await stopWithBarrier()
         guard startGeneration == startID else { throw CancellationError() }
         stopBarrier = nil
@@ -261,10 +335,7 @@ public actor IngestionCoordinator {
                 await self?.receive(paths: paths, runID: runID)
             }
         }
-        let result = await refreshAll()
-        guard startGeneration == startID,
-              activeRunID == runID else { throw CancellationError() }
-        return result
+        return runID
     }
 
     public func refreshAll() async -> IngestionBatchResult {
@@ -278,7 +349,10 @@ public actor IngestionCoordinator {
                 })
             )
         }
-        return await enqueueInventoryAndWait(runID: runID)
+        return await enqueueInventoryAndWait(
+            runID: runID,
+            providers: Set(roots.keys)
+        )
     }
 
     public func stop() async {
@@ -329,13 +403,13 @@ public actor IngestionCoordinator {
         }
         activeWorkTask = nil
         drainTask = nil
+        activeInventoryProviders = nil
         failRemainingBatches()
         roots.removeAll()
     }
 
     private func receive(paths: Set<URL>, runID: UInt64) {
-        guard activeRunID == runID,
-              roots.count == Provider.allCases.count else { return }
+        guard activeRunID == runID, !roots.isEmpty else { return }
         mergePendingEventPaths(paths)
         debounceGeneration &+= 1
         let generation = debounceGeneration
@@ -445,30 +519,38 @@ public actor IngestionCoordinator {
         }
     }
 
-    private func enqueueInventoryAndWait(runID: UInt64) async -> IngestionBatchResult {
+    private func enqueueInventoryAndWait(
+        runID: UInt64,
+        providers: Set<Provider>
+    ) async -> IngestionBatchResult {
         await withCheckedContinuation { continuation in
             if activeBatchScope == .inventory,
-               activeBatchRunID == runID {
+               activeBatchRunID == runID,
+               activeInventoryProviders == providers {
                 activeInventoryContinuations.append(continuation)
                 return
             }
             if let index = pendingBatches.firstIndex(where: {
-                $0.scope == .inventory && $0.runID == runID
+                $0.scope == .inventory
+                    && $0.runID == runID
+                    && $0.inventoryProviders == providers
             }) {
                 pendingBatches[index].continuations.append(continuation)
                 return
             }
-            let inputs = Provider.allCases.compactMap { provider in
-                roots[provider].map {
+            let inputs = Provider.allCases.compactMap { provider -> WorkInput? in
+                guard providers.contains(provider) else { return nil }
+                return roots[provider].map {
                     WorkInput(url: $0, root: $0, provider: provider)
                 }
             }
-            let failedProviders = Set(Provider.allCases).subtracting(
+            let failedProviders = providers.subtracting(
                 inputs.map(\.provider)
             )
             pendingBatches.append(QueuedBatch(
                 runID: runID,
                 scope: .inventory,
+                inventoryProviders: providers,
                 inputs: inputs,
                 failedProviders: failedProviders,
                 continuations: [continuation]
@@ -485,6 +567,7 @@ public actor IngestionCoordinator {
         pendingBatches.append(QueuedBatch(
             runID: runID,
             scope: .incremental,
+            inventoryProviders: nil,
             inputs: inputs,
             failedProviders: failedProviders,
             continuations: []
@@ -516,6 +599,7 @@ public actor IngestionCoordinator {
             let queued = pendingBatches.removeFirst()
             activeBatchScope = queued.scope
             activeBatchRunID = queued.runID
+            activeInventoryProviders = queued.inventoryProviders
             activeInventoryContinuations = queued.continuations
             let scanner = self.scanner
             let discovery = self.discovery
@@ -526,6 +610,7 @@ public actor IngestionCoordinator {
                 activeInventoryContinuations.removeAll()
                 activeBatchScope = nil
                 activeBatchRunID = nil
+                activeInventoryProviders = nil
                 break
             }
             let workTask = Task.detached(priority: .utility) {
@@ -544,6 +629,7 @@ public actor IngestionCoordinator {
             activeInventoryContinuations.removeAll()
             activeBatchScope = nil
             activeBatchRunID = nil
+            activeInventoryProviders = nil
             if queued.scope == .inventory || !execution.progress.isEmpty {
                 nextSequence &+= 1
                 let result = IngestionBatchResult(
