@@ -66,6 +66,23 @@ public struct CatalogAlias: Codable, Equatable, Sendable {
         self.effectiveFrom = effectiveFrom
         self.effectiveTo = effectiveTo
     }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(observedModelID, forKey: .observedModelID)
+        try container.encode(effectiveFrom, forKey: .effectiveFrom)
+        if let effectiveTo {
+            try container.encode(effectiveTo, forKey: .effectiveTo)
+        } else {
+            try container.encodeNil(forKey: .effectiveTo)
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case observedModelID
+        case effectiveFrom
+        case effectiveTo
+    }
 }
 
 public struct CatalogRate: Codable, Equatable, Sendable {
@@ -87,6 +104,27 @@ public struct CatalogRate: Codable, Equatable, Sendable {
         self.prices = prices
         self.provenanceURL = provenanceURL
         self.verifiedAt = verifiedAt
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(effectiveFrom, forKey: .effectiveFrom)
+        if let effectiveTo {
+            try container.encode(effectiveTo, forKey: .effectiveTo)
+        } else {
+            try container.encodeNil(forKey: .effectiveTo)
+        }
+        try container.encode(prices, forKey: .prices)
+        try container.encode(provenanceURL, forKey: .provenanceURL)
+        try container.encode(verifiedAt, forKey: .verifiedAt)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case effectiveFrom
+        case effectiveTo
+        case prices
+        case provenanceURL
+        case verifiedAt
     }
 }
 

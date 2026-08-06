@@ -60,6 +60,7 @@ public protocol LedgerStore: Sendable {
     func sourceFingerprint(provider: Provider, stableID: String) async throws -> String
     func recordIdentityHash(_ value: String) async throws -> String
     func pricingSnapshot() async throws -> PricingSnapshot
+    func latestAppliedPricingCatalogJSON() async throws -> Data?
     func applyPricingCatalog(
         _ catalog: ValidatedPricingCatalog,
         canonicalJSON: Data,

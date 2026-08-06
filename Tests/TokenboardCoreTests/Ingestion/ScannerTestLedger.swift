@@ -59,6 +59,10 @@ actor ScannerTestLedger: LedgerStore {
         throw ScannerTestLedgerError.unsupportedPricing
     }
 
+    func latestAppliedPricingCatalogJSON() throws -> Data? {
+        throw ScannerTestLedgerError.unsupportedPricing
+    }
+
     func applyPricingCatalog(
         _ catalog: ValidatedPricingCatalog,
         canonicalJSON: Data,

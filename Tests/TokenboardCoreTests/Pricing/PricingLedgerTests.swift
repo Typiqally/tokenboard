@@ -3,6 +3,24 @@ import XCTest
 @testable import TokenboardCore
 
 final class PricingLedgerTests: XCTestCase {
+    func testLatestAppliedCatalogReturnsNewestCanonicalJSONAndNilBeforeImport() async throws {
+        let ledger = try makeLedger()
+        try await ledger.migrate()
+        let before = try await ledger.latestAppliedPricingCatalogJSON()
+        XCTAssertNil(before)
+        let first = try catalog(id: "catalog-first", models: [model()])
+        let second = try catalog(id: "catalog-second", models: [model(
+            canonicalModelID: "gpt-second",
+            observedModelID: "gpt-second"
+        )])
+
+        try await apply(first, to: ledger)
+        try await apply(second, to: ledger)
+
+        let latest = try await ledger.latestAppliedPricingCatalogJSON()
+        XCTAssertEqual(latest, second.canonicalJSON)
+    }
+
     func testApplyingSameCatalogIsIdempotentAndChangedContentForSameIDConflicts() async throws {
         let ledger = try makeLedger()
         try await ledger.migrate()

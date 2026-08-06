@@ -162,6 +162,29 @@ public actor SQLiteLedger: LedgerStore {
         return PricingSnapshot(catalogIDs: catalogIDs, rates: rates, aliases: aliases)
     }
 
+    public func latestAppliedPricingCatalogJSON() throws -> Data? {
+        let connection = try requiredConnection()
+        let statement = try prepare(
+            """
+            SELECT canonical_json
+            FROM catalog_imports
+            WHERE applied = 1
+            ORDER BY imported_at DESC, rowid DESC
+            LIMIT 1;
+            """,
+            using: connection
+        )
+        defer { sqlite3_finalize(statement) }
+        switch sqlite3_step(statement) {
+        case SQLITE_ROW:
+            return Data(try requiredText(statement, at: 0).utf8)
+        case SQLITE_DONE:
+            return nil
+        default:
+            throw failure(sqlite3_errcode(connection.handle), using: connection)
+        }
+    }
+
     public func applyPricingCatalog(
         _ catalog: ValidatedPricingCatalog,
         canonicalJSON: Data,

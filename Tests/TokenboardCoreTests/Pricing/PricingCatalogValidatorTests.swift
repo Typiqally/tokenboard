@@ -30,6 +30,9 @@ final class PricingCatalogValidatorTests: XCTestCase {
         XCTAssertEqual(catalog.models[0].rates[0].prices[.inputUncached], Decimal(string: "5.00"))
         XCTAssertEqual(catalog.canonicalJSON, try PricingCatalogValidator().validate(decoded).canonicalJSON)
         XCTAssertTrue(String(decoding: catalog.canonicalJSON, as: UTF8.self).contains(#""input_uncached":"5""#))
+        let reloaded = try PricingCatalogLoader().load(catalog.canonicalJSON)
+        let revalidated = try PricingCatalogValidator().validate(reloaded)
+        XCTAssertEqual(revalidated.canonicalJSON, catalog.canonicalJSON)
     }
 
     func testDocumentByteBoundaryUsesValidCatalog() throws {
