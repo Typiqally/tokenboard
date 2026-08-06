@@ -450,8 +450,22 @@ final class PricingInboxTests: XCTestCase {
         XCTAssertEqual(pendingFinalization, .appliedFinalizing(reviewed.identity))
         XCTAssertEqual(firstApplyCalls, 1)
 
-        let retry = try await inbox.applyPending(matching: reviewed.identity)
-        XCTAssertEqual(retry, .finalized)
+        let staleCatalog = try PricingCatalogValidator().validate(
+            PricingCatalogLoader().load(candidateData(id: "stale-finalization"))
+        )
+        let staleIdentity = PricingCandidateIdentity(
+            canonicalJSON: staleCatalog.canonicalJSON
+        )
+        await assertInboxError(.candidateChanged) {
+            _ = try await inbox.retryFinalization(matching: staleIdentity)
+        }
+        let statusAfterStaleRetry = await inbox.status()
+        let callsAfterStaleRetry = await ledger.applyCallCountValue()
+        XCTAssertEqual(statusAfterStaleRetry, .appliedFinalizing(reviewed.identity))
+        XCTAssertEqual(callsAfterStaleRetry, 1)
+
+        let retry = try await inbox.retryFinalization(matching: reviewed.identity)
+        XCTAssertEqual(retry, .applied)
         let finalStatus = await inbox.status()
         let finalApplyCalls = await ledger.applyCallCountValue()
         XCTAssertEqual(finalStatus, .empty)
@@ -628,9 +642,25 @@ final class PricingInboxTests: XCTestCase {
         XCTAssertEqual(sync.attemptCount(), 3)
         await assertInboxError(.resolutionInProgress) { try await inbox.applyPending() }
 
-        try await inbox.rejectPending()
+        let finalizingStatus = await inbox.status()
+        guard case let .rejectedFinalizing(identity) = finalizingStatus else {
+            return XCTFail("expected rejected finalization state")
+        }
+        let staleCatalog = try PricingCatalogValidator().validate(
+            PricingCatalogLoader().load(candidateData(id: "stale-rejection-finalization"))
+        )
+        await assertInboxError(.candidateChanged) {
+            _ = try await inbox.retryFinalization(matching: PricingCandidateIdentity(
+                canonicalJSON: staleCatalog.canonicalJSON
+            ))
+        }
+        let callsAfterStaleRetry = await ledger.applyCallCountValue()
+        XCTAssertEqual(callsAfterStaleRetry, 0)
+
+        let retry = try await inbox.retryFinalization(matching: identity)
 
         let finalApplyCalls = await ledger.applyCallCountValue()
+        XCTAssertEqual(retry, .rejected)
         XCTAssertEqual(finalApplyCalls, 0)
         XCTAssertEqual(sync.attemptCount(), 4)
         XCTAssertEqual(try processingNames(in: root), [])

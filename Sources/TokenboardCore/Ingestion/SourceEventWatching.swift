@@ -1,10 +1,20 @@
 import Foundation
 
+public enum SourceEventCheckpointDisposition: Equatable, Sendable {
+    case advance
+    case reset
+}
+
 public struct SourceEventCheckpoint: Equatable, Sendable {
     public let eventID: UInt64
+    public let disposition: SourceEventCheckpointDisposition
 
-    public init(eventID: UInt64) {
+    public init(
+        eventID: UInt64,
+        disposition: SourceEventCheckpointDisposition = .advance
+    ) {
         self.eventID = eventID
+        self.disposition = disposition
     }
 }
 

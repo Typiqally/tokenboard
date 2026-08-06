@@ -80,6 +80,28 @@ extension AppModel {
         }
     }
 
+    func retryPricingFinalization() async {
+        guard !settingsState.isFinalizationRetryInProgress,
+              let identity = settingsState.pricing.finalizationIdentity else {
+            return
+        }
+        setFinalizationRetryInProgress(true)
+        defer { setFinalizationRetryInProgress(false) }
+        do {
+            let outcome = try await pricingInbox.retryFinalization(matching: identity)
+            if outcome == .applied {
+                await querySelectedSummary()
+            }
+            await refreshSettings(statusMessage: outcome == .applied
+                ? "Pricing file finalization completed"
+                : "Rejected candidate file finalization completed")
+        } catch {
+            await refreshSettings(statusMessage: error as? PricingInboxError == .candidateChanged
+                ? "Pricing finalization changed · Refresh Settings before retrying"
+                : "Pricing finalization retry failed · Files remain safely pending")
+        }
+    }
+
     func changeSource(_ provider: Provider) async {
         await chooseSource(provider)
         await refreshSettings()
@@ -214,7 +236,9 @@ extension AppModel {
                     pendingCandidate: pending,
                     preview: preview,
                     validationConflicts: [],
-                    inboxStatus: inboxStatus
+                    inboxStatus: inboxStatus,
+                    isFinalizationRetryInProgress: settingsState
+                        .isFinalizationRetryInProgress
                 ),
                 diagnostics: SettingsDiagnosticsState(
                     skippedRecordCount: skippedCount,
@@ -282,6 +306,12 @@ extension AppModel {
     func setSourceMutationInProgress(_ inProgress: Bool) {
         var next = settingsState
         next.isSourceMutationInProgress = inProgress
+        commitSettingsState(next)
+    }
+
+    private func setFinalizationRetryInProgress(_ inProgress: Bool) {
+        var next = settingsState
+        next.isFinalizationRetryInProgress = inProgress
         commitSettingsState(next)
     }
 }

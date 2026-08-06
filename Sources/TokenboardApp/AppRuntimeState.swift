@@ -54,6 +54,9 @@ protocol AppPricingInboxWatching: Sendable {
     func applyPending(matching identity: PricingCandidateIdentity) async throws -> PricingApplyOutcome
     func rejectPending() async throws
     func rejectPending(matching identity: PricingCandidateIdentity) async throws -> PricingRejectOutcome
+    func retryFinalization(
+        matching identity: PricingCandidateIdentity
+    ) async throws -> PricingFinalizationOutcome
 }
 
 extension AppPricingInboxWatching {
@@ -79,6 +82,12 @@ extension AppPricingInboxWatching {
         }
         try await rejectPending()
         return .finalized
+    }
+
+    func retryFinalization(
+        matching identity: PricingCandidateIdentity
+    ) async throws -> PricingFinalizationOutcome {
+        throw PricingInboxError.noPendingCandidate
     }
 }
 

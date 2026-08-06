@@ -38,6 +38,11 @@ public enum PricingRejectOutcome: Equatable, Sendable {
     case rejectedFinalizationPending
 }
 
+public enum PricingFinalizationOutcome: Equatable, Sendable {
+    case applied
+    case rejected
+}
+
 public struct PendingPricingCandidate: Equatable, Sendable {
     public let catalog: ValidatedPricingCatalog
     public let canonicalJSON: Data
@@ -340,6 +345,34 @@ public actor PricingInbox {
             if case .rejectedFinalizing = state { throw error }
             restorePreCommitCandidate(pendingRecordFromState(fallback: pending))
             throw error
+        }
+    }
+
+    public func retryFinalization(
+        matching identity: PricingCandidateIdentity
+    ) async throws -> PricingFinalizationOutcome {
+        switch state {
+        case let .committed(committed):
+            guard committed.preview.identity == identity else {
+                throw PricingInboxError.candidateChanged
+            }
+            try finalizeCommitted(committed)
+            return .applied
+        case let .rejectedFinalizing(rejected):
+            guard rejected.identity == identity else {
+                throw PricingInboxError.candidateChanged
+            }
+            try finalizeRejected(rejected)
+            return .rejected
+        case .resolving:
+            throw PricingInboxError.resolutionInProgress
+        case let .pending(record):
+            guard record.preview.identity == identity else {
+                throw PricingInboxError.candidateChanged
+            }
+            throw PricingInboxError.noPendingCandidate
+        case .idle, .invalid:
+            throw PricingInboxError.noPendingCandidate
         }
     }
 

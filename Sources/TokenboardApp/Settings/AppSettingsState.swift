@@ -19,6 +19,7 @@ struct PricingSettingsState: Equatable, Sendable {
     var preview: PricingPreview?
     var validationConflicts: [String]
     var inboxStatus: PricingInboxStatus
+    var isFinalizationRetryInProgress: Bool
 
     var canApply: Bool {
         if case .valid = inboxStatus {} else { return false }
@@ -26,6 +27,19 @@ struct PricingSettingsState: Equatable, Sendable {
             && preview != nil
             && validationConflicts.isEmpty
             && preview?.diff.conflicts.isEmpty == true
+    }
+
+    var finalizationIdentity: PricingCandidateIdentity? {
+        switch inboxStatus {
+        case let .appliedFinalizing(identity), let .rejectedFinalizing(identity):
+            identity
+        default:
+            nil
+        }
+    }
+
+    var canRetryFinalization: Bool {
+        finalizationIdentity != nil && !isFinalizationRetryInProgress
     }
 
     static let empty = PricingSettingsState(
@@ -36,7 +50,8 @@ struct PricingSettingsState: Equatable, Sendable {
         pendingCandidate: nil,
         preview: nil,
         validationConflicts: [],
-        inboxStatus: .empty
+        inboxStatus: .empty,
+        isFinalizationRetryInProgress: false
     )
 }
 
@@ -60,6 +75,11 @@ struct AppSettingsState: Equatable, Sendable {
     var statusMessage: String?
     var isLoading: Bool
     var isSourceMutationInProgress: Bool
+
+    var isFinalizationRetryInProgress: Bool {
+        get { pricing.isFinalizationRetryInProgress }
+        set { pricing.isFinalizationRetryInProgress = newValue }
+    }
 
     static let initial = AppSettingsState(
         sources: [:],

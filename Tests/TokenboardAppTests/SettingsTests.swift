@@ -78,6 +78,105 @@ final class SettingsTests: XCTestCase {
         )
     }
 
+    func testAppliedFinalizationRetryIsReachableRefreshesSummaryAndDoesNotApplyAgain() async throws {
+        let identity = PricingCandidateIdentity(canonicalJSON: Data("applied-finalizing".utf8))
+        let setup = try makeSetup(
+            candidate: nil,
+            pricingInboxStatus: .appliedFinalizing(identity),
+            finalizationOutcome: .applied
+        )
+        defer { setup.cleanup() }
+        await setup.model.start()
+        await setup.model.refreshSettings()
+        let queriesBeforeRetry = await setup.query.callCount()
+
+        XCTAssertEqual(setup.model.settingsState.pricing.finalizationIdentity, identity)
+        XCTAssertTrue(setup.model.settingsState.pricing.canRetryFinalization)
+        XCTAssertFalse(setup.model.settingsState.pricing.canApply)
+
+        await setup.model.retryPricingFinalization()
+
+        let counts = await setup.inbox.counts()
+        let queriesAfterRetry = await setup.query.callCount()
+        XCTAssertEqual(counts.apply, 0)
+        XCTAssertEqual(counts.reject, 0)
+        XCTAssertEqual(counts.retry, 1)
+        XCTAssertEqual(queriesAfterRetry, queriesBeforeRetry + 1)
+        XCTAssertEqual(setup.model.settingsState.pricing.inboxStatus, .empty)
+        XCTAssertEqual(
+            setup.model.settingsState.statusMessage,
+            "Pricing file finalization completed"
+        )
+        XCTAssertFalse(setup.model.settingsState.isFinalizationRetryInProgress)
+    }
+
+    func testRejectedFinalizationRetryIsSerializedAndDoesNotMutatePricingOrSummary() async throws {
+        let identity = PricingCandidateIdentity(canonicalJSON: Data("rejected-finalizing".utf8))
+        let gate = SettingsMutationGate()
+        let setup = try makeSetup(
+            candidate: nil,
+            pricingInboxStatus: .rejectedFinalizing(identity),
+            finalizationOutcome: .rejected,
+            finalizationRetryGate: gate
+        )
+        defer { setup.cleanup() }
+        await setup.model.start()
+        await setup.model.refreshSettings()
+        let pricingBefore = await setup.ledger.currentPricing()
+        let queriesBeforeRetry = await setup.query.callCount()
+
+        let first = Task { await setup.model.retryPricingFinalization() }
+        await gate.waitUntilEntered()
+        XCTAssertTrue(setup.model.settingsState.isFinalizationRetryInProgress)
+        XCTAssertFalse(setup.model.settingsState.pricing.canRetryFinalization)
+        let second = Task { await setup.model.retryPricingFinalization() }
+        await Task.yield()
+        await gate.release()
+        await first.value
+        await second.value
+
+        let counts = await setup.inbox.counts()
+        let pricingAfter = await setup.ledger.currentPricing()
+        let queriesAfterRetry = await setup.query.callCount()
+        XCTAssertEqual(counts.apply, 0)
+        XCTAssertEqual(counts.reject, 0)
+        XCTAssertEqual(counts.retry, 1)
+        XCTAssertEqual(pricingAfter, pricingBefore)
+        XCTAssertEqual(queriesAfterRetry, queriesBeforeRetry)
+        XCTAssertEqual(setup.model.settingsState.pricing.inboxStatus, .empty)
+        XCTAssertEqual(
+            setup.model.settingsState.statusMessage,
+            "Rejected candidate file finalization completed"
+        )
+        XCTAssertFalse(setup.model.settingsState.isFinalizationRetryInProgress)
+    }
+
+    func testFinalizationRetryFailureKeepsActionReachableAndPublishesSanitizedError() async throws {
+        let identity = PricingCandidateIdentity(canonicalJSON: Data("retry-failure".utf8))
+        let setup = try makeSetup(
+            candidate: nil,
+            pricingInboxStatus: .appliedFinalizing(identity),
+            finalizationRetryError: .fileOperationFailed("private candidate path")
+        )
+        defer { setup.cleanup() }
+        await setup.model.start()
+        await setup.model.refreshSettings()
+
+        await setup.model.retryPricingFinalization()
+
+        XCTAssertEqual(
+            setup.model.settingsState.statusMessage,
+            "Pricing finalization retry failed · Files remain safely pending"
+        )
+        XCTAssertFalse(setup.model.settingsState.statusMessage?.contains("private") == true)
+        XCTAssertEqual(
+            setup.model.settingsState.pricing.inboxStatus,
+            .appliedFinalizing(identity)
+        )
+        XCTAssertTrue(setup.model.settingsState.pricing.canRetryFinalization)
+        XCTAssertFalse(setup.model.settingsState.isFinalizationRetryInProgress)
+    }
+
     func testInvalidInboxStatusIsVisibleAndApplyRemainsDisabled() async throws {
         let setup = try makeSetup(
             candidate: nil,
@@ -385,7 +484,10 @@ final class SettingsTests: XCTestCase {
         pickerURL: URL? = nil,
         coordinatorMutationGate: SettingsMutationGate? = nil,
         pricingInboxStatus: PricingInboxStatus? = nil,
-        applyOutcome: PricingApplyOutcome = .finalized
+        applyOutcome: PricingApplyOutcome = .finalized,
+        finalizationOutcome: PricingFinalizationOutcome = .applied,
+        finalizationRetryGate: SettingsMutationGate? = nil,
+        finalizationRetryError: PricingInboxError? = nil
     ) throws -> SettingsSetup {
         let suite = "SettingsTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
@@ -411,7 +513,10 @@ final class SettingsTests: XCTestCase {
             ledger: ledger,
             recorder: recorder,
             forcedStatus: pricingInboxStatus,
-            applyOutcome: applyOutcome
+            applyOutcome: applyOutcome,
+            finalizationOutcome: finalizationOutcome,
+            finalizationRetryGate: finalizationRetryGate,
+            finalizationRetryError: finalizationRetryError
         )
         let query = SettingsQuery()
         let coordinator = SettingsCoordinator(mutationGate: coordinatorMutationGate)
@@ -725,20 +830,30 @@ private actor SettingsInbox: AppPricingInboxWatching {
     private let recorder: SettingsRecorder
     private var applyCount = 0
     private var rejectCount = 0
-    private let forcedStatus: PricingInboxStatus?
+    private var retryCount = 0
+    private var forcedStatus: PricingInboxStatus?
     private let applyOutcome: PricingApplyOutcome
+    private let finalizationOutcome: PricingFinalizationOutcome
+    private let finalizationRetryGate: SettingsMutationGate?
+    private let finalizationRetryError: PricingInboxError?
 
     init(
         candidate: ValidatedPricingCatalog?,
         ledger: SettingsLedger,
         recorder: SettingsRecorder,
         forcedStatus: PricingInboxStatus? = nil,
-        applyOutcome: PricingApplyOutcome = .finalized
+        applyOutcome: PricingApplyOutcome = .finalized,
+        finalizationOutcome: PricingFinalizationOutcome = .applied,
+        finalizationRetryGate: SettingsMutationGate? = nil,
+        finalizationRetryError: PricingInboxError? = nil
     ) {
         self.ledger = ledger
         self.recorder = recorder
         self.forcedStatus = forcedStatus
         self.applyOutcome = applyOutcome
+        self.finalizationOutcome = finalizationOutcome
+        self.finalizationRetryGate = finalizationRetryGate
+        self.finalizationRetryError = finalizationRetryError
         if let candidate {
             self.candidate = PendingPricingCandidate(
                 catalog: candidate,
@@ -780,7 +895,26 @@ private actor SettingsInbox: AppPricingInboxWatching {
         rejectPending()
         return .finalized
     }
-    func counts() -> (apply: Int, reject: Int) { (applyCount, rejectCount) }
+    func retryFinalization(
+        matching identity: PricingCandidateIdentity
+    ) async throws -> PricingFinalizationOutcome {
+        let currentIdentity: PricingCandidateIdentity?
+        switch forcedStatus {
+        case let .appliedFinalizing(value), let .rejectedFinalizing(value):
+            currentIdentity = value
+        default:
+            currentIdentity = nil
+        }
+        guard currentIdentity == identity else { throw PricingInboxError.candidateChanged }
+        retryCount += 1
+        if let finalizationRetryGate { await finalizationRetryGate.suspend() }
+        if let finalizationRetryError { throw finalizationRetryError }
+        forcedStatus = .empty
+        return finalizationOutcome
+    }
+    func counts() -> (apply: Int, reject: Int, retry: Int) {
+        (applyCount, rejectCount, retryCount)
+    }
 }
 
 @MainActor

@@ -278,6 +278,7 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
     private var state: StreamState?
     private var baselineEventID: UInt64?
     private var lastAcknowledgedEventID: UInt64?
+    private var checkpointResetPending = false
 
     public convenience init() {
         self.init(driver: NativeFSEventStreamDriver())
@@ -319,7 +320,11 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
                 latency: 0.5,
                 flags: createFlags
             )
-            guard let handle = driver.create(configuration: configuration, callback: { batch in
+            guard let handle = driver.create(configuration: configuration, callback: { [weak self] batch in
+                guard let self else { return }
+                let eventIDsWrapped = batch.events.contains { event in
+                    event.flags & UInt32(kFSEventStreamEventFlagEventIdsWrapped) != 0
+                }
                 let requiresRootRecovery = batch.overflowed || batch.events.contains { event in
                     event.flags & UInt32(
                         kFSEventStreamEventFlagMustScanSubDirs
@@ -332,8 +337,14 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
                     ? Set(resolvedRoots)
                     : Self.changedURLs(from: batch.events, roots: resolvedRoots)
                 if !changed.isEmpty {
-                    let checkpoint = batch.terminalEventID.map {
-                        SourceEventCheckpoint(eventID: $0)
+                    let terminalEventID = eventIDsWrapped
+                        ? driver.currentEventID()
+                        : batch.terminalEventID
+                    let checkpoint = terminalEventID.map {
+                        self.checkpoint(
+                            eventID: $0,
+                            eventIDsWrapped: eventIDsWrapped
+                        )
                     }
                     let delivery = SourceEventBatch(
                         paths: changed,
@@ -373,8 +384,16 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
     public func acknowledge(_ checkpoint: SourceEventCheckpoint?) {
         guard let checkpoint else { return }
         lock.withLock {
-            if checkpoint.eventID >= (lastAcknowledgedEventID ?? baselineEventID ?? 0) {
+            switch checkpoint.disposition {
+            case .advance:
+                guard checkpoint.eventID >= (lastAcknowledgedEventID ?? baselineEventID ?? 0) else {
+                    return
+                }
                 lastAcknowledgedEventID = checkpoint.eventID
+            case .reset:
+                baselineEventID = checkpoint.eventID
+                lastAcknowledgedEventID = checkpoint.eventID
+                checkpointResetPending = false
             }
         }
     }
@@ -391,6 +410,22 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
         driver.release(priorState.handle)
         priorState.handle.releaseCallbackContext()
         priorState.continuation.finish()
+    }
+
+    private func checkpoint(
+        eventID: UInt64,
+        eventIDsWrapped: Bool
+    ) -> SourceEventCheckpoint {
+        lock.withLock {
+            let prior = lastAcknowledgedEventID ?? baselineEventID
+            if eventIDsWrapped || prior.map({ eventID < $0 }) == true {
+                checkpointResetPending = true
+            }
+            return SourceEventCheckpoint(
+                eventID: eventID,
+                disposition: checkpointResetPending ? .reset : .advance
+            )
+        }
     }
 
     private static func changedURLs(

@@ -348,6 +348,67 @@ final class IngestionCoordinatorTests: XCTestCase {
         await coordinator.stop()
     }
 
+    func testWrappedRootRecoveryAcrossReplacementKeepsLedgerExactAndAcknowledgesReset() async throws {
+        let setup = try makeSetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let ledger = try SQLiteLedger(
+            databaseURL: setup.directory.appending(path: "wrapped-ledger.sqlite"),
+            backupDirectory: setup.directory.appending(path: "WrappedBackups")
+        )
+        try await ledger.migrate()
+        let watcher = FakeSourceEventWatcher()
+        let clock = ManualIngestionClock()
+        let coordinator = IngestionCoordinator(
+            scanner: IncrementalScanner(ledger: ledger),
+            watcher: watcher,
+            clock: clock,
+            calendar: calendar
+        )
+        _ = try await coordinator.start(roots: setup.roots)
+        let changed = setup.codexRoot.appending(path: "wrapped-recovery.jsonl")
+        let source = #"""
+        {"type":"session_meta","payload":{"id":"session-wrap"}}
+        {"type":"turn_context","payload":{"model":"gpt-test"}}
+        {"timestamp":"2026-08-05T10:00:00Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":3,"cached_input_tokens":1,"output_tokens":2,"total_tokens":5}}}}
+        """#
+        try Data("\(source)\n".utf8).write(to: changed)
+        let reset = SourceEventCheckpoint(eventID: 7, disposition: .reset)
+        watcher.emit(SourceEventBatch(paths: [setup.codexRoot], checkpoint: reset))
+        await clock.waitForSleepStartCount(1)
+
+        let replacement = setup.directory.appending(path: "claude-wrap-replacement")
+        try FileManager.default.createDirectory(at: replacement, withIntermediateDirectories: true)
+        var newRoots = setup.roots
+        newRoots[.claudeCode] = replacement
+        _ = try await coordinator.replaceSource(
+            .claudeCode,
+            with: replacement,
+            roots: newRoots
+        )
+
+        watcher.emit(SourceEventBatch(
+            paths: [setup.codexRoot],
+            checkpoint: SourceEventCheckpoint(eventID: 8)
+        ))
+        await clock.waitForSleepStartCount(2)
+        await clock.advancePastDebounce()
+        await waitUntil {
+            let diagnostics = await coordinator.diagnostics()
+            return !diagnostics.isDraining && diagnostics.pendingBatchCount == 0
+        }
+        let rows = try await ledger.usageRows(in: nil, calendar: calendar)
+
+        XCTAssertEqual(watcher.acknowledgements, [
+            reset,
+            SourceEventCheckpoint(eventID: 8)
+        ])
+        XCTAssertEqual(
+            rows.filter { $0.metric.countsTowardTokenTotal }.reduce(0) { $0 + $1.quantity },
+            5
+        )
+        await coordinator.stop()
+    }
+
     func testTransitionCollapsesCombinedRetainedOverflowToProviderRoot() async throws {
         let setup = try makeSetup()
         defer { try? FileManager.default.removeItem(at: setup.directory) }
@@ -1751,6 +1812,11 @@ private final class FakeSourceEventWatcher: SourceEventWatching, @unchecked Send
     private(set) var eventsRequestCount = 0
     private var pathsToEmitOnStop: Set<URL> = []
     private var nextEventID: UInt64 = 0
+    private var recordedAcknowledgements: [SourceEventCheckpoint] = []
+
+    var acknowledgements: [SourceEventCheckpoint] {
+        lock.withLock { recordedAcknowledgements }
+    }
 
     func events(for roots: [URL]) -> AsyncStream<SourceEventBatch> {
         lock.withLock {
@@ -1776,11 +1842,18 @@ private final class FakeSourceEventWatcher: SourceEventWatching, @unchecked Send
         delivery.0?.yield(delivery.1)
     }
 
+    func emit(_ batch: SourceEventBatch) {
+        lock.withLock { continuation }?.yield(batch)
+    }
+
     func emitOnNextStop(_ paths: Set<URL>) {
         lock.withLock { pathsToEmitOnStop = paths }
     }
 
-    func acknowledge(_ checkpoint: SourceEventCheckpoint?) {}
+    func acknowledge(_ checkpoint: SourceEventCheckpoint?) {
+        guard let checkpoint else { return }
+        lock.withLock { recordedAcknowledgements.append(checkpoint) }
+    }
 
     func stop() {
         let (continuation, batch) = lock.withLock { () -> (AsyncStream<SourceEventBatch>.Continuation?, SourceEventBatch?) in

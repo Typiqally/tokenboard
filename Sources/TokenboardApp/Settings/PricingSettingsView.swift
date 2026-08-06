@@ -71,6 +71,14 @@ struct PricingSettingsView: View {
                     Task { await model.rejectPendingPricing() }
                 }
                 .disabled(pricing.pendingCandidate == nil)
+                if pricing.finalizationIdentity != nil {
+                    Button(model.settingsState.isFinalizationRetryInProgress
+                        ? "Retrying Finalization…"
+                        : "Retry Finalization") {
+                        Task { await model.retryPricingFinalization() }
+                    }
+                    .disabled(!pricing.canRetryFinalization)
+                }
             }
         }
         .sheet(isPresented: $showsReview) {
