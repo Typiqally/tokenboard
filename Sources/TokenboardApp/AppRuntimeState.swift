@@ -22,9 +22,7 @@ protocol AppUsageQuerying: Sendable {
 }
 
 protocol AppIngestionCoordinating: Sendable {
-    func setEventBatchHandler(
-        _ handler: (@Sendable (IngestionBatchResult) -> Void)?
-    ) async
+    func results() async -> AsyncStream<IngestionBatchResult>
     func start(roots: [Provider: URL]) async throws -> IngestionBatchResult
     func refreshAll() async -> IngestionBatchResult
     func stop() async
@@ -56,6 +54,7 @@ struct AppPublishedState: Equatable, Sendable {
     var sourceFileCounts: [Provider: Int]
     var grantedProviders: Set<Provider>
     var onboardingRequired: Bool
+    var historicalImportApproved: Bool
     var selectedPeriod: CalendarPeriod
     var selectedDisplayMetric: DisplayMetric
     var lastUpdated: Date?
@@ -63,7 +62,8 @@ struct AppPublishedState: Equatable, Sendable {
 
     static func initial(
         period: CalendarPeriod,
-        displayMetric: DisplayMetric
+        displayMetric: DisplayMetric,
+        historicalImportApproved: Bool = false
     ) -> AppPublishedState {
         AppPublishedState(
             lifecycle: .idle,
@@ -72,6 +72,7 @@ struct AppPublishedState: Equatable, Sendable {
             sourceFileCounts: [:],
             grantedProviders: [],
             onboardingRequired: false,
+            historicalImportApproved: historicalImportApproved,
             selectedPeriod: period,
             selectedDisplayMetric: displayMetric,
             lastUpdated: nil,
@@ -82,6 +83,7 @@ struct AppPublishedState: Equatable, Sendable {
     var canStartHistoricalImport: Bool {
         lifecycle == .ready
             && !isImporting
+            && !historicalImportApproved
             && Provider.allCases.allSatisfy(grantedProviders.contains)
     }
 }
@@ -95,6 +97,11 @@ enum AppRuntimeStatus: Equatable {
 struct AppRuntimeActivity {
     let id: UInt64
     let task: Task<Void, Never>
+}
+
+struct IngestionResultKey: Hashable {
+    let runID: UInt64
+    let sequence: UInt64
 }
 
 @MainActor

@@ -6,8 +6,22 @@ enum OnboardingCopy {
     static let coverageWarning = "Tokenboard cannot recover conversations deleted before this first import."
 }
 
+struct OnboardingActionState: Equatable {
+    let canStartHistoricalImport: Bool
+    let canSelectSources: Bool
+
+    init(state: AppPublishedState) {
+        canStartHistoricalImport = state.canStartHistoricalImport
+        canSelectSources = state.lifecycle == .ready && !state.isImporting
+    }
+}
+
 struct OnboardingView: View {
     @ObservedObject var model: AppModel
+
+    var actionState: OnboardingActionState {
+        OnboardingActionState(state: model.state)
+    }
 
     var body: some View {
         Form {
@@ -35,7 +49,7 @@ struct OnboardingView: View {
                     Task { await model.startHistoricalImport() }
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(!model.canStartHistoricalImport)
+                .disabled(!actionState.canStartHistoricalImport)
             }
         }
         .formStyle(.grouped)
@@ -57,7 +71,7 @@ struct OnboardingView: View {
             Button(model.hasActiveGrant(for: provider) ? "Change" : "Grant") {
                 Task { await model.chooseSource(provider) }
             }
-            .disabled(model.state.isImporting || model.state.lifecycle != .ready)
+            .disabled(!actionState.canSelectSources)
             .accessibilityLabel(
                 model.hasActiveGrant(for: provider)
                     ? "Change \(title) folder"

@@ -76,12 +76,16 @@ final class IngestionCoordinatorTests: XCTestCase {
         XCTAssertEqual(scannedURLs, [claudeFile, codexFile])
         XCTAssertEqual(initial.providers[.claudeCode], .success(discoveredFiles: 1, scannedFiles: 1))
         XCTAssertEqual(initial.providers[.codex], .success(discoveredFiles: 1, scannedFiles: 1))
+        XCTAssertEqual(initial.scope, .inventory)
+        XCTAssertEqual(initial.sequence, 1)
         await scanner.reset()
         let refreshed = await coordinator.refreshAll()
         scannedURLs = await scanner.scannedURLs
         XCTAssertEqual(scannedURLs, [claudeFile, codexFile])
         XCTAssertEqual(refreshed.providers[.claudeCode], .success(discoveredFiles: 1, scannedFiles: 1))
         XCTAssertEqual(refreshed.providers[.codex], .success(discoveredFiles: 1, scannedFiles: 1))
+        XCTAssertEqual(refreshed.scope, .inventory)
+        XCTAssertEqual(refreshed.sequence, 2)
         XCTAssertEqual(
             watcher.requestedRoots.map(\.path),
             [setup.claudeRoot.path, setup.codexRoot.path]
@@ -144,15 +148,20 @@ final class IngestionCoordinatorTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: setup.directory) }
         let watcher = FakeSourceEventWatcher()
         let clock = ManualIngestionClock()
-        let completions = BatchCompletionRecorder()
         let coordinator = IngestionCoordinator(
             scanner: RecordingScanner(),
             watcher: watcher,
             clock: clock,
             calendar: calendar
         )
-        await coordinator.setEventBatchHandler { result in
-            Task { await completions.append(result) }
+        let results = await coordinator.results()
+        let completions = Task { () -> [IngestionBatchResult] in
+            var values: [IngestionBatchResult] = []
+            for await result in results {
+                values.append(result)
+                if values.count == 2 { break }
+            }
+            return values
         }
         let initial = try await coordinator.start(roots: setup.roots)
         let changed = setup.claudeRoot.appending(path: "changed.jsonl")
@@ -161,13 +170,90 @@ final class IngestionCoordinatorTests: XCTestCase {
         watcher.emit([changed, changed])
         await waitUntil { await clock.waiterCount == 1 }
         await clock.advancePastDebounce()
-        await waitUntil { await completions.values.count == 1 }
+        let values = await completions.value
+        XCTAssertEqual(values.count, 2)
+        XCTAssertEqual(values[0], initial)
+        XCTAssertEqual(values[0].scope, .inventory)
+        XCTAssertEqual(values[1].runID, initial.runID)
+        XCTAssertEqual(values[1].sequence, initial.sequence + 1)
+        XCTAssertEqual(values[1].scope, .incremental)
+        XCTAssertEqual(values[1].providers[.claudeCode], .success(discoveredFiles: 1, scannedFiles: 1))
+        XCTAssertNil(values[1].providers[.codex])
+        await coordinator.stop()
+    }
 
-        let values = await completions.values
-        XCTAssertEqual(values.count, 1)
-        XCTAssertEqual(values[0].runID, initial.runID)
-        XCTAssertEqual(values[0].providers[.claudeCode], .success(discoveredFiles: 1, scannedFiles: 1))
-        XCTAssertNil(values[0].providers[.codex])
+    func testEventArrivingDuringStartupCatchUpIsDeliveredAfterInventoryResult() async throws {
+        let setup = try makeSetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let initialFile = setup.claudeRoot.appending(path: "initial.jsonl")
+        let eventFile = setup.codexRoot.appending(path: "event.jsonl")
+        try Data().write(to: initialFile)
+        let watcher = FakeSourceEventWatcher()
+        let scanner = RecordingScanner(suspendFirstScan: true)
+        let clock = ManualIngestionClock()
+        let coordinator = IngestionCoordinator(
+            scanner: scanner,
+            watcher: watcher,
+            clock: clock,
+            calendar: calendar
+        )
+        let stream = await coordinator.results()
+        let received = Task { () -> [IngestionBatchResult] in
+            var values: [IngestionBatchResult] = []
+            for await result in stream {
+                values.append(result)
+                if values.count == 2 { break }
+            }
+            return values
+        }
+
+        let start = Task { try await coordinator.start(roots: setup.roots) }
+        await waitUntil { await scanner.activeScans == 1 }
+        try Data().write(to: eventFile)
+        watcher.emit([eventFile])
+        await waitUntil { await clock.waiterCount == 1 }
+        await clock.advancePastDebounce()
+        await scanner.resumeFirstScan()
+        let initial = try await start.value
+        let values = await received.value
+
+        XCTAssertEqual(values.map(\.sequence), [initial.sequence, initial.sequence + 1])
+        XCTAssertEqual(values.map(\.scope), [.inventory, .incremental])
+        XCTAssertEqual(values[1].providers[.codex], .success(discoveredFiles: 1, scannedFiles: 1))
+        await coordinator.stop()
+    }
+
+    func testStopUnblocksSuspendedWaiterAndRestartNeverEmitsStaleRun() async throws {
+        let setup = try makeSetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let firstFile = setup.claudeRoot.appending(path: "first.jsonl")
+        try Data().write(to: firstFile)
+        let scanner = RecordingScanner(suspendFirstScan: true)
+        let coordinator = IngestionCoordinator(
+            scanner: scanner,
+            watcher: FakeSourceEventWatcher(),
+            clock: ManualIngestionClock(),
+            calendar: calendar
+        )
+        let stream = await coordinator.results()
+        let received = Task { () -> IngestionBatchResult? in
+            for await result in stream { return result }
+            return nil
+        }
+        let staleStart = Task { try await coordinator.start(roots: setup.roots) }
+        await waitUntil { await scanner.activeScans == 1 }
+        let stop = Task { await coordinator.stop() }
+        await scanner.resumeFirstScan()
+        await stop.value
+        do {
+            _ = try await staleStart.value
+            XCTFail("stopped start unexpectedly succeeded")
+        } catch is CancellationError {}
+
+        await scanner.reset()
+        let restarted = try await coordinator.start(roots: setup.roots)
+        let onlyEmission = await received.value
+        XCTAssertEqual(onlyEmission, restarted)
         await coordinator.stop()
     }
 
@@ -410,11 +496,6 @@ private struct ProviderFailingDiscovery: LogDiscovering {
         }
         return []
     }
-}
-
-private actor BatchCompletionRecorder {
-    private(set) var values: [IngestionBatchResult] = []
-    func append(_ value: IngestionBatchResult) { values.append(value) }
 }
 
 private actor ManualIngestionClock: IngestionClock {

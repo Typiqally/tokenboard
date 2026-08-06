@@ -140,6 +140,38 @@ final class AppModelLifecycleTests: XCTestCase {
         XCTAssertEqual(setup.access.counts, [2, 2])
     }
 
+    func testConcurrentShutdownCallersAwaitOneBarrierAndKeepGrantsUntilQuiescent() async throws {
+        let stopGate = AsyncTestGate()
+        let setup = try makeSetup(approved: false, coordinatorStopGate: stopGate)
+        defer { setup.cleanup() }
+        await setup.model.start()
+        let secondCompleted = AsyncFlag()
+
+        let first = Task { await setup.model.shutdown() }
+        await stopGate.waitUntilEntered()
+        let second = Task {
+            await setup.model.shutdown()
+            await secondCompleted.set()
+        }
+        await Task.yield()
+
+        let completedWhileStopping = await secondCompleted.value()
+        XCTAssertFalse(completedWhileStopping)
+        XCTAssertEqual(setup.access.counts, [2, 0])
+        await stopGate.resume()
+        await first.value
+        await second.value
+
+        let completedAfterStop = await secondCompleted.value()
+        XCTAssertTrue(completedAfterStop)
+        XCTAssertEqual(setup.access.counts, [2, 2])
+        var coordinatorCounts = await setup.coordinator.counts()
+        XCTAssertEqual(coordinatorCounts, [0, 0, 2])
+        await setup.model.shutdown()
+        coordinatorCounts = await setup.coordinator.counts()
+        XCTAssertEqual(coordinatorCounts, [0, 0, 2])
+    }
+
     func testEventBatchRequeriesOnceAndPublishesHonestProviderHealth() async throws {
         let setup = try makeSetup(approved: false)
         defer { setup.cleanup() }
@@ -150,6 +182,8 @@ final class AppModelLifecycleTests: XCTestCase {
 
         await setup.coordinator.emit(IngestionBatchResult(
             runID: runID,
+            sequence: 2,
+            scope: .incremental,
             providers: [
                 .claudeCode: .success(discoveredFiles: 4, scannedFiles: 1),
                 .codex: .attention(discoveredFiles: 2, scannedFiles: 1)
@@ -160,11 +194,95 @@ final class AppModelLifecycleTests: XCTestCase {
         guard case let .healthy(fileCount, _) = setup.model.state.sourceHealth[.claudeCode] else {
             return XCTFail("successful provider was not healthy")
         }
-        XCTAssertEqual(fileCount, 4)
+        XCTAssertEqual(fileCount, 0)
+        XCTAssertEqual(setup.model.state.sourceFileCounts[.claudeCode], 0)
         guard case .warning = setup.model.state.sourceHealth[.codex] else {
             return XCTFail("attention outcome was mislabeled healthy")
         }
         XCTAssertNotNil(setup.model.state.lastUpdated)
+    }
+
+    func testStartupEventIsBufferedUntilCatchUpActivatesAndThenApplied() async throws {
+        let startGate = AsyncTestGate()
+        let setup = try makeSetup(approved: true, coordinatorStartGate: startGate)
+        defer { setup.cleanup() }
+        let start = Task { await setup.model.start() }
+        await startGate.waitUntilEntered()
+        await setup.coordinator.emit(IngestionBatchResult(
+            runID: 1,
+            sequence: 2,
+            scope: .incremental,
+            providers: [.codex: .attention(discoveredFiles: 1, scannedFiles: 1)]
+        ))
+        await startGate.resume()
+        await start.value
+        await waitUntil {
+            guard case .warning = setup.model.state.sourceHealth[.codex] else { return false }
+            return true
+        }
+
+        guard case .warning = setup.model.state.sourceHealth[.codex] else {
+            return XCTFail("startup event was discarded")
+        }
+    }
+
+    func testNewerIncrementalResultWinsAndPreservesFullInventoryCount() async throws {
+        let setup = try makeSetup(approved: false)
+        defer { setup.cleanup() }
+        await setup.model.start()
+        await setup.model.startHistoricalImport()
+        let runID = await setup.coordinator.runID()
+        let calls = await setup.query.calls()
+
+        await setup.coordinator.emit(IngestionBatchResult(
+            runID: runID,
+            sequence: 2,
+            scope: .inventory,
+            providers: [.claudeCode: .success(discoveredFiles: 8, scannedFiles: 8)]
+        ))
+        let inventoryCalls = calls + 1
+        await waitUntil { await setup.query.calls() == inventoryCalls }
+        await setup.coordinator.emit(IngestionBatchResult(
+            runID: runID,
+            sequence: 4,
+            scope: .incremental,
+            providers: [.claudeCode: .attention(discoveredFiles: 1, scannedFiles: 1)]
+        ))
+        let newerCalls = inventoryCalls + 1
+        await waitUntil { await setup.query.calls() == newerCalls }
+        await setup.coordinator.emit(IngestionBatchResult(
+            runID: runID,
+            sequence: 3,
+            scope: .inventory,
+            providers: [.claudeCode: .success(discoveredFiles: 3, scannedFiles: 3)]
+        ))
+        await Task.yield()
+
+        XCTAssertEqual(setup.model.state.sourceFileCounts[.claudeCode], 8)
+        guard case .warning = setup.model.state.sourceHealth[.claudeCode] else {
+            return XCTFail("older inventory result overwrote newer attention")
+        }
+    }
+
+    func testFailedIncrementalAttemptDoesNotAdvanceLastSuccessfulUpdate() async throws {
+        let dates = IncrementingNow()
+        let setup = try makeSetup(approved: false, now: { dates() })
+        defer { setup.cleanup() }
+        await setup.model.start()
+        await setup.model.startHistoricalImport()
+        let successfulUpdate = setup.model.state.lastUpdated
+        let runID = await setup.coordinator.runID()
+        let calls = await setup.query.calls()
+
+        await setup.coordinator.emit(IngestionBatchResult(
+            runID: runID,
+            sequence: 2,
+            scope: .incremental,
+            providers: [.claudeCode: .failure(discoveredFiles: 1, scannedFiles: 1)]
+        ))
+        await waitUntil { await setup.query.calls() == calls + 1 }
+
+        XCTAssertEqual(setup.model.state.lastUpdated, successfulUpdate)
     }
 
     func testFailedSourceReplacementPreservesOldBookmarkGrantAndPublishedState() async throws {
@@ -210,25 +328,140 @@ final class AppModelLifecycleTests: XCTestCase {
             return XCTFail("missing replacement lifetime events: \(events)")
         }
         XCTAssertTrue(stopIndex < closeIndex)
+
+        let runID = await setup.coordinator.runID()
+        let calls = await setup.query.calls()
+        await setup.coordinator.emit(IngestionBatchResult(
+            runID: runID,
+            sequence: 2,
+            scope: .incremental,
+            providers: [.claudeCode: .attention(discoveredFiles: 1, scannedFiles: 1)]
+        ))
+        await waitUntil { await setup.query.calls() == calls + 1 }
+        guard case .warning = setup.model.state.sourceHealth[.claudeCode] else {
+            return XCTFail("replacement runtime did not receive events")
+        }
+    }
+
+    func testOverlappingReplacementIsRejectedBeforeStopBookmarkOrOldGrantMutation() async throws {
+        let setup = try makeSetup(
+            approved: true,
+            pickedSource: URL(fileURLWithPath: "/tmp", isDirectory: true)
+        )
+        defer { setup.cleanup() }
+        await setup.model.start()
+        let priorState = setup.model.state
+        let priorBookmark = setup.defaults.data(forKey: "sourceBookmark.claude_code")
+        let priorCounts = await setup.coordinator.counts()
+
+        await setup.model.chooseSource(.claudeCode)
+
+        XCTAssertEqual(setup.model.state, priorState)
+        XCTAssertEqual(setup.defaults.data(forKey: "sourceBookmark.claude_code"), priorBookmark)
+        let finalCounts = await setup.coordinator.counts()
+        XCTAssertEqual(finalCounts, priorCounts)
+        XCTAssertEqual(setup.access.counts, [3, 1])
+    }
+
+    func testFirstSourceGrantSucceedsBeforeACompleteRootPairExists() async throws {
+        let source = URL(fileURLWithPath: "/tmp/replacement-first-source", isDirectory: true)
+        let setup = try makeSetup(
+            approved: false,
+            grantedProviders: [],
+            pickedSource: source
+        )
+        defer { setup.cleanup() }
+        await setup.model.start()
+
+        await setup.model.chooseSource(.claudeCode)
+
+        XCTAssertTrue(setup.model.hasActiveGrant(for: .claudeCode))
+        XCTAssertEqual(setup.defaults.data(forKey: "sourceBookmark.claude_code"), Data([9]))
+        XCTAssertEqual(setup.model.state.sourceFileCounts[.claudeCode], 2)
+        XCTAssertEqual(setup.model.state.grantedProviders, [.claudeCode])
+        let counts = await setup.coordinator.counts()
+        XCTAssertEqual(counts, [0, 0, 1])
+    }
+
+    func testFailedReplacementRestartRestoresOldBookmarkGrantAndRuntime() async throws {
+        let dates = IncrementingNow()
+        let replacement = URL(
+            fileURLWithPath: "/tmp/replacement-restart-failure",
+            isDirectory: true
+        )
+        let setup = try makeSetup(
+            approved: true,
+            pickedSource: replacement,
+            coordinatorFailingStartRoot: replacement,
+            now: { dates() }
+        )
+        defer { setup.cleanup() }
+        await setup.model.start()
+        let priorState = setup.model.state
+        let priorBookmark = setup.defaults.data(forKey: "sourceBookmark.claude_code")
+
+        await setup.model.chooseSource(.claudeCode)
+
+        XCTAssertEqual(setup.model.state, priorState)
+        XCTAssertEqual(setup.defaults.data(forKey: "sourceBookmark.claude_code"), priorBookmark)
+        XCTAssertEqual(setup.access.counts, [3, 1])
+        let counts = await setup.coordinator.counts()
+        XCTAssertEqual(counts[0], 3)
+        let restoredRoots = await setup.coordinator.activeRoots()
+        XCTAssertFalse(restoredRoots[.claudeCode]?.lastPathComponent.hasPrefix("replacement-") == true)
+    }
+
+    func testRetryCleansUpOneShotCatalogAndInboxFailures() async throws {
+        let catalog = try makeSetup(
+            approved: false,
+            failure: .applyCatalog,
+            failureIsOneShot: true,
+            catalogCommitBeforeFailure: true
+        )
+        defer { catalog.cleanup() }
+        await catalog.model.start()
+        await catalog.model.refresh()
+        XCTAssertEqual(catalog.model.state.lifecycle, .ready)
+        let applyCount = await catalog.ledger.appliedCount()
+        XCTAssertEqual(applyCount, 1)
+
+        let inbox = try makeSetup(
+            approved: false,
+            failure: .inbox,
+            failureIsOneShot: true
+        )
+        defer { inbox.cleanup() }
+        await inbox.model.start()
+        let failedInboxCounts = await inbox.inbox.counts()
+        XCTAssertEqual(failedInboxCounts, [1, 1])
+        await inbox.model.refresh()
+        XCTAssertEqual(inbox.model.state.lifecycle, .ready)
+        let recoveredInboxCounts = await inbox.inbox.counts()
+        XCTAssertEqual(recoveredInboxCounts, [2, 1])
     }
 
     private func makeSetup(
         approved: Bool,
+        grantedProviders: Set<Provider> = Set(Provider.allCases),
         failure: StartupFailurePoint? = nil,
         failureIsOneShot: Bool = false,
         catalogAlreadyApplied: Bool = false,
         startupGate: AsyncTestGate? = nil,
         coordinatorStartGate: AsyncTestGate? = nil,
+        coordinatorStopGate: AsyncTestGate? = nil,
         pickedSource: URL? = nil,
         discoveryFailureRoot: URL? = nil,
-        replacementRecorder: ReplacementRecorder? = nil
+        replacementRecorder: ReplacementRecorder? = nil,
+        coordinatorFailingStartRoot: URL? = nil,
+        catalogCommitBeforeFailure: Bool = false,
+        now: @escaping @Sendable () -> Date = { Date(timeIntervalSince1970: 1_775_000_000) }
     ) throws -> LifecycleSetup {
         let suite = "AppModelLifecycleTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         let preferences = AppPreferences(defaults: defaults)
         preferences.historicalImportApproved = approved
         let access = LifecycleBookmarkAccess(recorder: replacementRecorder)
-        for provider in Provider.allCases {
+        for provider in grantedProviders {
             let marker = provider == .claudeCode ? Data([1]) : Data([2])
             let root = URL(fileURLWithPath: "/tmp/\(suite)-\(provider.rawValue)", isDirectory: true)
             defaults.set(marker, forKey: "sourceBookmark.\(provider.rawValue)")
@@ -238,11 +471,17 @@ final class AppModelLifecycleTests: XCTestCase {
             failure: failure,
             failureIsOneShot: failureIsOneShot,
             catalogAlreadyApplied: catalogAlreadyApplied,
+            catalogCommitBeforeFailure: catalogCommitBeforeFailure,
             startupGate: startupGate
         )
-        let inbox = LifecycleInbox(failure: failure == .inbox)
+        let inbox = LifecycleInbox(
+            failure: failure == .inbox,
+            failureIsOneShot: failureIsOneShot
+        )
         let coordinator = LifecycleCoordinator(
             startGate: coordinatorStartGate,
+            stopGate: coordinatorStopGate,
+            failingStartRoot: coordinatorFailingStartRoot,
             recorder: replacementRecorder
         )
         let query = LifecycleQuery()
@@ -255,7 +494,7 @@ final class AppModelLifecycleTests: XCTestCase {
             grantStore: store,
             preferences: preferences,
             bundledCatalogData: try bundledCatalogData(),
-            now: { Date(timeIntervalSince1970: 1_775_000_000) },
+            now: now,
             calendar: Calendar(identifier: .gregorian),
             discovery: LifecycleDiscovery(failingRoot: discoveryFailureRoot),
             sourcePicker: LifecycleSourcePicker(url: pickedSource)
@@ -263,6 +502,7 @@ final class AppModelLifecycleTests: XCTestCase {
         return LifecycleSetup(
             model: model,
             ledger: ledger,
+            inbox: inbox,
             coordinator: coordinator,
             query: query,
             access: access,
@@ -280,7 +520,7 @@ final class AppModelLifecycleTests: XCTestCase {
         return try Data(contentsOf: repository.appending(path: "Resources/tokenboard-pricing.json"))
     }
 
-    private func waitUntil(_ condition: @escaping @Sendable () async -> Bool) async {
+    private func waitUntil(_ condition: @escaping @MainActor () async -> Bool) async {
         for _ in 0..<1_000 {
             if await condition() { return }
             await Task.yield()
@@ -304,6 +544,7 @@ private enum LifecycleFailure: Error {
 private struct LifecycleSetup {
     let model: AppModel
     let ledger: LifecycleLedger
+    let inbox: LifecycleInbox
     let coordinator: LifecycleCoordinator
     let query: LifecycleQuery
     let access: LifecycleBookmarkAccess
@@ -331,23 +572,34 @@ private actor AsyncTestGate {
     }
 }
 
+private actor AsyncFlag {
+    private var current = false
+    func set() { current = true }
+    func value() -> Bool { current }
+}
+
 private actor LifecycleLedger: AppLedgerRuntime {
     private var failure: StartupFailurePoint?
     private let failureIsOneShot: Bool
     private let catalogAlreadyApplied: Bool
+    private let catalogCommitBeforeFailure: Bool
     private let startupGate: AsyncTestGate?
     private(set) var applyCount = 0
+    private var appliedCatalog: Data?
 
     init(
         failure: StartupFailurePoint?,
         failureIsOneShot: Bool,
         catalogAlreadyApplied: Bool,
+        catalogCommitBeforeFailure: Bool,
         startupGate: AsyncTestGate?
     ) {
         self.failure = failure
         self.failureIsOneShot = failureIsOneShot
         self.catalogAlreadyApplied = catalogAlreadyApplied
+        self.catalogCommitBeforeFailure = catalogCommitBeforeFailure
         self.startupGate = startupGate
+        appliedCatalog = catalogAlreadyApplied ? Data([1]) : nil
     }
 
     func migrate() async throws {
@@ -357,7 +609,7 @@ private actor LifecycleLedger: AppLedgerRuntime {
     func integrityCheck() throws { try failIfNeeded(.integrity) }
     func latestAppliedPricingCatalogJSON() throws -> Data? {
         try failIfNeeded(.latestCatalog)
-        return catalogAlreadyApplied ? Data([1]) : nil
+        return appliedCatalog
     }
     func applyPricingCatalog(
         _ catalog: ValidatedPricingCatalog,
@@ -365,8 +617,16 @@ private actor LifecycleLedger: AppLedgerRuntime {
         origin: String,
         validationSummary: String
     ) throws {
-        try failIfNeeded(.applyCatalog)
+        if failure == .applyCatalog, !catalogCommitBeforeFailure {
+            try failIfNeeded(.applyCatalog)
+        }
         applyCount += 1
+        appliedCatalog = canonicalJSON
+        if failure == .applyCatalog, catalogCommitBeforeFailure {
+            if failureIsOneShot { failure = nil }
+            throw LifecycleFailure.injected
+        }
+        try failIfNeeded(.applyCatalog)
     }
 
     private func failIfNeeded(_ point: StartupFailurePoint) throws {
@@ -379,52 +639,100 @@ private actor LifecycleLedger: AppLedgerRuntime {
 }
 
 private actor LifecycleInbox: AppPricingInboxWatching {
-    let failure: Bool
-    init(failure: Bool) { self.failure = failure }
-    func start() throws { if failure { throw LifecycleFailure.injected } }
-    func stop() {}
+    private var failure: Bool
+    private let failureIsOneShot: Bool
+    private var starts = 0
+    private var stops = 0
+    init(failure: Bool, failureIsOneShot: Bool) {
+        self.failure = failure
+        self.failureIsOneShot = failureIsOneShot
+    }
+    func start() throws {
+        starts += 1
+        if failure {
+            if failureIsOneShot { failure = false }
+            throw LifecycleFailure.injected
+        }
+    }
+    func stop() { stops += 1 }
+    func counts() -> [Int] { [starts, stops] }
 }
 
 private actor LifecycleCoordinator: AppIngestionCoordinating {
     private let startGate: AsyncTestGate?
+    private let stopGate: AsyncTestGate?
+    private let failingStartRoot: URL?
     private let recorder: ReplacementRecorder?
-    private var handler: (@Sendable (IngestionBatchResult) -> Void)?
+    private var resultContinuation: AsyncStream<IngestionBatchResult>.Continuation?
     private var starts = 0
     private var refreshes = 0
     private var stops = 0
     private(set) var currentRunID: UInt64 = 0
+    private var currentSequence: UInt64 = 0
     private var roots: [Provider: URL] = [:]
+    private var shouldSuspendStop = true
+    private var shouldFailReplacementStart = true
 
-    init(startGate: AsyncTestGate?, recorder: ReplacementRecorder?) {
+    init(
+        startGate: AsyncTestGate?,
+        stopGate: AsyncTestGate?,
+        failingStartRoot: URL?,
+        recorder: ReplacementRecorder?
+    ) {
         self.startGate = startGate
+        self.stopGate = stopGate
+        self.failingStartRoot = failingStartRoot
         self.recorder = recorder
     }
 
-    func setEventBatchHandler(_ handler: (@Sendable (IngestionBatchResult) -> Void)?) {
-        self.handler = handler
+    func results() -> AsyncStream<IngestionBatchResult> {
+        AsyncStream { continuation in resultContinuation = continuation }
     }
     func start(roots: [Provider: URL]) async throws -> IngestionBatchResult {
         starts += 1
         currentRunID += 1
+        currentSequence = 0
         self.roots = roots
+        if shouldFailReplacementStart,
+           let failingStartRoot,
+           roots.values.contains(where: {
+               $0.lastPathComponent == failingStartRoot.lastPathComponent
+           }) {
+            shouldFailReplacementStart = false
+            throw LifecycleFailure.injected
+        }
+        let result = successResult(scope: .inventory)
+        resultContinuation?.yield(result)
         if let startGate { await startGate.suspend() }
-        return successResult()
+        return result
     }
     func refreshAll() -> IngestionBatchResult {
         refreshes += 1
-        return successResult()
+        let result = successResult(scope: .inventory)
+        resultContinuation?.yield(result)
+        return result
     }
-    func stop() {
+    func stop() async {
         stops += 1
         recorder?.append("coordinator.stop")
+        if shouldSuspendStop, let stopGate {
+            shouldSuspendStop = false
+            await stopGate.suspend()
+        }
     }
     func counts() -> [Int] { [starts, refreshes, stops] }
     func runID() -> UInt64 { currentRunID }
-    func emit(_ result: IngestionBatchResult) { handler?(result) }
+    func activeRoots() -> [Provider: URL] { roots }
+    func emit(_ result: IngestionBatchResult) {
+        resultContinuation?.yield(result)
+    }
 
-    private func successResult() -> IngestionBatchResult {
-        IngestionBatchResult(
+    private func successResult(scope: IngestionBatchScope) -> IngestionBatchResult {
+        currentSequence += 1
+        return IngestionBatchResult(
             runID: currentRunID,
+            sequence: currentSequence,
+            scope: scope,
             providers: Dictionary(uniqueKeysWithValues: Provider.allCases.map { provider in
                 let discovered = roots[provider]?.lastPathComponent.hasPrefix("replacement-") == true
                     ? 2
@@ -473,7 +781,8 @@ private struct LifecycleDiscovery: LogDiscovering {
     let failingRoot: URL?
 
     func jsonlFiles(under root: URL) throws -> [URL] {
-        if root.standardizedFileURL == failingRoot?.standardizedFileURL {
+        if let failingRoot,
+           root.lastPathComponent == failingRoot.lastPathComponent {
             throw LifecycleFailure.injected
         }
         if root.lastPathComponent.hasPrefix("replacement-") {
@@ -521,4 +830,16 @@ private final class ReplacementRecorder: @unchecked Sendable {
     var snapshot: [String] { lock.withLock { events } }
     func append(_ event: String) { lock.withLock { events.append(event) } }
     func reset() { lock.withLock { events.removeAll() } }
+}
+
+private final class IncrementingNow: @unchecked Sendable {
+    private let lock = NSLock()
+    private var tick: TimeInterval = 1_775_000_000
+
+    func callAsFunction() -> Date {
+        lock.withLock {
+            defer { tick += 1 }
+            return Date(timeIntervalSince1970: tick)
+        }
+    }
 }

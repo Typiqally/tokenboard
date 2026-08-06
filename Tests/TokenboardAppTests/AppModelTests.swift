@@ -185,14 +185,18 @@ private actor RuntimeCoordinator: AppIngestionCoordinating {
     private(set) var startCount = 0
     private(set) var refreshCount = 0
     private var runID: UInt64 = 0
+    private var sequence: UInt64 = 0
 
     init(recorder: OrderedRecorder) { self.recorder = recorder }
 
-    func setEventBatchHandler(_ handler: (@Sendable (IngestionBatchResult) -> Void)?) {}
+    func results() -> AsyncStream<IngestionBatchResult> {
+        AsyncStream { _ in }
+    }
 
     func start(roots: [Provider: URL]) -> IngestionBatchResult {
         startCount += 1
         runID += 1
+        sequence = 0
         recorder.append("coordinator.start")
         return result()
     }
@@ -205,8 +209,11 @@ private actor RuntimeCoordinator: AppIngestionCoordinating {
     func counts() -> [Int] { [startCount, refreshCount] }
 
     private func result() -> IngestionBatchResult {
-        IngestionBatchResult(
+        sequence += 1
+        return IngestionBatchResult(
             runID: runID,
+            sequence: sequence,
+            scope: .inventory,
             providers: Dictionary(uniqueKeysWithValues: Provider.allCases.map {
                 ($0, .success(discoveredFiles: 0, scannedFiles: 0))
             })

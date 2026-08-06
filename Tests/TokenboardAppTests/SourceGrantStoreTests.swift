@@ -129,6 +129,23 @@ final class SourceGrantStoreTests: XCTestCase {
         XCTAssertEqual(setup.access.stopCount, 1)
     }
 
+    func testPreparedGrantCanActivateBeforeBookmarkCommitForRestartRollback() throws {
+        let setup = makeSetup()
+        defer { setup.cleanup() }
+        let oldBookmark = Data([9])
+        let root = URL(fileURLWithPath: "/tmp/staged-restart")
+        setup.defaults.set(oldBookmark, forKey: "sourceBookmark.claude_code")
+        let prepared = try setup.store.prepareGrant(url: root, for: .claudeCode)
+
+        let grant = setup.store.activate(prepared, for: .claudeCode)
+        XCTAssertEqual(setup.defaults.data(forKey: "sourceBookmark.claude_code"), oldBookmark)
+
+        setup.store.commitBookmark(prepared, for: .claudeCode)
+        XCTAssertEqual(setup.defaults.data(forKey: "sourceBookmark.claude_code"), Data([1]))
+        grant.close()
+        XCTAssertEqual(setup.access.stopCount, 1)
+    }
+
     func testFailedActiveGrantStartDoesNotStopAndRevokeDeletesOnlySelectedKey() throws {
         let setup = makeSetup()
         defer { setup.cleanup() }

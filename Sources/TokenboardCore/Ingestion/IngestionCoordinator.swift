@@ -29,13 +29,54 @@ public enum ProviderIngestionResult: Equatable, Sendable {
     case failure(discoveredFiles: Int, scannedFiles: Int)
 }
 
+public enum IngestionBatchScope: Equatable, Sendable {
+    case inventory
+    case incremental
+}
+
 public struct IngestionBatchResult: Equatable, Sendable {
     public let runID: UInt64
+    public let sequence: UInt64
+    public let scope: IngestionBatchScope
     public let providers: [Provider: ProviderIngestionResult]
 
-    public init(runID: UInt64, providers: [Provider: ProviderIngestionResult]) {
+    public init(
+        runID: UInt64,
+        sequence: UInt64,
+        scope: IngestionBatchScope,
+        providers: [Provider: ProviderIngestionResult]
+    ) {
         self.runID = runID
+        self.sequence = sequence
+        self.scope = scope
         self.providers = providers
+    }
+}
+
+public enum IngestionRootValidator {
+    public static func canonicalize(_ suppliedRoots: [Provider: URL]) -> [Provider: URL] {
+        suppliedRoots.mapValues {
+            let resolved = $0.standardizedFileURL.resolvingSymlinksInPath()
+            return URL(fileURLWithPath: resolved.path).standardizedFileURL
+        }
+    }
+
+    public static func validate(_ suppliedRoots: [Provider: URL]) throws -> [Provider: URL] {
+        for provider in Provider.allCases where suppliedRoots[provider] == nil {
+            throw IngestionCoordinatorError.missingRoot(provider)
+        }
+        let roots = canonicalize(suppliedRoots)
+        guard let claudeRoot = roots[.claudeCode],
+              let codexRoot = roots[.codex],
+              !contains(claudeRoot, codexRoot),
+              !contains(codexRoot, claudeRoot) else {
+            throw IngestionCoordinatorError.overlappingRoots
+        }
+        return roots
+    }
+
+    private static func contains(_ root: URL, _ candidate: URL) -> Bool {
+        candidate.pathComponents.starts(with: root.pathComponents)
     }
 }
 
@@ -76,7 +117,8 @@ public actor IngestionCoordinator {
 
     private struct QueuedBatch {
         var batch: PreparedBatch
-        let isEventBatch: Bool
+        let sequence: UInt64
+        let scope: IngestionBatchScope
         let continuation: CheckedContinuation<IngestionBatchResult, Never>?
     }
 
@@ -95,9 +137,11 @@ public actor IngestionCoordinator {
     private var pendingBatches: [QueuedBatch] = []
     private var debounceGeneration: UInt64 = 0
     private var runGeneration: UInt64 = 0
+    private var nextSequence: UInt64 = 0
     private var startGeneration: UInt64 = 0
     private var activeRunID: UInt64?
-    private var eventBatchHandler: (@Sendable (IngestionBatchResult) -> Void)?
+    private let resultStream: AsyncStream<IngestionBatchResult>
+    private let resultContinuation: AsyncStream<IngestionBatchResult>.Continuation
 
     public init(
         scanner: any IngestionScanning,
@@ -106,40 +150,30 @@ public actor IngestionCoordinator {
         discovery: any LogDiscovering = LogDiscovery(),
         calendar: Calendar = .current
     ) {
+        let (stream, continuation) = AsyncStream<IngestionBatchResult>.makeStream()
         self.scanner = scanner
         self.watcher = watcher
         self.clock = clock
         self.discovery = discovery
         self.calendar = calendar
+        resultStream = stream
+        resultContinuation = continuation
     }
 
-    public func setEventBatchHandler(
-        _ handler: (@Sendable (IngestionBatchResult) -> Void)?
-    ) {
-        eventBatchHandler = handler
+    public func results() -> AsyncStream<IngestionBatchResult> {
+        resultStream
     }
 
     public func start(roots suppliedRoots: [Provider: URL]) async throws -> IngestionBatchResult {
         startGeneration &+= 1
         let startID = startGeneration
-        for provider in Provider.allCases where suppliedRoots[provider] == nil {
-            throw IngestionCoordinatorError.missingRoot(provider)
-        }
-        let canonicalRoots = suppliedRoots.mapValues {
-            let resolved = $0.standardizedFileURL.resolvingSymlinksInPath()
-            return URL(fileURLWithPath: resolved.path).standardizedFileURL
-        }
-        guard let claudeRoot = canonicalRoots[.claudeCode],
-              let codexRoot = canonicalRoots[.codex],
-              !Self.contains(claudeRoot, codexRoot),
-              !Self.contains(codexRoot, claudeRoot) else {
-            throw IngestionCoordinatorError.overlappingRoots
-        }
+        let canonicalRoots = try IngestionRootValidator.validate(suppliedRoots)
 
         await stopRuntime()
         guard startGeneration == startID else { throw CancellationError() }
         runGeneration &+= 1
         let runID = runGeneration
+        nextSequence = 0
         activeRunID = runID
         roots = canonicalRoots
         let orderedRoots = Provider.allCases.compactMap { roots[$0] }
@@ -160,6 +194,8 @@ public actor IngestionCoordinator {
         guard let runID = activeRunID else {
             return IngestionBatchResult(
                 runID: runGeneration,
+                sequence: 0,
+                scope: .inventory,
                 providers: Dictionary(uniqueKeysWithValues: Provider.allCases.map {
                     ($0, .failure(discoveredFiles: 0, scannedFiles: 0))
                 })
@@ -173,7 +209,7 @@ public actor IngestionCoordinator {
             }
             discover(root: root, provider: provider, into: &batch)
         }
-        return await enqueueAndWait(batch)
+        return await enqueueAndWait(batch, scope: .inventory)
     }
 
     public func stop() async {
@@ -276,11 +312,16 @@ public actor IngestionCoordinator {
         }
     }
 
-    private func enqueueAndWait(_ batch: PreparedBatch) async -> IngestionBatchResult {
+    private func enqueueAndWait(
+        _ batch: PreparedBatch,
+        scope: IngestionBatchScope
+    ) async -> IngestionBatchResult {
         await withCheckedContinuation { continuation in
+            nextSequence &+= 1
             pendingBatches.append(QueuedBatch(
                 batch: batch,
-                isEventBatch: false,
+                sequence: nextSequence,
+                scope: scope,
                 continuation: continuation
             ))
             startDrainIfNeeded()
@@ -288,9 +329,11 @@ public actor IngestionCoordinator {
     }
 
     private func enqueueEventBatch(_ batch: PreparedBatch) {
+        nextSequence &+= 1
         pendingBatches.append(QueuedBatch(
             batch: batch,
-            isEventBatch: true,
+            sequence: nextSequence,
+            scope: .incremental,
             continuation: nil
         ))
         startDrainIfNeeded()
@@ -331,11 +374,13 @@ public actor IngestionCoordinator {
             }
             let result = IngestionBatchResult(
                 runID: queued.batch.runID,
+                sequence: queued.sequence,
+                scope: queued.scope,
                 providers: queued.batch.progress.mapValues(\.result)
             )
             queued.continuation?.resume(returning: result)
-            if queued.isEventBatch, activeRunID == queued.batch.runID {
-                eventBatchHandler?(result)
+            if activeRunID == queued.batch.runID {
+                resultContinuation.yield(result)
             }
         }
         drainTask = nil
@@ -359,6 +404,8 @@ public actor IngestionCoordinator {
             }
             queued.continuation?.resume(returning: IngestionBatchResult(
                 runID: queued.batch.runID,
+                sequence: queued.sequence,
+                scope: queued.scope,
                 providers: providers
             ))
         }
@@ -370,10 +417,6 @@ public actor IngestionCoordinator {
             .filter { standardized.pathComponents.starts(with: $0.value.pathComponents) }
             .max { $0.value.pathComponents.count < $1.value.pathComponents.count }
             .map { ($0.key, $0.value) }
-    }
-
-    private static func contains(_ root: URL, _ candidate: URL) -> Bool {
-        candidate.pathComponents.starts(with: root.pathComponents)
     }
 
     private func hasNoSymbolicLinkBelowRoot(_ url: URL, root: URL) -> Bool {

@@ -38,6 +38,13 @@ final class AppModel: ObservableObject {
     var activityGeneration: UInt64 = 0
     var startupTask: Task<Void, Never>?
     var activity: AppRuntimeActivity?
+    var shutdownTask: Task<Void, Never>?
+    var resultConsumerTask: Task<Void, Never>?
+    var pendingIngestionResults: [IngestionResultKey: IngestionBatchResult] = [:]
+    var knownIngestionResults: Set<IngestionResultKey> = []
+    var ingestionResultWaiters: [IngestionResultKey: [CheckedContinuation<Void, Never>]] = [:]
+    var lastAppliedSequence: [UInt64: UInt64] = [:]
+    var isProcessingIngestionResults = false
     var coordinatorStatus = AppRuntimeStatus.inactive
     var inboxStatus = AppRuntimeStatus.inactive
 
@@ -67,7 +74,8 @@ final class AppModel: ObservableObject {
         self.discovery = discovery
         state = .initial(
             period: preferences.selectedPeriod,
-            displayMetric: preferences.selectedDisplayMetric
+            displayMetric: preferences.selectedDisplayMetric,
+            historicalImportApproved: preferences.historicalImportApproved
         )
     }
 
@@ -94,6 +102,7 @@ final class AppModel: ObservableObject {
         }
         preferences.historicalImportApproved = true
         var next = state
+        next.historicalImportApproved = true
         next.onboardingRequired = false
         state = next
         await launchIngestion(refreshExisting: false)
@@ -158,21 +167,31 @@ final class AppModel: ObservableObject {
     func openSettings() { onOpenSettings?() }
 
     func shutdown() async {
-        switch state.lifecycle {
-        case .shuttingDown, .stopped:
+        if let shutdownTask {
+            await shutdownTask.value
             return
-        case .idle, .starting, .ready, .failed:
-            break
         }
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.performShutdown()
+        }
+        shutdownTask = task
+        await task.value
+    }
+
+    private func performShutdown() async {
+        guard state.lifecycle != .stopped else { return }
 
         lifecycleGeneration &+= 1
         readyGeneration = nil
         queryGeneration &+= 1
         let startup = startupTask
         let currentActivity = activity?.task
+        let currentResultConsumer = resultConsumerTask
         let currentQueries = Array(inFlightQueries.values)
         startup?.cancel()
         currentActivity?.cancel()
+        currentResultConsumer?.cancel()
         currentQueries.forEach { $0.cancel() }
         var next = state
         next.lifecycle = .shuttingDown
@@ -180,16 +199,15 @@ final class AppModel: ObservableObject {
         next.onboardingRequired = false
         state = next
 
-        await coordinator.setEventBatchHandler(nil)
         await coordinator.stop()
         if inboxStatus != .inactive {
             try? await pricingInbox.stop()
         }
         await startup?.value
         await currentActivity?.value
+        await currentResultConsumer?.value
         for query in currentQueries { _ = await query.value }
 
-        await coordinator.setEventBatchHandler(nil)
         await coordinator.stop()
         if inboxStatus != .inactive {
             try? await pricingInbox.stop()
@@ -198,6 +216,12 @@ final class AppModel: ObservableObject {
         inboxStatus = .inactive
         startupTask = nil
         activity = nil
+        resultConsumerTask = nil
+        pendingIngestionResults.removeAll()
+        knownIngestionResults.removeAll()
+        settleAllIngestionWaiters()
+        lastAppliedSequence.removeAll()
+        isProcessingIngestionResults = false
         inFlightQueries.removeAll()
         closeActiveGrants()
         lastSummary = nil

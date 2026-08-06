@@ -83,8 +83,85 @@ final class NativePresentationTests: XCTestCase {
         XCTAssertFalse(setup.preferences.historicalImportApproved)
     }
 
+    func testMenuControllerRendersEmittedSnapshotAndWiresRealSelectorsAndValues() async throws {
+        let setup = try makeModel()
+        defer { setup.cleanup() }
+        let controller = MenuController(model: setup.model)
+        var emitted = AppPublishedState.initial(period: .thisWeek, displayMetric: .tokens)
+        emitted.lifecycle = .ready
+        emitted.presentation = MenuPresentation(
+            summary: UsageSummary(
+                period: .thisWeek,
+                tokenTotal: 456,
+                knownAPIEquivalentUSD: 0,
+                unpricedTokens: 0
+            ),
+            displayMetric: .tokens,
+            hasHealthWarning: false
+        )
+
+        setup.model.commitState(emitted)
+
+        XCTAssertEqual(controller.renderedMenu?.items.first?.title, "456 tokens")
+        XCTAssertEqual(controller.renderedStatusTitle, "◉ 456")
+        let periodParent = controller.renderedMenu?.items.first(where: { $0.title == "Period" })
+        let year = periodParent?.submenu?.items.first(where: { $0.title == "This Year" })
+        XCTAssertEqual(year?.representedObject as? String, "this_year")
+        XCTAssertEqual(year?.target as? MenuController, controller)
+        XCTAssertEqual(year?.action, NSSelectorFromString("selectPeriod:"))
+        XCTAssertTrue(controller.responds(to: NSSelectorFromString("selectPeriod:")))
+
+        guard let year else { return XCTFail("missing This Year menu action") }
+        _ = controller.perform(NSSelectorFromString("selectPeriod:"), with: year)
+        await waitUntil { setup.preferences.selectedPeriod == .thisYear }
+        XCTAssertEqual(setup.model.state.selectedPeriod, .thisYear)
+
+        var openedPricing = false
+        var openedSettings = false
+        setup.model.onOpenPricing = { openedPricing = true }
+        setup.model.onOpenSettings = { openedSettings = true }
+        _ = controller.perform(NSSelectorFromString("openPricing"))
+        _ = controller.perform(NSSelectorFromString("openSettings"))
+        XCTAssertTrue(openedPricing)
+        XCTAssertTrue(openedSettings)
+    }
+
+    func testOnboardingRenderedActionsRespectApprovalReadinessAndImportState() throws {
+        let setup = try makeModel()
+        defer { setup.cleanup() }
+        var state = AppPublishedState.initial(period: .today, displayMetric: .tokens)
+        state.lifecycle = .ready
+        state.grantedProviders = Set(Provider.allCases)
+        state.historicalImportApproved = false
+        setup.model.commitState(state)
+
+        var rendered = OnboardingView(model: setup.model).actionState
+        XCTAssertTrue(rendered.canStartHistoricalImport)
+        XCTAssertTrue(rendered.canSelectSources)
+
+        state.historicalImportApproved = true
+        setup.model.commitState(state)
+        rendered = OnboardingView(model: setup.model).actionState
+        XCTAssertFalse(rendered.canStartHistoricalImport)
+        XCTAssertTrue(rendered.canSelectSources)
+
+        state.isImporting = true
+        setup.model.commitState(state)
+        rendered = OnboardingView(model: setup.model).actionState
+        XCTAssertFalse(rendered.canStartHistoricalImport)
+        XCTAssertFalse(rendered.canSelectSources)
+    }
+
     private func topLevelTitles(_ menu: NSMenu) -> [String] {
         menu.items.map { $0.isSeparatorItem ? "—" : $0.title }
+    }
+
+    private func waitUntil(_ condition: @escaping @MainActor () -> Bool) async {
+        for _ in 0..<1_000 {
+            if condition() { return }
+            await Task.yield()
+        }
+        XCTFail("condition was not met")
     }
 
     private func makeModel() throws -> (model: AppModel, preferences: AppPreferences, cleanup: () -> Void) {
@@ -123,11 +200,15 @@ private actor PresentationQuery: AppUsageQuerying {
 }
 
 private actor PresentationCoordinator: AppIngestionCoordinating {
-    func setEventBatchHandler(_ handler: (@Sendable (IngestionBatchResult) -> Void)?) {}
-    func start(roots: [Provider: URL]) throws -> IngestionBatchResult {
-        IngestionBatchResult(runID: 1, providers: [:])
+    func results() -> AsyncStream<IngestionBatchResult> {
+        AsyncStream { _ in }
     }
-    func refreshAll() -> IngestionBatchResult { IngestionBatchResult(runID: 1, providers: [:]) }
+    func start(roots: [Provider: URL]) throws -> IngestionBatchResult {
+        IngestionBatchResult(runID: 1, sequence: 1, scope: .inventory, providers: [:])
+    }
+    func refreshAll() -> IngestionBatchResult {
+        IngestionBatchResult(runID: 1, sequence: 2, scope: .inventory, providers: [:])
+    }
     func stop() {}
 }
 

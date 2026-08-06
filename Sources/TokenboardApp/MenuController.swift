@@ -174,15 +174,15 @@ final class MenuController: NSObject, NSMenuDelegate {
         super.init()
         stateObservation = model.$state
             .dropFirst()
-            .sink { [weak self] _ in self?.rebuildMenu() }
-        rebuildMenu()
+            .sink { [weak self] state in self?.rebuildMenu(state: state) }
+        rebuildMenu(state: model.state)
     }
 
     init(startupError: Error) {
         model = nil
         self.startupError = "Startup paused: \(String(describing: startupError))"
         super.init()
-        rebuildMenu()
+        rebuildMenu(state: nil)
     }
 
     func menuWillOpen(_ menu: NSMenu) {
@@ -198,9 +198,12 @@ final class MenuController: NSObject, NSMenuDelegate {
         updatedItem.title = "Updated \(relative) · Local only"
     }
 
-    private func rebuildMenu() {
+    var renderedMenu: NSMenu? { statusItem.menu }
+    var renderedStatusTitle: String? { statusItem.button?.title }
+
+    private func rebuildMenu(state: AppPublishedState?) {
         let built = NativeMenuBuilder.makeMenu(
-            state: model?.state,
+            state: state,
             startupError: startupError,
             target: self
         )
@@ -210,28 +213,28 @@ final class MenuController: NSObject, NSMenuDelegate {
         statusItem.menu = built.menu
     }
 
-    @objc private func refresh() {
+    @objc func refresh() {
         guard let model else { return }
         Task { await model.refresh() }
     }
 
-    @objc private func selectPeriod(_ sender: NSMenuItem) {
+    @objc func selectPeriod(_ sender: NSMenuItem) {
         guard let rawValue = sender.representedObject as? String,
               let period = CalendarPeriod(rawValue: rawValue),
               let model else { return }
         Task { await model.select(period: period) }
     }
 
-    @objc private func selectDisplayMetric(_ sender: NSMenuItem) {
+    @objc func selectDisplayMetric(_ sender: NSMenuItem) {
         guard let rawValue = sender.representedObject as? String,
               let metric = DisplayMetric(rawValue: rawValue),
               let model else { return }
         Task { await model.select(displayMetric: metric) }
     }
 
-    @objc private func openPricing() { model?.openPricing() }
-    @objc private func openSettings() { model?.openSettings() }
-    @objc private func quit() { NSApplication.shared.terminate(nil) }
+    @objc func openPricing() { model?.openPricing() }
+    @objc func openSettings() { model?.openSettings() }
+    @objc func quit() { NSApplication.shared.terminate(nil) }
 }
 
 private extension NSMenu {
