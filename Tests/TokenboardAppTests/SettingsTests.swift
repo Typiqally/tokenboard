@@ -144,7 +144,7 @@ final class SettingsTests: XCTestCase {
         XCTAssertTrue(setup.model.settingsState.statusMessage?.contains("artifact was preserved") == true)
         XCTAssertEqual(
             DatabaseRecoveryView(model: setup.model).actionState,
-            DatabaseRecoveryActionState(canReveal: true, canRestore: true, canQuit: true)
+            DatabaseRecoveryActionState(canReveal: true, canRestore: false, canQuit: true)
         )
         setup.model.revealLocalData()
         XCTAssertEqual(setup.revealer.selections, [[setup.paths.root]])
@@ -152,9 +152,81 @@ final class SettingsTests: XCTestCase {
             state: setup.model.state,
             startupError: nil,
             target: nil,
-            isRestoringDatabase: setup.model.settingsState.isRestoringDatabase
+            isRestoringDatabase: setup.model.settingsState.isRestoringDatabase,
+            requiresRelaunch: setup.model.requiresDatabaseRecoveryRelaunch
         )
         XCTAssertTrue(built.menu.items.first { $0.title == "Quit Tokenboard" }?.isEnabled == true)
+    }
+
+    func testCompletedRestoreRequiresRelaunchAndOnlyQuitAndRevealRemainAvailable() async throws {
+        let recoveryFiles = try await makeRecoveryBackup()
+        defer { try? FileManager.default.removeItem(at: recoveryFiles.root) }
+        let recovery = SettingsRecovery(backup: recoveryFiles.backup)
+        let setup = try makeSetup(candidate: nil, databaseRecovery: recovery)
+        defer { setup.cleanup() }
+        var pricingOpenCount = 0
+        setup.model.onOpenPricing = { pricingOpenCount += 1 }
+        publishRecoveryRequired(in: setup.model)
+        await setup.model.refreshSettings()
+
+        await setup.model.restoreBackup(recoveryFiles.backup)
+
+        let recoveryActions = DatabaseRecoveryView(model: setup.model).actionState
+        guard recoveryActions == DatabaseRecoveryActionState(
+            canReveal: true,
+            canRestore: false,
+            canQuit: true
+        ) else { throw SettingsError.injected }
+        let built = NativeMenuBuilder.makeMenu(
+            state: setup.model.state,
+            startupError: nil,
+            target: nil,
+            isRestoringDatabase: false,
+            requiresRelaunch: setup.model.requiresDatabaseRecoveryRelaunch
+        )
+        let enabledActions = built.menu.items.filter { $0.action != nil && $0.isEnabled }
+        XCTAssertEqual(enabledActions.map(\.title), ["Quit Tokenboard"])
+        setup.model.openPricing()
+        await setup.model.restoreBackup(recoveryFiles.backup)
+        let restores = await recovery.restoreCount()
+        guard restores == 1, pricingOpenCount == 0 else { throw SettingsError.injected }
+        setup.model.revealLocalData()
+        guard setup.revealer.selections == [[setup.paths.root]] else {
+            throw SettingsError.injected
+        }
+    }
+
+    func testPreservationFailureRetryTransitionsToVerifiedRelaunchState() async throws {
+        let recoveryFiles = try await makeRecoveryBackup()
+        defer { try? FileManager.default.removeItem(at: recoveryFiles.root) }
+        let recovery = SettingsRecovery(
+            backup: recoveryFiles.backup,
+            restoreError: .preservationFailed
+        )
+        let setup = try makeSetup(candidate: nil, databaseRecovery: recovery)
+        defer { setup.cleanup() }
+        publishRecoveryRequired(in: setup.model)
+        await setup.model.refreshSettings()
+
+        await setup.model.restoreBackup(recoveryFiles.backup)
+
+        guard DatabaseRecoveryView(model: setup.model).actionState == DatabaseRecoveryActionState(
+            canReveal: true,
+            canRestore: false,
+            canQuit: false,
+            canRetryPreservation: true
+        ) else { throw SettingsError.injected }
+
+        await setup.model.retryDatabasePreservation()
+
+        let retries = await recovery.preservationRetryCount()
+        guard retries == 1,
+              setup.model.requiresDatabaseRecoveryRelaunch,
+              DatabaseRecoveryView(model: setup.model).actionState == DatabaseRecoveryActionState(
+                canReveal: true,
+                canRestore: false,
+                canQuit: true
+              ) else { throw SettingsError.injected }
     }
 
     private func makeRecoveryBackup() async throws -> (root: URL, backup: DatabaseBackup) {
@@ -961,6 +1033,7 @@ private actor SettingsRecovery: AppDatabaseRecovering {
     private var receivedBackups: [DatabaseBackup] = []
     private var shutdownAwaited = false
     private var mutations = 0
+    private var preservationRetries = 0
     private let stageGate: SettingsMutationGate?
 
     init(
@@ -991,6 +1064,8 @@ private actor SettingsRecovery: AppDatabaseRecovering {
     }
 
     func restoreCount() -> Int { restores }
+    func retryPreservation() { preservationRetries += 1 }
+    func preservationRetryCount() -> Int { preservationRetries }
     func didAwaitShutdown() -> Bool { shutdownAwaited }
     func mutationCount() -> Int { mutations }
     func setAvailable(_ backups: [DatabaseBackup]) { available = backups }

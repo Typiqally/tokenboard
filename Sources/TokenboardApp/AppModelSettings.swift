@@ -254,6 +254,7 @@ extension AppModel {
             return
         }
         guard case .recoveryRequired = state.health.database,
+              !isDatabaseRecoveryActionLocked,
               !settingsState.isRestoringDatabase else { return }
         restoreActivityGeneration &+= 1
         let id = restoreActivityGeneration
@@ -265,6 +266,29 @@ extension AppModel {
         await task.value
         if restoreActivity?.id == id {
             restoreActivity = nil
+        }
+    }
+
+    func retryDatabasePreservation() async {
+        guard settingsState.databaseRecoveryDisposition == .preservationFailed,
+              !settingsState.isRestoringDatabase else { return }
+        var next = settingsState
+        next.isRestoringDatabase = true
+        next.statusMessage = "Retrying recovery artifact preservation…"
+        commitSettingsState(next)
+        do {
+            try await databaseRecovery.retryPreservation()
+            next = settingsState
+            next.isRestoringDatabase = false
+            next.databaseRecoveryDisposition = .requiresRelaunch
+            next.statusMessage = "Recovery artifact preserved and verified · Quit and reopen Tokenboard"
+            commitSettingsState(next)
+        } catch {
+            next = settingsState
+            next.isRestoringDatabase = false
+            next.databaseRecoveryDisposition = .preservationFailed
+            next.statusMessage = "Recovery artifact preservation failed · Reveal Data and retry"
+            commitSettingsState(next)
         }
     }
 
@@ -280,17 +304,28 @@ extension AppModel {
             }
             nextSettings = settingsState
             nextSettings.isRestoringDatabase = false
+            nextSettings.databaseRecoveryDisposition = .requiresRelaunch
             nextSettings.statusMessage = "Backup from \(backup.modificationDate.formatted(date: .abbreviated, time: .shortened)) restored and verified · Quit and reopen Tokenboard"
             commitSettingsState(nextSettings)
             publishStoppedState()
         } catch let recoveryError as DatabaseRecoveryError
             where recoveryError == .cleanupPending
-                || recoveryError == .restoreFailedCleanupPending {
+                || recoveryError == .restoreFailedCleanupPending
+                || recoveryError == .rollbackCompleted {
             nextSettings = settingsState
             nextSettings.isRestoringDatabase = false
+            nextSettings.databaseRecoveryDisposition = .requiresRelaunch
             nextSettings.statusMessage = recoveryError == .cleanupPending
                 ? "Restore completed and verified · A recovery artifact was preserved for cleanup · Quit and reopen Tokenboard"
                 : "Original database rollback completed · A recovery artifact was preserved for cleanup · Quit or Reveal Data"
+            commitSettingsState(nextSettings)
+            publishStoppedState()
+        } catch let recoveryError as DatabaseRecoveryError
+            where recoveryError == .preservationFailed {
+            nextSettings = settingsState
+            nextSettings.isRestoringDatabase = false
+            nextSettings.databaseRecoveryDisposition = .preservationFailed
+            nextSettings.statusMessage = "Restore changed the database, but no verified recovery artifact remains · Reveal Data and keep Tokenboard open"
             commitSettingsState(nextSettings)
             publishStoppedState()
         } catch {
@@ -318,7 +353,8 @@ extension AppModel {
                 isLoading: false,
                 isSourceMutationInProgress: false,
                 recoveryBackups: settingsState.recoveryBackups,
-                isRestoringDatabase: settingsState.isRestoringDatabase
+                isRestoringDatabase: settingsState.isRestoringDatabase,
+                databaseRecoveryDisposition: settingsState.databaseRecoveryDisposition
             ))
             return
         }
@@ -393,7 +429,8 @@ extension AppModel {
                 isLoading: false,
                 isSourceMutationInProgress: sourceMutation != nil,
                 recoveryBackups: settingsState.recoveryBackups,
-                isRestoringDatabase: settingsState.isRestoringDatabase
+                isRestoringDatabase: settingsState.isRestoringDatabase,
+                databaseRecoveryDisposition: settingsState.databaseRecoveryDisposition
             ))
         } catch {
             setSettingsLoading(false)
@@ -412,6 +449,7 @@ extension AppModel {
         }
         guard !isWriterQuiescing,
               !isDatabaseRestoreInProgress,
+              !isDatabaseRecoveryActionLocked,
               state.lifecycle != .shuttingDown,
               state.lifecycle != .stopped else { return }
         settingsActivityGeneration &+= 1

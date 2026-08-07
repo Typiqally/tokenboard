@@ -701,7 +701,7 @@ final class DatabaseRecoveryServiceTests: XCTestCase {
         let available = try await service.availableBackups()
         let confirmed = try XCTUnwrap(available.first)
 
-        await assertRecoveryError(.restoreFailed) {
+        await assertRecoveryError(.rollbackCompleted) {
             _ = try await service.restore(confirmed) {}
         }
 
@@ -738,7 +738,7 @@ final class DatabaseRecoveryServiceTests: XCTestCase {
         let available = try await service.availableBackups()
         let confirmed = try XCTUnwrap(available.first)
 
-        await assertRecoveryError(.restoreFailed) {
+        await assertRecoveryError(.rollbackCompleted) {
             _ = try await service.restore(confirmed) {}
         }
 
@@ -788,10 +788,7 @@ final class DatabaseRecoveryServiceTests: XCTestCase {
     }
 
     func testSuccessfulRestoreCleanupFaultIsDistinctAndPreservesSnapshotArtifact() async throws {
-        for operation in [
-            DatabaseRecoveryFileOperation.removeRollbackSnapshot,
-            .syncCleanup
-        ] {
+        for operation in [DatabaseRecoveryFileOperation.syncCleanup] {
             let setup = try await makePopulatedLedger(quantity: 107)
             defer { try? FileManager.default.removeItem(at: setup.directory) }
             try await setup.ledger.shutdown()
@@ -849,7 +846,7 @@ final class DatabaseRecoveryServiceTests: XCTestCase {
                 if stage == .afterReplacement { throw RecoveryTestError.shutdownFailed }
             },
             fileOperationHandler: { operation in
-                if operation == .removeRollbackSnapshot { throw RecoveryTestError.rollbackFailed }
+                if operation == .syncCleanup { throw RecoveryTestError.rollbackFailed }
             }
         )
         let available = try await service.availableBackups()
@@ -904,6 +901,303 @@ final class DatabaseRecoveryServiceTests: XCTestCase {
         }
         XCTAssertLessThan(Date().timeIntervalSince(sidecarStarted), 1)
         XCTAssertEqual(try Data(contentsOf: setup.database), original)
+    }
+
+    func testCompletedRestoreReturnsWithOriginalSnapshotStillNamedAndVerified() async throws {
+        let setup = try await makePopulatedLedger(quantity: 117)
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        try await setup.ledger.shutdown()
+        let original = try Data(contentsOf: setup.database)
+        let backups = setup.directory.appending(path: "Backups", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: backups, withIntermediateDirectories: true)
+        try await databaseBytes(quantity: 119).write(
+            to: backups.appending(path: "ledger-v1-100.sqlite")
+        )
+        let service = DatabaseRecoveryService(databaseURL: setup.database, backupDirectory: backups)
+        let available = try await service.availableBackups()
+        let confirmed = try XCTUnwrap(available.first)
+
+        _ = try await service.restore(confirmed) {}
+
+        let artifacts = try FileManager.default.contentsOfDirectory(atPath: setup.directory.path)
+            .filter { $0.hasPrefix(".tokenboard-pre-restore-") }
+        guard artifacts.count == 1 else {
+            throw RecoveryInvariantTestError.missingNamedSnapshot
+        }
+        let artifact = setup.directory.appending(path: artifacts[0])
+        var information = stat()
+        guard lstat(artifact.path, &information) == 0,
+              information.st_mode & S_IFMT == S_IFREG,
+              information.st_nlink == 1,
+              information.st_mode & S_IWUSR == 0,
+              try Data(contentsOf: artifact) == original else {
+            throw RecoveryInvariantTestError.invalidNamedSnapshot
+        }
+    }
+
+    func testFinalInstalledIdentityDetectsSameInodeSameSizeMutationWithRestoredMtime() async throws {
+        let setup = try await makePopulatedLedger(quantity: 121)
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        try await setup.ledger.shutdown()
+        let original = try Data(contentsOf: setup.database)
+        let backups = setup.directory.appending(path: "Backups", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: backups, withIntermediateDirectories: true)
+        try await databaseBytes(quantity: 123).write(
+            to: backups.appending(path: "ledger-v1-100.sqlite")
+        )
+        let service = DatabaseRecoveryService(
+            databaseURL: setup.database,
+            backupDirectory: backups,
+            stageHandler: { stage in
+                guard stage == .afterValidation else { return }
+                try self.mutateLastBytePreservingStat(at: setup.database)
+            }
+        )
+        let available = try await service.availableBackups()
+        let confirmed = try XCTUnwrap(available.first)
+
+        do {
+            _ = try await service.restore(confirmed) {}
+            throw RecoveryInvariantTestError.mutatedInstalledDatabaseAccepted
+        } catch RecoveryInvariantTestError.mutatedInstalledDatabaseAccepted {
+            throw RecoveryInvariantTestError.mutatedInstalledDatabaseAccepted
+        } catch {
+        }
+
+        XCTAssertEqual(try Data(contentsOf: setup.database), original)
+    }
+
+    func testFinalSnapshotIdentityDetectsSameInodeSameSizeMutationWithRestoredMtime() async throws {
+        let setup = try await makePopulatedLedger(quantity: 118)
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        try await setup.ledger.shutdown()
+        let backups = setup.directory.appending(path: "Backups", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: backups, withIntermediateDirectories: true)
+        let backup = backups.appending(path: "ledger-v2-100.sqlite")
+        let replacement = try await databaseBytes(quantity: 120)
+        try replacement.write(to: backup)
+        let service = DatabaseRecoveryService(
+            databaseURL: setup.database,
+            backupDirectory: backups,
+            stageHandler: { stage in
+                guard stage == .afterValidation else { return }
+                let names = try FileManager.default.contentsOfDirectory(atPath: setup.directory.path)
+                guard let name = names.first(where: { $0.hasPrefix(".tokenboard-pre-restore-") }) else {
+                    throw RecoveryInvariantTestError.missingNamedSnapshot
+                }
+                let snapshot = setup.directory.appending(path: name)
+                try FileManager.default.setAttributes(
+                    [.posixPermissions: NSNumber(value: S_IRUSR | S_IWUSR)],
+                    ofItemAtPath: snapshot.path
+                )
+                try self.mutateLastBytePreservingStat(at: snapshot)
+            }
+        )
+        let available = try await service.availableBackups()
+        let confirmed = try XCTUnwrap(available.first)
+
+        do {
+            _ = try await service.restore(confirmed) {}
+            throw RecoveryInvariantTestError.mutatedSnapshotAccepted
+        } catch let error as DatabaseRecoveryError {
+            guard error == .preservationFailed else { throw error }
+        }
+
+        XCTAssertEqual(try Data(contentsOf: setup.database), replacement)
+        XCTAssertEqual(try Data(contentsOf: backup), replacement)
+    }
+
+    func testCleanupSyncFailureKeepsTheOriginalNamedSnapshotInsteadOfRecreatingIt() async throws {
+        let setup = try await makePopulatedLedger(quantity: 125)
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        try await setup.ledger.shutdown()
+        let original = try Data(contentsOf: setup.database)
+        let backups = setup.directory.appending(path: "Backups", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: backups, withIntermediateDirectories: true)
+        try await databaseBytes(quantity: 127).write(
+            to: backups.appending(path: "ledger-v1-100.sqlite")
+        )
+        let service = DatabaseRecoveryService(
+            databaseURL: setup.database,
+            backupDirectory: backups,
+            stageHandler: { _ in },
+            fileOperationHandler: { operation in
+                if operation == .syncCleanup { throw RecoveryTestError.shutdownFailed }
+            }
+        )
+        let available = try await service.availableBackups()
+        let confirmed = try XCTUnwrap(available.first)
+
+        await XCTAssertThrowsErrorAsync { _ = try await service.restore(confirmed) {} }
+
+        let artifacts = try FileManager.default.contentsOfDirectory(atPath: setup.directory.path)
+            .filter { $0.hasPrefix(".tokenboard-pre-restore-") }
+        guard artifacts.count == 1,
+              try Data(contentsOf: setup.directory.appending(path: artifacts[0])) == original else {
+            throw RecoveryInvariantTestError.missingNamedSnapshot
+        }
+        XCTAssertFalse(try FileManager.default.contentsOfDirectory(atPath: setup.directory.path)
+            .contains { $0.hasPrefix(".tokenboard-cleanup-pending-") })
+    }
+
+    func testRecoveryImageAtExactConfiguredLimitRestoresSuccessfully() async throws {
+        let setup = try await makePopulatedLedger(quantity: 121)
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        try await setup.ledger.shutdown()
+        let backupBytes = try Data(contentsOf: setup.database)
+        let backups = setup.directory.appending(path: "Backups", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: backups, withIntermediateDirectories: true)
+        let backup = backups.appending(path: "ledger-v2-100.sqlite")
+        try backupBytes.write(to: backup)
+        let service = DatabaseRecoveryService(
+            databaseURL: setup.database,
+            backupDirectory: backups,
+            stageHandler: { _ in },
+            maximumRecoveryImageBytes: backupBytes.count
+        )
+        let available = try await service.availableBackups()
+        let confirmed = try XCTUnwrap(available.first)
+
+        _ = try await service.restore(confirmed) {}
+
+        let restored = try SQLiteLedger(databaseURL: setup.database, backupDirectory: backups)
+        try await restored.migrate()
+        let quantities = try await restored.usageRows(in: nil, calendar: calendar).map(\.quantity)
+        try await restored.shutdown()
+        guard quantities == [121] else { throw RecoveryInvariantTestError.boundaryRestoreFailed }
+        XCTAssertEqual(try Data(contentsOf: backup), backupBytes)
+    }
+
+    func testSparseAndOversizedBackupsAreRejectedBeforeReadingOrMutation() async throws {
+        let setup = try await makePopulatedLedger(quantity: 123)
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        try await setup.ledger.shutdown()
+        let original = try Data(contentsOf: setup.database)
+        let backups = setup.directory.appending(path: "Backups", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: backups, withIntermediateDirectories: true)
+        let sparse = backups.appending(path: "ledger-v2-100.sqlite")
+        let descriptor = Darwin.open(sparse.path, O_RDWR | O_CREAT | O_EXCL | O_CLOEXEC, S_IRUSR | S_IWUSR)
+        guard descriptor >= 0 else { throw RecoveryTestError.rollbackFailed }
+        guard ftruncate(descriptor, 128 * 1_024) == 0 else {
+            Darwin.close(descriptor)
+            throw RecoveryTestError.rollbackFailed
+        }
+        Darwin.close(descriptor)
+        let service = DatabaseRecoveryService(
+            databaseURL: setup.database,
+            backupDirectory: backups,
+            stageHandler: { _ in },
+            maximumRecoveryImageBytes: 64 * 1_024
+        )
+
+        let available = try await service.availableBackups()
+
+        guard available.isEmpty else { throw RecoveryInvariantTestError.oversizedBackupAccepted }
+        XCTAssertEqual(try Data(contentsOf: setup.database), original)
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(atPath: backups.path),
+            [sparse.lastPathComponent]
+        )
+    }
+
+    func testRealV1BackupMigratesInMemoryWithoutTouchingBackupDirectory() async throws {
+        let setup = try await makePopulatedLedger(quantity: 125)
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        try await setup.ledger.shutdown()
+        let backups = setup.directory.appending(path: "Backups", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: backups, withIntermediateDirectories: true)
+        let backup = backups.appending(path: "ledger-v1-100.sqlite")
+        let v1 = try SQLiteConnection(url: backup)
+        try DatabaseMigrator(
+            connection: v1,
+            backupDirectory: backups,
+            migrations: [Migrations.v1]
+        ).migrate()
+        try v1.execute("""
+            INSERT INTO daily_usage VALUES(
+              '2026-08-05', 'Europe/Amsterdam', 'codex', 'gpt-v1',
+              'input_uncached', 'additive', 127
+            );
+            INSERT INTO price_rates VALUES(
+              'codex', 'gpt-v1', 'input_uncached', '2.5', '2026-01-01', NULL,
+              'https://example.com/pricing', '2026-08-01', 'v1-catalog'
+            );
+            INSERT INTO model_aliases VALUES(
+              'codex', 'gpt-v1', 'gpt-v1', '2026-01-01', NULL, 'v1-catalog'
+            );
+            INSERT INTO catalog_imports VALUES(
+              'v1-catalog', 1, 'bundled', '2026-08-01T00:00:00Z', 1,
+              'validated', '{}'
+            );
+            """)
+        try v1.checkpointWAL()
+        try v1.close()
+        let backupBytes = try Data(contentsOf: backup)
+        let backupNames = try FileManager.default.contentsOfDirectory(atPath: backups.path)
+        let service = DatabaseRecoveryService(databaseURL: setup.database, backupDirectory: backups)
+        let available = try await service.availableBackups()
+        let confirmed = try XCTUnwrap(available.first)
+
+        _ = try await service.restore(confirmed) {}
+
+        let restored = try SQLiteLedger(databaseURL: setup.database, backupDirectory: backups)
+        try await restored.migrate()
+        let rows = try await restored.usageRows(in: nil, calendar: calendar)
+        let pricing = try await restored.pricingSnapshot()
+        try await restored.shutdown()
+        guard rows.map(\.quantity) == [127],
+              pricing.catalogIDs == ["v1-catalog"],
+              pricing.rates.map(\.usdPerMillion) == [Decimal(string: "2.5")!] else {
+            throw RecoveryInvariantTestError.v1MigrationLostData
+        }
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: backups.path), backupNames)
+        XCTAssertEqual(try Data(contentsOf: backup), backupBytes)
+    }
+
+    func testPreservationFailureCanRetryRetainedSnapshotIntoDurableNamedArtifact() async throws {
+        let setup = try await makePopulatedLedger(quantity: 129)
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        try await setup.ledger.shutdown()
+        let original = try Data(contentsOf: setup.database)
+        let backups = setup.directory.appending(path: "Backups", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: backups, withIntermediateDirectories: true)
+        let replacement = try await databaseBytes(quantity: 131)
+        let backup = backups.appending(path: "ledger-v2-100.sqlite")
+        try replacement.write(to: backup)
+        let service = DatabaseRecoveryService(
+            databaseURL: setup.database,
+            backupDirectory: backups,
+            stageHandler: { stage in
+                guard stage == .afterValidation else { return }
+                let names = try FileManager.default.contentsOfDirectory(atPath: setup.directory.path)
+                guard let snapshot = names.first(where: { $0.hasPrefix(".tokenboard-pre-restore-") }) else {
+                    throw RecoveryInvariantTestError.missingNamedSnapshot
+                }
+                try FileManager.default.removeItem(at: setup.directory.appending(path: snapshot))
+            }
+        )
+        let available = try await service.availableBackups()
+        let confirmed = try XCTUnwrap(available.first)
+        await assertRecoveryError(.preservationFailed) {
+            _ = try await service.restore(confirmed) {}
+        }
+
+        try await service.retryPreservation()
+
+        let artifacts = try FileManager.default.contentsOfDirectory(atPath: setup.directory.path)
+            .filter { $0.hasPrefix(".tokenboard-recovery-pending-") }
+        guard artifacts.count == 1 else { throw RecoveryInvariantTestError.retryArtifactMissing }
+        let artifact = setup.directory.appending(path: artifacts[0])
+        var information = stat()
+        guard lstat(artifact.path, &information) == 0,
+              information.st_mode & S_IFMT == S_IFREG,
+              information.st_nlink == 1,
+              information.st_mode & (S_IWUSR | S_IWGRP | S_IWOTH) == 0,
+              try Data(contentsOf: artifact) == original else {
+            throw RecoveryInvariantTestError.retryArtifactInvalid
+        }
+        XCTAssertEqual(try Data(contentsOf: setup.database), replacement)
+        XCTAssertEqual(try Data(contentsOf: backup), replacement)
     }
 
     private func databaseBytes(quantity: Int64) async throws -> Data {
@@ -965,6 +1259,26 @@ final class DatabaseRecoveryServiceTests: XCTestCase {
         try FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: url.path)
     }
 
+    private func mutateLastBytePreservingStat(at url: URL) throws {
+        let descriptor = Darwin.open(url.path, O_RDWR | O_CLOEXEC | O_NOFOLLOW)
+        guard descriptor >= 0 else { throw RecoveryTestError.rollbackFailed }
+        defer { Darwin.close(descriptor) }
+        var information = stat()
+        guard fstat(descriptor, &information) == 0, information.st_size > 0 else {
+            throw RecoveryTestError.rollbackFailed
+        }
+        var byte: UInt8 = 0
+        guard pread(descriptor, &byte, 1, information.st_size - 1) == 1 else {
+            throw RecoveryTestError.rollbackFailed
+        }
+        byte ^= 0x01
+        guard pwrite(descriptor, &byte, 1, information.st_size - 1) == 1 else {
+            throw RecoveryTestError.rollbackFailed
+        }
+        var times = [information.st_atimespec, information.st_mtimespec]
+        guard futimens(descriptor, &times) == 0 else { throw RecoveryTestError.rollbackFailed }
+    }
+
     private func assertConnectionClosed(
         _ operation: () async throws -> Void,
         file: StaticString = #filePath,
@@ -984,6 +1298,18 @@ final class DatabaseRecoveryServiceTests: XCTestCase {
 private enum RecoveryTestError: Error, Equatable {
     case shutdownFailed
     case rollbackFailed
+}
+
+private enum RecoveryInvariantTestError: Error {
+    case missingNamedSnapshot
+    case invalidNamedSnapshot
+    case mutatedInstalledDatabaseAccepted
+    case mutatedSnapshotAccepted
+    case boundaryRestoreFailed
+    case oversizedBackupAccepted
+    case v1MigrationLostData
+    case retryArtifactMissing
+    case retryArtifactInvalid
 }
 
 private actor RecoveryGate {

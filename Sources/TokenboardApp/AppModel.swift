@@ -23,6 +23,15 @@ final class AppModel: ObservableObject {
     var isDatabaseRestoreInProgress: Bool {
         restoreActivity != nil || settingsState.isRestoringDatabase
     }
+    var requiresDatabaseRecoveryRelaunch: Bool {
+        settingsState.databaseRecoveryDisposition == .requiresRelaunch
+    }
+    var databaseRecoveryPreservationFailed: Bool {
+        settingsState.databaseRecoveryDisposition == .preservationFailed
+    }
+    var isDatabaseRecoveryActionLocked: Bool {
+        settingsState.databaseRecoveryDisposition != .none
+    }
 
     let ledger: any AppLedgerRuntime
     let queryService: any AppUsageQuerying
@@ -129,7 +138,8 @@ final class AppModel: ObservableObject {
     }
 
     func startHistoricalImport() async {
-        guard isReadyForSources,
+        guard !isDatabaseRecoveryActionLocked,
+              isReadyForSources,
               state.canStartHistoricalImport else { return }
         if let activity {
             await activity.task.value
@@ -144,7 +154,7 @@ final class AppModel: ObservableObject {
     }
 
     func refresh() async {
-        guard !isDatabaseRestoreInProgress else { return }
+        guard !isDatabaseRestoreInProgress, !isDatabaseRecoveryActionLocked else { return }
         guard state.health.database == .healthy else { return }
         guard await ensureReady(retryFailed: true) else { return }
         guard isReadyForSources else { return }
@@ -165,6 +175,7 @@ final class AppModel: ObservableObject {
 
     func select(period: CalendarPeriod) async {
         guard !isDatabaseRestoreInProgress,
+              !isDatabaseRecoveryActionLocked,
               state.lifecycle != .stopped,
               state.lifecycle != .shuttingDown else { return }
         preferences.selectedPeriod = period
@@ -176,6 +187,7 @@ final class AppModel: ObservableObject {
 
     func select(displayMetric: DisplayMetric) async {
         guard !isDatabaseRestoreInProgress,
+              !isDatabaseRecoveryActionLocked,
               state.lifecycle != .stopped,
               state.lifecycle != .shuttingDown else { return }
         preferences.selectedDisplayMetric = displayMetric
@@ -189,16 +201,20 @@ final class AppModel: ObservableObject {
     }
 
     func chooseSource(_ provider: Provider) async {
+        guard !isDatabaseRecoveryActionLocked else { return }
         await startSourceMutation(.choose(provider))
     }
 
     func openPricing() {
-        guard !isDatabaseRestoreInProgress else { return }
+        guard !isDatabaseRestoreInProgress,
+              !isDatabaseRecoveryActionLocked,
+              state.lifecycle != .stopped,
+              state.lifecycle != .shuttingDown else { return }
         onOpenPricing?()
     }
 
     func openSettings() {
-        guard !isDatabaseRestoreInProgress else { return }
+        guard !isDatabaseRestoreInProgress, !isDatabaseRecoveryActionLocked else { return }
         onOpenSettings?()
     }
 

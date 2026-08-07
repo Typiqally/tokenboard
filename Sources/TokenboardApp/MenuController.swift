@@ -15,7 +15,9 @@ enum NativeMenuBuilder {
         state: AppPublishedState?,
         startupError: String?,
         target: AnyObject?,
-        isRestoringDatabase: Bool = false
+        isRestoringDatabase: Bool = false,
+        requiresRelaunch: Bool = false,
+        preservationFailed: Bool = false
     ) -> BuiltNativeMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
@@ -36,15 +38,16 @@ enum NativeMenuBuilder {
         }
 
         menu.addItem(.separator())
+        let regularActionsEnabled = !isRestoringDatabase && !requiresRelaunch && !preservationFailed
         menu.addItem(periodMenuItem(
             state: state,
             target: target,
-            isEnabled: !isRestoringDatabase
+            isEnabled: regularActionsEnabled
         ))
         menu.addItem(displayMetricMenuItem(
             state: state,
             target: target,
-            isEnabled: !isRestoringDatabase
+            isEnabled: regularActionsEnabled
         ))
         menu.addItem(.separator())
 
@@ -66,7 +69,7 @@ enum NativeMenuBuilder {
             action: NSSelectorFromString("refresh"),
             target: target,
             keyEquivalent: "r",
-            isEnabled: !isRestoringDatabase
+            isEnabled: regularActionsEnabled
         ))
         var pricingTitle = "Pricing"
         if let unpriced = state?.presentation?.unpricedTitle {
@@ -76,14 +79,14 @@ enum NativeMenuBuilder {
             pricingTitle,
             action: NSSelectorFromString("openPricing"),
             target: target,
-            isEnabled: !isRestoringDatabase
+            isEnabled: regularActionsEnabled
         ))
         menu.addItem(actionItem(
             "Settings",
             action: NSSelectorFromString("openSettings"),
             target: target,
             keyEquivalent: ",",
-            isEnabled: !isRestoringDatabase
+            isEnabled: regularActionsEnabled
         ))
         menu.addItem(.separator())
         menu.addItem(actionItem(
@@ -91,7 +94,7 @@ enum NativeMenuBuilder {
             action: NSSelectorFromString("quit"),
             target: target,
             keyEquivalent: "q",
-            isEnabled: !isRestoringDatabase
+            isEnabled: !isRestoringDatabase && !preservationFailed
         ))
         return BuiltNativeMenu(menu: menu, statusTitle: statusTitle, updatedItem: updatedItem)
     }
@@ -197,12 +200,14 @@ final class MenuController: NSObject, NSMenuDelegate {
             .sink { [weak self] state, settings in
                 self?.rebuildMenu(
                     state: state,
-                    isRestoringDatabase: settings.isRestoringDatabase
+                    isRestoringDatabase: settings.isRestoringDatabase,
+                    disposition: settings.databaseRecoveryDisposition
                 )
             }
         rebuildMenu(
             state: model.state,
-            isRestoringDatabase: model.settingsState.isRestoringDatabase
+            isRestoringDatabase: model.settingsState.isRestoringDatabase,
+            disposition: model.settingsState.databaseRecoveryDisposition
         )
     }
 
@@ -210,7 +215,7 @@ final class MenuController: NSObject, NSMenuDelegate {
         model = nil
         self.startupError = "Startup paused: \(String(describing: startupError))"
         super.init()
-        rebuildMenu(state: nil, isRestoringDatabase: false)
+        rebuildMenu(state: nil, isRestoringDatabase: false, disposition: .none)
     }
 
     func menuWillOpen(_ menu: NSMenu) {
@@ -231,13 +236,16 @@ final class MenuController: NSObject, NSMenuDelegate {
 
     private func rebuildMenu(
         state: AppPublishedState?,
-        isRestoringDatabase: Bool
+        isRestoringDatabase: Bool,
+        disposition: DatabaseRecoveryDisposition
     ) {
         let built = NativeMenuBuilder.makeMenu(
             state: state,
             startupError: startupError,
             target: self,
-            isRestoringDatabase: isRestoringDatabase
+            isRestoringDatabase: isRestoringDatabase,
+            requiresRelaunch: disposition == .requiresRelaunch,
+            preservationFailed: disposition == .preservationFailed
         )
         built.menu.delegate = self
         statusItem.button?.title = built.statusTitle

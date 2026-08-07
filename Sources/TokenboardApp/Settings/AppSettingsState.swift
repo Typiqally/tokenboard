@@ -77,6 +77,12 @@ struct SettingsDiagnosticsState: Equatable, Sendable {
     )
 }
 
+enum DatabaseRecoveryDisposition: Equatable, Sendable {
+    case none
+    case requiresRelaunch
+    case preservationFailed
+}
+
 struct AppSettingsState: Equatable, Sendable {
     var sources: [Provider: SourceSettingsState]
     var pricing: PricingSettingsState
@@ -86,6 +92,7 @@ struct AppSettingsState: Equatable, Sendable {
     var isSourceMutationInProgress: Bool
     var recoveryBackups: [DatabaseBackup]
     var isRestoringDatabase: Bool
+    var databaseRecoveryDisposition: DatabaseRecoveryDisposition
 
     var isFinalizationRetryInProgress: Bool {
         get { pricing.isFinalizationRetryInProgress }
@@ -100,6 +107,7 @@ struct AppSettingsState: Equatable, Sendable {
         isLoading: false,
         isSourceMutationInProgress: false,
         recoveryBackups: [],
-        isRestoringDatabase: false
+        isRestoringDatabase: false,
+        databaseRecoveryDisposition: .none
     )
 }

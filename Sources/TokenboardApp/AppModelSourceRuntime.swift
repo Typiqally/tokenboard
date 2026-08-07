@@ -4,7 +4,7 @@ import TokenboardCore
 @MainActor
 extension AppModel {
     func startSourceMutation(_ request: AppSourceMutationRequest) async {
-        guard isReadyForSources else { return }
+        guard !isDatabaseRecoveryActionLocked, isReadyForSources else { return }
         if let sourceMutation {
             await sourceMutation.task.value
             return

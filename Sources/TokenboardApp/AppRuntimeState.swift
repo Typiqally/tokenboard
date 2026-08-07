@@ -74,6 +74,13 @@ protocol AppDatabaseRecovering: Sendable {
         _ confirmedBackup: DatabaseBackup,
         afterShutdown: @Sendable () async throws -> Void
     ) async throws -> DatabaseBackup
+    func retryPreservation() async throws
+}
+
+extension AppDatabaseRecovering {
+    func retryPreservation() async throws {
+        throw DatabaseRecoveryError.preservationFailed
+    }
 }
 
 extension AppPricingInboxWatching {

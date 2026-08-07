@@ -1,8 +1,32 @@
 import Foundation
+import CSQLite
 import XCTest
 @testable import TokenboardCore
 
 final class SQLiteLedgerTests: XCTestCase {
+    func testTruncateCheckpointAcceptsOnlyDocumentedCompleteResultShapes() {
+        XCTAssertTrue(SQLiteConnection.isCompleteTruncateCheckpoint(
+            result: SQLITE_OK,
+            logFrames: -1,
+            checkpointedFrames: -1
+        ))
+        XCTAssertTrue(SQLiteConnection.isCompleteTruncateCheckpoint(
+            result: SQLITE_OK,
+            logFrames: 0,
+            checkpointedFrames: 0
+        ))
+        XCTAssertFalse(SQLiteConnection.isCompleteTruncateCheckpoint(
+            result: SQLITE_OK,
+            logFrames: 3,
+            checkpointedFrames: 3
+        ))
+        XCTAssertFalse(SQLiteConnection.isCompleteTruncateCheckpoint(
+            result: SQLITE_BUSY,
+            logFrames: 0,
+            checkpointedFrames: 0
+        ))
+    }
+
     private let fingerprintA = String(repeating: "a", count: 64)
     private let fingerprintB = String(repeating: "b", count: 64)
     private let recordHash = String(repeating: "c", count: 64)

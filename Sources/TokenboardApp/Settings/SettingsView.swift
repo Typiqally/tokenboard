@@ -31,16 +31,19 @@ struct SettingsView: View {
                         .accessibilityLabel("Launch at Login error: \(error)")
                 }
             }
+            .disabled(model.isDatabaseRecoveryActionLocked)
 
             Section("Sources") {
                 SourceSettingsView(model: model, provider: .claudeCode)
                 Divider()
                 SourceSettingsView(model: model, provider: .codex)
             }
+            .disabled(model.isDatabaseRecoveryActionLocked)
 
             Section("Pricing") {
                 PricingSettingsView(model: model)
             }
+            .disabled(model.isDatabaseRecoveryActionLocked)
 
             Section("Diagnostics") {
                 if case .recoveryRequired = model.health.database {
@@ -83,13 +86,14 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .frame(minWidth: 680, minHeight: 540)
-        .disabled(!actionState.controlsEnabled)
+        .disabled(model.settingsState.isLoading || model.isDatabaseRestoreInProgress)
     }
 
     var actionState: SettingsActionState {
         SettingsActionState(
             controlsEnabled: !model.settingsState.isLoading
                 && !model.isDatabaseRestoreInProgress
+                && !model.isDatabaseRecoveryActionLocked
         )
     }
 

@@ -1,4 +1,5 @@
 import CSQLite
+import Darwin
 import Foundation
 
 public struct SQLiteFailure: Error, CustomStringConvertible {
@@ -55,37 +56,51 @@ public final class SQLiteConnection {
         }
     }
 
-    static func recoveryConnection(serialized data: Data) throws -> SQLiteConnection {
-        var rollbackJournalData = data
-        guard rollbackJournalData.count >= 20 else {
+    static func recoveryConnection(
+        descriptor: Int32,
+        byteCount: Int,
+        maximumBytes: Int
+    ) throws -> SQLiteConnection {
+        guard byteCount >= 20, byteCount <= maximumBytes else {
             throw SQLiteFailure(code: SQLITE_NOTADB, message: "database image is too small")
         }
-        // sqlite3_deserialize cannot accept a WAL-mode image. A completed checkpoint
-        // makes the main file self-contained, so select rollback-journal mode in the
-        // private image before SQLite sees it.
-        rollbackJournalData[18] = 1
-        rollbackJournalData[19] = 1
-
         let connection = try SQLiteConnection(
             filename: ":memory:",
             flags: SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX,
             configureForLedger: false
         )
-        let minimumCapacity = rollbackJournalData.count
-        let capacity = max(minimumCapacity * 2, minimumCapacity + 16 * 1_024 * 1_024)
+        let (doubled, overflowed) = byteCount.multipliedReportingOverflow(by: 2)
+        let capacity = min(maximumBytes, overflowed ? maximumBytes : doubled)
+        guard capacity >= byteCount else {
+            try? connection.close()
+            throw SQLiteFailure(code: SQLITE_TOOBIG, message: "recovery image exceeds capacity")
+        }
         guard let allocation = sqlite3_malloc64(sqlite3_uint64(capacity)) else {
             try? connection.close()
             throw SQLiteFailure(code: SQLITE_NOMEM, message: "unable to allocate recovery image")
         }
-        rollbackJournalData.copyBytes(
-            to: allocation.assumingMemoryBound(to: UInt8.self),
-            count: rollbackJournalData.count
-        )
+        let bytes = allocation.assumingMemoryBound(to: UInt8.self)
+        var readCount = 0
+        while readCount < byteCount {
+            let result = pread(descriptor, bytes.advanced(by: readCount), byteCount - readCount, off_t(readCount))
+            guard result > 0 else {
+                if result < 0, errno == EINTR { continue }
+                sqlite3_free(allocation)
+                try? connection.close()
+                throw SQLiteFailure(code: SQLITE_IOERR, message: "unable to read recovery image")
+            }
+            readCount += result
+        }
+        // sqlite3_deserialize cannot accept a WAL-mode image. A completed checkpoint
+        // makes the main file self-contained, so select rollback-journal mode in the
+        // private image before SQLite sees it.
+        bytes[18] = 1
+        bytes[19] = 1
         let result = sqlite3_deserialize(
             connection.handle,
             "main",
-            allocation.assumingMemoryBound(to: UInt8.self),
-            sqlite3_int64(rollbackJournalData.count),
+            bytes,
+            sqlite3_int64(byteCount),
             sqlite3_int64(capacity),
             UInt32(SQLITE_DESERIALIZE_FREEONCLOSE | SQLITE_DESERIALIZE_RESIZEABLE)
         )
@@ -111,16 +126,35 @@ public final class SQLiteConnection {
         )
     }
 
-    func serializedDatabase() throws -> Data {
+    func writeSerializedDatabase(to descriptor: Int32, maximumBytes: Int) throws {
         var size: sqlite3_int64 = 0
-        guard let bytes = sqlite3_serialize(handle, "main", &size, 0), size >= 0 else {
+        guard let bytes = sqlite3_serialize(
+            handle,
+            "main",
+            &size,
+            UInt32(SQLITE_SERIALIZE_NOCOPY)
+        ), size >= 0,
+           size <= sqlite3_int64(maximumBytes),
+           let count = Int(exactly: size) else {
             throw SQLiteFailure(
-                code: sqlite3_errcode(handle),
-                message: String(cString: sqlite3_errmsg(handle))
+                code: size > sqlite3_int64(maximumBytes) ? SQLITE_TOOBIG : sqlite3_errcode(handle),
+                message: size > sqlite3_int64(maximumBytes)
+                    ? "serialized recovery image exceeds the configured limit"
+                    : "unable to access the serialized recovery image"
             )
         }
-        defer { sqlite3_free(bytes) }
-        return Data(bytes: bytes, count: Int(size))
+        guard ftruncate(descriptor, 0) == 0 else {
+            throw SQLiteFailure(code: SQLITE_IOERR, message: "unable to truncate staged recovery image")
+        }
+        var written = 0
+        while written < count {
+            let result = pwrite(descriptor, bytes.advanced(by: written), count - written, off_t(written))
+            guard result > 0 else {
+                if result < 0, errno == EINTR { continue }
+                throw SQLiteFailure(code: SQLITE_IOERR, message: "unable to write staged recovery image")
+            }
+            written += result
+        }
     }
 
     deinit {
@@ -146,27 +180,33 @@ public final class SQLiteConnection {
         var checkpointedFrames: Int32 = -1
         let result = sqlite3_wal_checkpoint_v2(
             handle,
-            nil,
+            "main",
             SQLITE_CHECKPOINT_TRUNCATE,
             &logFrames,
             &checkpointedFrames
         )
-        guard result == SQLITE_OK else {
+        guard Self.isCompleteTruncateCheckpoint(
+            result: result,
+            logFrames: logFrames,
+            checkpointedFrames: checkpointedFrames
+        ) else {
             throw SQLiteFailure(
-                code: result,
-                message: String(cString: sqlite3_errmsg(handle))
+                code: result == SQLITE_OK ? SQLITE_BUSY : result,
+                message: result == SQLITE_OK
+                    ? "WAL checkpoint did not fully truncate"
+                    : String(cString: sqlite3_errmsg(handle))
             )
         }
-        let noWAL = logFrames == -1 && checkpointedFrames == -1
-        let completeWAL = logFrames >= 0
-            && checkpointedFrames >= 0
-            && checkpointedFrames == logFrames
-        guard noWAL || completeWAL else {
-            throw SQLiteFailure(
-                code: SQLITE_BUSY,
-                message: "WAL checkpoint did not complete"
-            )
-        }
+    }
+
+    static func isCompleteTruncateCheckpoint(
+        result: Int32,
+        logFrames: Int32,
+        checkpointedFrames: Int32
+    ) -> Bool {
+        result == SQLITE_OK
+            && ((logFrames == -1 && checkpointedFrames == -1)
+                || (logFrames == 0 && checkpointedFrames == 0))
     }
 
     public func execute(_ sql: String) throws {

@@ -84,8 +84,11 @@ public actor SQLiteLedger: LedgerStore {
         isClosed = true
     }
 
-    func serializedRecoveryDatabase() throws -> Data {
-        try requiredConnection().serializedDatabase()
+    func writeSerializedRecoveryDatabase(to descriptor: Int32, maximumBytes: Int) throws {
+        try requiredConnection().writeSerializedDatabase(
+            to: descriptor,
+            maximumBytes: maximumBytes
+        )
     }
 
     public func skippedRecordCount() throws -> Int {
