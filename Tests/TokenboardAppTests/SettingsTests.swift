@@ -49,7 +49,7 @@ final class SettingsTests: XCTestCase {
                 PricingPromptOption(
                     source: .officialResearch,
                     buttonTitle: "Copy Official-Sites Prompt",
-                    description: "Researches only official OpenAI and Anthropic websites."
+                    description: "Researches official OpenAI and Anthropic pricing plus ECB exchange rates."
                 )
             ]
         )
@@ -66,10 +66,43 @@ final class SettingsTests: XCTestCase {
     func testPricingOverviewKeepsOnlyEssentialCatalogMetadata() {
         XCTAssertEqual(
             PricingOverviewCopy.visibleLabels,
-            ["Active catalog IDs", "Verified"]
+            ["Display currency", "Model pricing", "Exchange rates"]
         )
         XCTAssertFalse(PricingOverviewCopy.visibleLabels.contains("Official provenance"))
         XCTAssertFalse(PricingOverviewCopy.visibleLabels.contains("Unpriced models"))
+    }
+
+    func testPricingSummaryShowsActiveModelRatesAndLatestExchangeSnapshot() async throws {
+        let exchangeRates = ExchangeRateSnapshot(
+            catalogID: "current",
+            effectiveDate: "2026-08-07",
+            verifiedAt: "2026-08-07",
+            provenanceURL: URL(string: "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml")!,
+            rates: [.usd: 1, .eur: Decimal(string: "0.8")!, .jpy: 150, .gbp: Decimal(string: "0.7")!, .cny: 7]
+        )
+        let pricing = PricingSnapshot(
+            catalogIDs: ["current"],
+            rates: [
+                storedRate(usd: "2", metric: .inputUncached),
+                storedRate(usd: "30", metric: .output)
+            ],
+            aliases: [storedAlias()],
+            exchangeRateSnapshots: [exchangeRates]
+        )
+        let setup = try makeSetup(candidate: nil, pricing: pricing)
+        defer { setup.cleanup() }
+
+        await setup.model.start()
+        await setup.model.refreshSettings()
+
+        XCTAssertEqual(setup.model.settingsState.pricing.activeModels, [
+            ActiveModelPricingSummary(
+                provider: .codex,
+                canonicalModelID: "gpt-preview",
+                rates: [.inputUncached: 2, .output: 30]
+            )
+        ])
+        XCTAssertEqual(setup.model.settingsState.pricing.exchangeRates, exchangeRates)
     }
 
     func testRecoveryLoadsBackupWithoutRestoringUntilExplicitActionAndUsesShutdownBarrier() async throws {
@@ -716,6 +749,25 @@ final class SettingsTests: XCTestCase {
             "codex · gpt-preview · input_uncached · $2 / 1M · 2026-01-01 → open · https://openai.com/api/pricing/ · verified 2026-08-05",
             "codex · gpt-preview · output · $30 / 1M · 2026-01-01 → open · https://openai.com/api/pricing/ · verified 2026-08-05"
         ])
+    }
+
+    func testReviewContentShowsExchangeRateDiffAndSelectedCurrencyValues() async throws {
+        let setup = try makeSetup(candidate: try validatedCurrencyCandidate())
+        defer { setup.cleanup() }
+        await setup.model.start()
+        setup.model.select(displayCurrency: .eur)
+        await setup.model.refreshSettings()
+        let selection = try XCTUnwrap(
+            PricingSettingsView(model: setup.model).currentReviewSelection
+        )
+
+        XCTAssertTrue(selection.content.exchangeRates.contains("EUR · 0.9 per USD · changed"))
+        XCTAssertEqual(
+            selection.content.exchangeRateProvenance,
+            "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml · checked 2026-08-07"
+        )
+        XCTAssertEqual(selection.content.currentKnownValue, "EUR unavailable")
+        XCTAssertEqual(selection.content.candidateKnownValue, "€0.18")
     }
 
     func testApplyRequiresConflictFreePreviewThenRefreshesTheSelectedSummary() async throws {
@@ -1368,11 +1420,14 @@ final class SettingsTests: XCTestCase {
         )
     }
 
-    private func storedRate(usd: String) -> StoredPriceRate {
+    private func storedRate(
+        usd: String,
+        metric: UsageMetric = .inputUncached
+    ) -> StoredPriceRate {
         StoredPriceRate(
             provider: .codex,
             canonicalModelID: "gpt-preview",
-            metric: .inputUncached,
+            metric: metric,
             usdPerMillion: Decimal(string: usd)!,
             effectiveFrom: "2026-01-01",
             effectiveTo: nil,
@@ -1405,6 +1460,39 @@ final class SettingsTests: XCTestCase {
           }]
         }
         """#
+        return try PricingCatalogValidator().validate(
+            PricingCatalogLoader().load(Data(json.utf8))
+        )
+    }
+
+    private func validatedCurrencyCandidate() throws -> ValidatedPricingCatalog {
+        let json = """
+        {
+          "schemaVersion": 2,
+          "catalogID": "candidate-fx-2026-08-07",
+          "generatedAt": "2026-08-07T12:00:00Z",
+          "origin": {"kind":"official_research","url":"https://openai.com/api/pricing/"},
+          "models": [{
+            "provider":"codex",
+            "canonicalModelID":"gpt-preview",
+            "aliases":[{"observedModelID":"gpt-preview","effectiveFrom":"2026-01-01","effectiveTo":null}],
+            "rates":[{
+              "effectiveFrom":"2026-01-01",
+              "effectiveTo":null,
+              "prices":{"input_uncached":"2","output":"30"},
+              "provenanceURL":"https://openai.com/api/pricing/",
+              "verifiedAt":"2026-08-07"
+            }]
+          }],
+          "exchangeRates": {
+            "baseCurrency":"USD",
+            "effectiveDate":"2026-08-07",
+            "verifiedAt":"2026-08-07",
+            "provenanceURL":"https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml",
+            "rates":{"USD":"1","EUR":"0.9","JPY":"151","GBP":"0.71","CNY":"7.1"}
+          }
+        }
+        """
         return try PricingCatalogValidator().validate(
             PricingCatalogLoader().load(Data(json.utf8))
         )

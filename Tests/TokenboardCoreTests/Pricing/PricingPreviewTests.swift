@@ -67,6 +67,36 @@ final class PricingPreviewTests: XCTestCase {
         ])
     }
 
+    func testPreviewCarriesExchangeRateDiffAndProvenance() throws {
+        let currentRates = ExchangeRateSnapshot(
+            catalogID: "current",
+            effectiveDate: "2026-08-06",
+            verifiedAt: "2026-08-06",
+            provenanceURL: URL(string: "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml")!,
+            rates: [.usd: 1, .eur: Decimal(string: "0.8")!, .jpy: 150, .gbp: Decimal(string: "0.7")!, .cny: 7]
+        )
+        let current = PricingSnapshot(
+            catalogIDs: ["current"],
+            rates: [],
+            aliases: [],
+            exchangeRateSnapshots: [currentRates]
+        )
+
+        let preview = try PricingPreview.make(
+            rows: [],
+            currentPricing: current,
+            candidate: validatedCurrencyCandidate()
+        )
+
+        XCTAssertEqual(preview.currentExchangeRates, currentRates)
+        XCTAssertEqual(preview.candidateExchangeRates?.effectiveDate, "2026-08-07")
+        XCTAssertEqual(preview.candidateExchangeRates?.rates[.eur], Decimal(string: "0.9"))
+        XCTAssertEqual(preview.diff.exchangeRatesChanged, DisplayCurrency.allCases)
+        XCTAssertTrue(preview.provenanceURLs.contains(
+            URL(string: "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml")!
+        ))
+    }
+
     func testPreviewDoesNotMutateCurrentSnapshotOrCandidate() throws {
         let current = PricingSnapshot(catalogIDs: ["current"], rates: [], aliases: [])
         let candidate = try validatedCandidate()
@@ -270,6 +300,31 @@ final class PricingPreviewTests: XCTestCase {
               "verifiedAt": "2026-08-05"
             }]
           }]
+        }
+        """
+        return try PricingCatalogValidator().validate(
+            PricingCatalogLoader().load(Data(json.utf8))
+        )
+    }
+
+    private func validatedCurrencyCandidate() throws -> ValidatedPricingCatalog {
+        let json = """
+        {
+          "schemaVersion": 2,
+          "catalogID": "candidate-fx-2026-08-07",
+          "generatedAt": "2026-08-07T12:00:00Z",
+          "origin": {
+            "kind": "official_research",
+            "url": "https://openai.com/api/pricing/"
+          },
+          "models": [],
+          "exchangeRates": {
+            "baseCurrency": "USD",
+            "effectiveDate": "2026-08-07",
+            "verifiedAt": "2026-08-07",
+            "provenanceURL": "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml",
+            "rates": {"USD":"1","EUR":"0.9","JPY":"151","GBP":"0.71","CNY":"7.1"}
+          }
         }
         """
         return try PricingCatalogValidator().validate(
