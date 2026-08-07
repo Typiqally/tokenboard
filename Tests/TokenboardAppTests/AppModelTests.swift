@@ -33,7 +33,7 @@ final class AppModelTests: XCTestCase {
         let counts = await setup.coordinator.counts()
         XCTAssertEqual(counts, [1, 0])
         XCTAssertEqual(setup.model.presentation?.tokenTitle, "321 tokens")
-        XCTAssertEqual(setup.model.presentation?.statusTitle, "⚠ 321")
+        XCTAssertEqual(setup.model.presentation?.statusTitle, "◉ 321")
         XCTAssertEqual(setup.access.startCount, 1)
         XCTAssertEqual(setup.access.stopCount, 0)
 

@@ -23,7 +23,7 @@ final class AppPresentationTests: XCTestCase {
         XCTAssertNil(view.unpricedTitle)
     }
 
-    func testAPIValueShowsPlusAndWarningWhenUsageIsUnpriced() {
+    func testAPIValueShowsPlusWithoutWarningWhenUsageIsMerelyUnpriced() {
         let summary = UsageSummary(
             period: .thisMonth,
             tokenTotal: 1_000_000,
@@ -34,10 +34,10 @@ final class AppPresentationTests: XCTestCase {
         let view = MenuPresentation(
             summary: summary,
             displayMetric: .apiValue,
-            hasHealthWarning: true
+            hasHealthWarning: false
         )
 
-        XCTAssertEqual(view.statusTitle, "⚠ $3.00+")
+        XCTAssertEqual(view.statusTitle, "◉ $3.00+")
         XCTAssertEqual(view.unpricedTitle, "84K unpriced")
     }
 }
