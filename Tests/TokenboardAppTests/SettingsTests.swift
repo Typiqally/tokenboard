@@ -36,7 +36,7 @@ final class SettingsTests: XCTestCase {
     func testPricingUpdateCopyExplainsTheNetworkBoundaryAndNextStep() {
         XCTAssertEqual(
             PricingUpdateCopy.explanation,
-            "Tokenboard never connects to the internet. Copy an update prompt and run it in Claude Code or Codex. The agent may use only the source you choose, then saves a candidate to Tokenboard’s local inbox for your review."
+            "Tokenboard never connects to the internet. Copy an update prompt and run it in Claude Code or Codex. The prompt tells the agent to use only the source you choose and save a candidate in Tokenboard’s local inbox for your review."
         )
         XCTAssertEqual(
             PricingUpdateCopy.sourceTitle(.tokenboardRepository),

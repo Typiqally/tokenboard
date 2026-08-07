@@ -14,6 +14,54 @@ enum PricingSettingsCandidateAction: Equatable, Identifiable {
     }
 }
 
+enum PricingUpdateCopy {
+    static let explanation = "Tokenboard never connects to the internet. Copy an update prompt and run it in Claude Code or Codex. The prompt tells the agent to use only the source you choose and save a candidate in Tokenboard’s local inbox for your review."
+
+    static func sourceTitle(_ source: AgentPricingSource) -> String {
+        switch source {
+        case .tokenboardRepository: "Tokenboard Catalog"
+        case .officialResearch: "Official Provider Sites"
+        }
+    }
+
+    static func sourceDescription(_ source: AgentPricingSource) -> String {
+        switch source {
+        case .tokenboardRepository:
+            "The agent may fetch only Tokenboard’s published pricing catalog from GitHub."
+        case .officialResearch:
+            "The agent may research pricing only on official OpenAI and Anthropic websites."
+        }
+    }
+
+    static func inboxStatus(_ status: PricingInboxStatus) -> String {
+        switch status {
+        case .empty:
+            "No candidate is waiting. Run the copied prompt to create one."
+        case .valid:
+            "A candidate is ready for review."
+        case let .invalid(reason):
+            switch reason {
+            case .invalidCatalog:
+                "The candidate file was rejected because its pricing catalog is invalid. Active pricing was not changed."
+            case .unsafeFile:
+                "The candidate file was rejected because it is not a safe local file. Active pricing was not changed."
+            case .candidateTooLarge:
+                "The candidate file was rejected because it is larger than 1 MiB. Active pricing was not changed."
+            case .unreadableCandidate:
+                "The candidate file could not be read safely. Active pricing was not changed."
+            }
+        case .applying:
+            "Applying the approved pricing candidate."
+        case .appliedFinalizing:
+            "Pricing was updated. Finishing local file cleanup."
+        case .rejecting:
+            "Rejecting the pricing candidate."
+        case .rejectedFinalizing:
+            "Candidate rejected. Finishing local file cleanup."
+        }
+    }
+}
+
 struct PricingReviewContent: Equatable {
     let modelsAdded: String
     let aliases: [String]
@@ -126,23 +174,31 @@ struct PricingSettingsView: View {
                     .textSelection(.enabled)
             }
 
-            HStack {
-                Picker("Agent prompt source", selection: $promptSource) {
-                    Text("Tokenboard Repository")
-                        .tag(AgentPricingSource.tokenboardRepository)
-                    Text("Official Research")
-                        .tag(AgentPricingSource.officialResearch)
-                }
-                .pickerStyle(.menu)
-                Button("Copy Agent Prompt") {
-                    Task { await model.copyAgentPrompt(source: promptSource) }
-                }
+            Divider()
+
+            Text("Update pricing")
+                .font(.headline)
+            Text(PricingUpdateCopy.explanation)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Picker("Allowed source", selection: $promptSource) {
+                Text(PricingUpdateCopy.sourceTitle(.tokenboardRepository))
+                    .tag(AgentPricingSource.tokenboardRepository)
+                Text(PricingUpdateCopy.sourceTitle(.officialResearch))
+                    .tag(AgentPricingSource.officialResearch)
+            }
+            .pickerStyle(.menu)
+            Text(PricingUpdateCopy.sourceDescription(promptSource))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button("Copy Update Prompt") {
+                Task { await model.copyAgentPrompt(source: promptSource) }
             }
 
-            LabeledContent("Pending candidate") {
-                Text(pricing.pendingCandidate?.catalog.catalogID ?? "None")
+            LabeledContent("Candidate ready") {
+                Text(pricing.pendingCandidate?.catalog.catalogID ?? "No")
             }
-            Text(inboxStatusDescription(pricing.inboxStatus))
+            Text(PricingUpdateCopy.inboxStatus(pricing.inboxStatus))
                 .foregroundStyle(.secondary)
             HStack {
                 ForEach(candidateActions) { action in
@@ -171,24 +227,6 @@ struct PricingSettingsView: View {
         }
         .sheet(item: $reviewSelection) { selection in
             PricingReviewView(model: model, review: selection)
-        }
-    }
-
-    private func inboxStatusDescription(_ status: PricingInboxStatus) -> String {
-        switch status {
-        case .empty: "No candidate detected"
-        case .valid: "Validated candidate ready for review"
-        case let .invalid(reason):
-            switch reason {
-            case .invalidCatalog: "Candidate is invalid"
-            case .unsafeFile: "Candidate file is unsafe"
-            case .candidateTooLarge: "Candidate file is too large"
-            case .unreadableCandidate: "Candidate file cannot be read safely"
-            }
-        case .applying: "Applying validated candidate"
-        case .appliedFinalizing: "Pricing committed; finalizing files"
-        case .rejecting: "Rejecting validated candidate"
-        case .rejectedFinalizing: "Candidate rejected; finalizing files"
         }
     }
 }
