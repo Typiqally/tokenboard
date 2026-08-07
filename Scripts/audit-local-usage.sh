@@ -122,6 +122,14 @@ write_bounded_manifest() {
     done
 }
 
+stream_validated_bytes() {
+    local byte_count=$1
+    if (( byte_count == 0 )); then
+        return 0
+    fi
+    /usr/bin/head -c "$byte_count"
+}
+
 discover_root() {
     local provider=$1
     local root=$2
@@ -326,7 +334,7 @@ for (( index = 1; index <= ${#audit_paths}; index++ )); do
         refuse_input
     fi
 
-    if ! /usr/bin/head -c "$audit_sizes[$index]" <&$opened_fd \
+    if ! stream_validated_bytes "$audit_sizes[$index]" <&$opened_fd \
         | jq -e -s "$model_validator" >/dev/null 2>/dev/null; then
         close_opened
         refuse_model
@@ -337,14 +345,14 @@ for (( index = 1; index <= ${#audit_paths}; index++ )); do
     fi
     provider=$audit_providers[$index]
     if [[ "$provider" == "claude_code" ]]; then
-        if ! /usr/bin/head -c "$audit_sizes[$index]" <&$opened_fd \
+        if ! stream_validated_bytes "$audit_sizes[$index]" <&$opened_fd \
             | jq -c -s "$claude_filter" \
             >>"$audit_root/live-usage.jsonl" 2>/dev/null; then
             close_opened
             refuse_input
         fi
     else
-        if ! /usr/bin/head -c "$audit_sizes[$index]" <&$opened_fd \
+        if ! stream_validated_bytes "$audit_sizes[$index]" <&$opened_fd \
             | jq -c -s "$codex_filter" \
             >>"$audit_root/live-usage.jsonl" 2>/dev/null; then
             close_opened
