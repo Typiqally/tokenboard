@@ -39,34 +39,38 @@ final class NativePresentationTests: XCTestCase {
         XCTAssertEqual(topLevelTitles(built.menu), [
             "842,198 tokens",
             "≈ $7.42 API equivalent",
-            "84K unpriced",
             "—",
-            "Period",
-            "Menu Bar Shows",
+            "Period: This Month",
+            "Menu Bar: API Value",
             "—",
-            "Claude Code: 3 logs",
-            "Codex: ⚠ Some logs need attention",
-            "Dismiss Current Warnings",
-            "Updated never · Local only",
+            "Warnings (1)",
+            "Updated never",
             "—",
             "Refresh Now",
-            "Pricing ⚠ 84K unpriced",
+            "Pricing (84K unpriced)",
             "Settings",
             "—",
             "Quit Tokenboard"
         ])
         XCTAssertEqual(built.statusTitle, "⚠ $7.42+")
-        XCTAssertEqual(built.updatedItem.title, "Updated never · Local only")
+        XCTAssertEqual(built.updatedItem.title, "Updated never")
 
-        let period = built.menu.items[4].submenu!.items
+        let period = built.menu.items[3].submenu!.items
         XCTAssertEqual(period.map(\.title), ["Today", "This Week", "This Month", "This Year", "All Time"])
         XCTAssertEqual(period.map(\.state), [.off, .off, .on, .off, .off])
-        let metrics = built.menu.items[5].submenu!.items
+        let metrics = built.menu.items[4].submenu!.items
         XCTAssertEqual(metrics.map(\.title), ["Tokens", "API Value"])
         XCTAssertEqual(metrics.map(\.state), [.off, .on])
-        XCTAssertEqual(built.menu.items[12].keyEquivalent, "r")
-        XCTAssertEqual(built.menu.items[14].keyEquivalent, ",")
-        XCTAssertEqual(built.menu.items[16].keyEquivalent, "q")
+
+        let warnings = built.menu.items[6].submenu!.items
+        XCTAssertEqual(warnings.map(\.title), [
+            "Codex: Some logs need attention",
+            "—",
+            "Dismiss Current Warnings"
+        ])
+        XCTAssertEqual(built.menu.items[9].keyEquivalent, "r")
+        XCTAssertEqual(built.menu.items[11].keyEquivalent, ",")
+        XCTAssertEqual(built.menu.items[13].keyEquivalent, "q")
     }
 
     func testDismissSelectorNeutralizesStatusAndKeepsWarningDetails() throws {
@@ -93,7 +97,8 @@ final class NativePresentationTests: XCTestCase {
         let controller = MenuController(model: setup.model)
 
         XCTAssertEqual(controller.renderedStatusTitle, "⚠ $3.00+")
-        let dismiss = controller.renderedMenu?.item(withTitle: "Dismiss Current Warnings")
+        let warnings = controller.renderedMenu?.item(withTitle: "Warnings (1)")?.submenu
+        let dismiss = warnings?.item(withTitle: "Dismiss Current Warnings")
         XCTAssertNotNil(dismiss)
         XCTAssertTrue(dismiss?.target === controller)
         XCTAssertEqual(dismiss?.action, NSSelectorFromString("dismissCurrentWarnings"))
@@ -102,11 +107,12 @@ final class NativePresentationTests: XCTestCase {
         _ = controller.perform(NSSelectorFromString("dismissCurrentWarnings"))
 
         XCTAssertEqual(controller.renderedStatusTitle, "◉ $3.00+")
-        XCTAssertNil(controller.renderedMenu?.item(withTitle: "Dismiss Current Warnings"))
-        XCTAssertNotNil(controller.renderedMenu?.items.first {
+        let dismissedWarnings = controller.renderedMenu?.item(withTitle: "Warnings (1)")?.submenu
+        XCTAssertNil(dismissedWarnings?.item(withTitle: "Dismiss Current Warnings"))
+        XCTAssertNotNil(dismissedWarnings?.items.first {
             $0.title.contains("previously imported log was truncated")
         })
-        XCTAssertNotNil(controller.renderedMenu?.item(withTitle: "Pricing ⚠ 84K unpriced"))
+        XCTAssertNotNil(controller.renderedMenu?.item(withTitle: "Pricing (84K unpriced)"))
     }
 
     func testDismissActionIsAbsentWhenInapplicableOrMenuIsLocked() {
@@ -147,7 +153,8 @@ final class NativePresentationTests: XCTestCase {
         )
 
         for built in [inapplicable, restoring, relaunchLocked, startupUnavailable] {
-            XCTAssertNil(built.menu.item(withTitle: "Dismiss Current Warnings"))
+            let warnings = built.menu.items.first { $0.title.hasPrefix("Warnings (") }?.submenu
+            XCTAssertNil(warnings?.item(withTitle: "Dismiss Current Warnings"))
         }
     }
 
@@ -192,7 +199,7 @@ final class NativePresentationTests: XCTestCase {
 
         XCTAssertEqual(controller.renderedMenu?.items.first?.title, "456 tokens")
         XCTAssertEqual(controller.renderedStatusTitle, "◉ 456")
-        let periodParent = controller.renderedMenu?.items.first(where: { $0.title == "Period" })
+        let periodParent = controller.renderedMenu?.items.first(where: { $0.title == "Period: This Week" })
         let year = periodParent?.submenu?.items.first(where: { $0.title == "This Year" })
         XCTAssertEqual(year?.representedObject as? String, "this_year")
         XCTAssertEqual(year?.target as? MenuController, controller)
@@ -205,7 +212,7 @@ final class NativePresentationTests: XCTestCase {
         XCTAssertEqual(setup.model.state.selectedPeriod, .thisYear)
 
         let metricParent = controller.renderedMenu?.items.first {
-            $0.title == "Menu Bar Shows"
+            $0.title == "Menu Bar: Tokens"
         }
         let apiValue = metricParent?.submenu?.items.first { $0.title == "API Value" }
         XCTAssertEqual(apiValue?.representedObject as? String, "api_value")
