@@ -43,8 +43,24 @@ struct SettingsView: View {
             }
 
             Section("Diagnostics") {
+                if case .recoveryRequired = model.health.database {
+                    DatabaseRecoveryView(model: model)
+                }
+                LabeledContent("Database") {
+                    Text(databaseDescription(model.health.database))
+                }
+                LabeledContent("Last successful scan") {
+                    if let date = model.health.lastSuccessfulScan {
+                        Text(date.formatted(date: .abbreviated, time: .standard))
+                    } else {
+                        Text("Never")
+                    }
+                }
                 LabeledContent("Skipped records") {
-                    Text("\(model.settingsState.diagnostics.skippedRecordCount)")
+                    Text("\(model.health.skippedRecordCount)")
+                }
+                LabeledContent("Unpriced tokens") {
+                    Text(ValueFormatter.exactTokens(model.health.unpricedTokens))
                 }
                 ForEach(Provider.allCases, id: \.rawValue) { provider in
                     LabeledContent("\(provider.displayName) parser") {
@@ -68,6 +84,13 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .frame(minWidth: 680, minHeight: 540)
         .disabled(model.settingsState.isLoading)
+    }
+
+    private func databaseDescription(_ state: TokenboardHealth.DatabaseState) -> String {
+        switch state {
+        case .healthy: "Healthy"
+        case let .recoveryRequired(message): "Recovery required · \(message)"
+        }
     }
 }
 

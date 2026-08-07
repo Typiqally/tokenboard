@@ -1,5 +1,5 @@
 public struct ScanOutcome: Equatable, Sendable {
-    public enum Attention: String, Sendable {
+    public enum Attention: String, Hashable, Sendable {
         case truncated
         case replaced
         case missingStableIdentity

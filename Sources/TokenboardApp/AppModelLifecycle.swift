@@ -51,9 +51,20 @@ extension AppModel {
     func performStartup(generation: UInt64) async {
         do {
             try await ledger.migrate()
-            guard accepts(generation) else { return }
+        } catch {
+            await publishDatabaseRecovery(.migrationFailure, generation: generation)
+            return
+        }
+        guard accepts(generation) else { return }
+        do {
             try await ledger.integrityCheck()
-            guard accepts(generation) else { return }
+        } catch {
+            await publishDatabaseRecovery(.integrityFailure, generation: generation)
+            return
+        }
+        guard accepts(generation) else { return }
+
+        do {
             try await installBundledCatalogIfNeeded()
             guard accepts(generation) else { return }
 
@@ -92,6 +103,34 @@ extension AppModel {
             )
             commitState(next)
         }
+    }
+
+    func publishDatabaseRecovery(
+        _ issue: TokenboardHealth.Issue,
+        generation: UInt64
+    ) async {
+        guard accepts(generation) else { return }
+        readyGeneration = nil
+        if coordinatorStatus != .inactive {
+            await coordinator.stop()
+        }
+        if inboxStatus != .inactive {
+            try? await pricingInbox.stop()
+        }
+        coordinatorStatus = .inactive
+        inboxStatus = .inactive
+        guard accepts(generation) else { return }
+        var next = state
+        next.lifecycle = .failed(message: issue.message)
+        next.onboardingRequired = false
+        next.grantedProviders = []
+        next.sourceFileCounts = [:]
+        next.sourceHealth = [.claudeCode: .notGranted, .codex: .notGranted]
+        next.health = next.health.replacing(
+            database: .recoveryRequired(message: issue.message)
+        )
+        commitState(next)
+        await loadRecoveryBackups()
     }
 
     func finishStartupBehavior() async {
@@ -140,10 +179,14 @@ extension AppModel {
                     counts[provider] = count
                     health[provider] = .indexing(fileCount: count)
                 } catch {
-                    health[provider] = .warning(message: "Source discovery unavailable")
+                    health[provider] = .warning(
+                        message: TokenboardHealth.Issue.missingRoot.message
+                    )
                 }
             } catch {
-                health[provider] = .warning(message: "Access unavailable")
+                health[provider] = .warning(
+                    message: TokenboardHealth.Issue.staleBookmark.message
+                )
             }
         }
         return AppResolvedGrants(grants: grants, health: health, counts: counts)

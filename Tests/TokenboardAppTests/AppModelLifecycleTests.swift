@@ -5,6 +5,54 @@ import TokenboardCore
 
 @MainActor
 final class AppModelLifecycleTests: XCTestCase {
+    func testDatabaseStartupFailuresPublishRecoveryHealthWithoutOpeningWriters() async throws {
+        let cases: [(StartupFailurePoint, TokenboardHealth.Issue)] = [
+            (.migrate, .migrationFailure),
+            (.integrity, .integrityFailure)
+        ]
+        for (failure, issue) in cases {
+            let setup = try makeSetup(approved: true, failure: failure)
+            defer { setup.cleanup() }
+
+            await setup.model.start()
+
+            XCTAssertEqual(
+                setup.model.health.database,
+                .recoveryRequired(message: issue.message)
+            )
+            XCTAssertEqual(setup.model.health.claude, .notGranted)
+            XCTAssertEqual(setup.model.health.codex, .notGranted)
+            XCTAssertTrue(setup.model.health.hasWarning)
+            let inboxCounts = await setup.inbox.counts()
+            let coordinatorCounts = await setup.coordinator.counts()
+            XCTAssertEqual(inboxCounts, [0, 0])
+            XCTAssertEqual(coordinatorCounts, [0, 0, 0])
+        }
+    }
+
+    func testShutdownClosesLedgerOnlyAfterCoordinatorAndScopesAreQuiescent() async throws {
+        let stopGate = AsyncTestGate()
+        let setup = try makeSetup(approved: false, coordinatorStopGate: stopGate)
+        defer { setup.cleanup() }
+        await setup.model.start()
+
+        let shutdown = Task { await setup.model.shutdown() }
+        await stopGate.waitUntilEntered()
+        let countWhileStopping = await setup.ledger.shutdownCount()
+        XCTAssertEqual(countWhileStopping, 0)
+        XCTAssertEqual(setup.access.counts, [2, 0])
+
+        await stopGate.resume()
+        await shutdown.value
+        let countAfterStopping = await setup.ledger.shutdownCount()
+        XCTAssertEqual(countAfterStopping, 1)
+        XCTAssertEqual(setup.access.counts, [2, 2])
+
+        await setup.model.shutdown()
+        let countAfterDuplicate = await setup.ledger.shutdownCount()
+        XCTAssertEqual(countAfterDuplicate, 1)
+    }
+
     func testEveryFailedStartupPrerequisiteBlocksSourcesScansAndQueries() async throws {
         for point in StartupFailurePoint.allCases {
             let setup = try makeSetup(approved: true, failure: point)
@@ -233,6 +281,12 @@ final class AppModelLifecycleTests: XCTestCase {
             providers: [
                 .claudeCode: .success(discoveredFiles: 4, scannedFiles: 1),
                 .codex: .attention(discoveredFiles: 2, scannedFiles: 1)
+            ],
+            diagnostics: [
+                .codex: ProviderIngestionDiagnostics(
+                    skippedRecordCount: 0,
+                    attention: [.truncated]
+                )
             ]
         ))
         await waitUntil { await setup.query.calls() == callsBeforeEvent + 1 }
@@ -242,9 +296,10 @@ final class AppModelLifecycleTests: XCTestCase {
         }
         XCTAssertEqual(fileCount, 0)
         XCTAssertEqual(setup.model.state.sourceFileCounts[.claudeCode], 0)
-        guard case .warning = setup.model.state.sourceHealth[.codex] else {
+        guard case let .warning(message) = setup.model.state.sourceHealth[.codex] else {
             return XCTFail("attention outcome was mislabeled healthy")
         }
+        XCTAssertEqual(message, TokenboardHealth.Issue.truncatedLog.message)
         XCTAssertNotNil(setup.model.state.lastUpdated)
     }
 
@@ -1161,6 +1216,7 @@ private actor LifecycleLedger: AppLedgerRuntime {
     private let startupGate: AsyncTestGate?
     private(set) var applyCount = 0
     private var appliedCatalog: Data?
+    private var shutdowns = 0
 
     init(
         failure: StartupFailurePoint?,
@@ -1208,6 +1264,7 @@ private actor LifecycleLedger: AppLedgerRuntime {
     }
     func usageRows(in interval: DateInterval?, calendar: Calendar) -> [DailyUsageRow] { [] }
     func skippedRecordCount() -> Int { 0 }
+    func shutdown() { shutdowns += 1 }
 
     private func failIfNeeded(_ point: StartupFailurePoint) throws {
         guard failure == point else { return }
@@ -1216,6 +1273,7 @@ private actor LifecycleLedger: AppLedgerRuntime {
     }
 
     func appliedCount() -> Int { applyCount }
+    func shutdownCount() -> Int { shutdowns }
 }
 
 private actor LifecycleInbox: AppPricingInboxWatching {

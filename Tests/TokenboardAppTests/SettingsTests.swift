@@ -6,6 +6,39 @@ import TokenboardCore
 
 @MainActor
 final class SettingsTests: XCTestCase {
+    func testRecoveryLoadsBackupWithoutRestoringUntilExplicitActionAndUsesShutdownBarrier() async throws {
+        let backup = DatabaseBackup(
+            url: URL(fileURLWithPath: "/private/tmp/Backups/ledger-v1-100.sqlite"),
+            modificationDate: Date(timeIntervalSince1970: 100)
+        )
+        let recovery = SettingsRecovery(backup: backup)
+        let setup = try makeSetup(candidate: nil, databaseRecovery: recovery)
+        defer { setup.cleanup() }
+        var failed = setup.model.state
+        failed.lifecycle = .failed(message: TokenboardHealth.Issue.integrityFailure.message)
+        failed.health = failed.health.replacing(
+            database: .recoveryRequired(
+                message: TokenboardHealth.Issue.integrityFailure.message
+            )
+        )
+        setup.model.commitState(failed)
+
+        await setup.model.refreshSettings()
+
+        XCTAssertEqual(setup.model.settingsState.recoveryBackups, [backup])
+        let restoresBeforeAction = await recovery.restoreCount()
+        XCTAssertEqual(restoresBeforeAction, 0)
+
+        await setup.model.restoreLatestBackup()
+
+        let restoresAfterAction = await recovery.restoreCount()
+        let didAwaitShutdown = await recovery.didAwaitShutdown()
+        XCTAssertEqual(restoresAfterAction, 1)
+        XCTAssertTrue(didAwaitShutdown)
+        XCTAssertEqual(setup.model.state.lifecycle, .stopped)
+        XCTAssertTrue(setup.model.settingsState.statusMessage?.contains("restored and verified") == true)
+    }
+
     func testRefreshingSettingsWaitsForStartupWhenOpenedOnDemand() async throws {
         let setup = try makeSetup(candidate: validatedCandidate())
         defer { setup.cleanup() }
@@ -190,6 +223,11 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(setup.model.settingsState.pricing.inboxStatus, .invalid(.invalidCatalog))
         XCTAssertNil(setup.model.settingsState.pricing.pendingCandidate)
         XCTAssertFalse(setup.model.settingsState.pricing.canApply)
+        XCTAssertEqual(
+            setup.model.health.pricing,
+            .warning(message: TokenboardHealth.Issue.invalidPricingCandidate.message)
+        )
+        XCTAssertEqual(setup.model.settingsState.diagnostics.health, setup.model.health)
     }
 
     func testConflictBlocksApplyAndLeavesCandidatePending() async throws {
@@ -487,7 +525,8 @@ final class SettingsTests: XCTestCase {
         applyOutcome: PricingApplyOutcome = .finalized,
         finalizationOutcome: PricingFinalizationOutcome = .applied,
         finalizationRetryGate: SettingsMutationGate? = nil,
-        finalizationRetryError: PricingInboxError? = nil
+        finalizationRetryError: PricingInboxError? = nil,
+        databaseRecovery: (any AppDatabaseRecovering)? = nil
     ) throws -> SettingsSetup {
         let suite = "SettingsTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
@@ -534,7 +573,8 @@ final class SettingsTests: XCTestCase {
             applicationPaths: paths,
             sourcePicker: SettingsPicker(url: pickerURL),
             pasteboard: pasteboard,
-            localDataRevealer: revealer
+            localDataRevealer: revealer,
+            databaseRecovery: databaseRecovery
         )
         return SettingsSetup(
             model: model,
@@ -634,6 +674,30 @@ private struct SettingsSetup {
 }
 
 private enum SettingsError: Error { case injected }
+
+private actor SettingsRecovery: AppDatabaseRecovering {
+    private let backup: DatabaseBackup
+    private var restores = 0
+    private var shutdownAwaited = false
+
+    init(backup: DatabaseBackup) {
+        self.backup = backup
+    }
+
+    func availableBackups() -> [DatabaseBackup] { [backup] }
+
+    func restoreLatest(
+        afterShutdown: @Sendable () async throws -> Void
+    ) async throws -> DatabaseBackup {
+        restores += 1
+        try await afterShutdown()
+        shutdownAwaited = true
+        return backup
+    }
+
+    func restoreCount() -> Int { restores }
+    func didAwaitShutdown() -> Bool { shutdownAwaited }
+}
 
 private final class SettingsRecorder: @unchecked Sendable {
     private let lock = NSLock()

@@ -36,25 +36,41 @@ public enum IngestionBatchScope: Equatable, Sendable {
     case incremental
 }
 
+public struct ProviderIngestionDiagnostics: Equatable, Sendable {
+    public let skippedRecordCount: Int
+    public let attention: Set<ScanOutcome.Attention>
+
+    public init(
+        skippedRecordCount: Int,
+        attention: Set<ScanOutcome.Attention>
+    ) {
+        self.skippedRecordCount = max(0, skippedRecordCount)
+        self.attention = attention
+    }
+}
+
 public struct IngestionBatchResult: Equatable, Sendable {
     public let runID: UInt64
     public let sequence: UInt64
     public let scope: IngestionBatchScope
     public let requiresInventoryRefresh: Bool
     public let providers: [Provider: ProviderIngestionResult]
+    public let diagnostics: [Provider: ProviderIngestionDiagnostics]
 
     public init(
         runID: UInt64,
         sequence: UInt64,
         scope: IngestionBatchScope,
         requiresInventoryRefresh: Bool = false,
-        providers: [Provider: ProviderIngestionResult]
+        providers: [Provider: ProviderIngestionResult],
+        diagnostics: [Provider: ProviderIngestionDiagnostics] = [:]
     ) {
         self.runID = runID
         self.sequence = sequence
         self.scope = scope
         self.requiresInventoryRefresh = requiresInventoryRefresh
         self.providers = providers
+        self.diagnostics = diagnostics
     }
 }
 
@@ -124,6 +140,8 @@ public actor IngestionCoordinator {
         var discoveredFiles = 0
         var scannedFiles = 0
         var severity = Severity.success
+        var skippedRecordCount = 0
+        var attention: Set<ScanOutcome.Attention> = []
 
         var result: ProviderIngestionResult {
             switch severity {
@@ -134,6 +152,13 @@ public actor IngestionCoordinator {
             case .failure:
                 .failure(discoveredFiles: discoveredFiles, scannedFiles: scannedFiles)
             }
+        }
+
+        var diagnostics: ProviderIngestionDiagnostics {
+            ProviderIngestionDiagnostics(
+                skippedRecordCount: skippedRecordCount,
+                attention: attention
+            )
         }
     }
 
@@ -731,7 +756,8 @@ public actor IngestionCoordinator {
                     runID: queued.runID,
                     sequence: nextSequence,
                     scope: queued.scope,
-                    providers: execution.progress.mapValues(\.result)
+                    providers: execution.progress.mapValues(\.result),
+                    diagnostics: execution.progress.mapValues(\.diagnostics)
                 )
                 inventoryContinuations.forEach { $0.resume(returning: result) }
                 if queued.scope == .incremental,
@@ -936,7 +962,7 @@ public actor IngestionCoordinator {
                 )
                 accumulator.recordScan(
                     provider: provider,
-                    needsAttention: outcome.attention != nil
+                    outcome: outcome
                 )
             } catch is CancellationError {
                 throw CancellationError()
@@ -972,11 +998,15 @@ public actor IngestionCoordinator {
             }
         }
 
-        func recordScan(provider: Provider, needsAttention: Bool) {
+        func recordScan(provider: Provider, outcome: ScanOutcome) {
             lock.withLock {
                 var value = progress[provider] ?? ProviderProgress()
                 value.scannedFiles += 1
-                if needsAttention,
+                value.skippedRecordCount += outcome.skippedRecords
+                if let attention = outcome.attention {
+                    value.attention.insert(attention)
+                }
+                if (outcome.attention != nil || outcome.skippedRecords > 0),
                    value.severity.rawValue < Severity.attention.rawValue {
                     value.severity = .attention
                 }

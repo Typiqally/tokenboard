@@ -3,6 +3,7 @@ import TokenboardCore
 
 enum SourceGrantError: Error, Equatable {
     case accessDenied
+    case staleBookmark
 }
 
 struct ResolvedSourceBookmark: Equatable, Sendable {
@@ -133,7 +134,7 @@ final class SourceGrantStore {
         let url = resolved.url.standardizedFileURL
         if resolved.isStale {
             let didAccess = bookmarkAccess.startAccessing(url)
-            guard didAccess else { throw SourceGrantError.accessDenied }
+            guard didAccess else { throw SourceGrantError.staleBookmark }
             defer {
                 bookmarkAccess.stopAccessing(url)
             }

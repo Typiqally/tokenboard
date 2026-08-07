@@ -4,6 +4,7 @@ import Security
 
 public enum LedgerError: Error, Equatable {
     case notMigrated
+    case connectionClosed
     case quantityOverflow
     case corruptData(String)
     case integrityCheckFailed(String)
@@ -34,6 +35,7 @@ public actor SQLiteLedger: LedgerStore {
     private var connection: SQLiteConnection?
     private let backupDirectory: URL
     private var privacyHasher: PrivacyHasher?
+    private var isClosed = false
 
     public init(databaseURL: URL, backupDirectory: URL) throws {
         connection = try SQLiteConnection(url: databaseURL)
@@ -55,6 +57,17 @@ public actor SQLiteLedger: LedgerStore {
         guard rows == ["ok"] else {
             throw LedgerError.integrityCheckFailed(rows.joined(separator: "; "))
         }
+    }
+
+    public func shutdown() throws {
+        guard !isClosed else { return }
+        let openConnection = connection
+        defer {
+            privacyHasher = nil
+            connection = nil
+            isClosed = true
+        }
+        try openConnection?.execute("PRAGMA wal_checkpoint(TRUNCATE);")
     }
 
     public func skippedRecordCount() throws -> Int {
@@ -263,11 +276,13 @@ public actor SQLiteLedger: LedgerStore {
     }
 
     private func requiredConnection() throws -> SQLiteConnection {
+        guard !isClosed else { throw LedgerError.connectionClosed }
         guard let connection else { throw LedgerError.notMigrated }
         return connection
     }
 
     private func requiredPrivacyHasher() throws -> PrivacyHasher {
+        guard !isClosed else { throw LedgerError.connectionClosed }
         guard let privacyHasher else { throw LedgerError.notMigrated }
         return privacyHasher
     }

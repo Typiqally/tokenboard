@@ -56,11 +56,20 @@ struct PricingSettingsState: Equatable, Sendable {
 }
 
 struct SettingsDiagnosticsState: Equatable, Sendable {
-    var skippedRecordCount: Int
+    var health: TokenboardHealth
     var parserVersions: [Provider: Int]
 
+    var skippedRecordCount: Int { health.skippedRecordCount }
+
     static let empty = SettingsDiagnosticsState(
-        skippedRecordCount: 0,
+        health: TokenboardHealth(
+            claude: .notGranted,
+            codex: .notGranted,
+            database: .healthy,
+            lastSuccessfulScan: nil,
+            skippedRecordCount: 0,
+            unpricedTokens: 0
+        ),
         parserVersions: [
             .claudeCode: ClaudeCodeAdapter.parserVersion,
             .codex: CodexAdapter.parserVersion
@@ -75,6 +84,8 @@ struct AppSettingsState: Equatable, Sendable {
     var statusMessage: String?
     var isLoading: Bool
     var isSourceMutationInProgress: Bool
+    var recoveryBackups: [DatabaseBackup]
+    var isRestoringDatabase: Bool
 
     var isFinalizationRetryInProgress: Bool {
         get { pricing.isFinalizationRetryInProgress }
@@ -87,6 +98,8 @@ struct AppSettingsState: Equatable, Sendable {
         diagnostics: .empty,
         statusMessage: nil,
         isLoading: false,
-        isSourceMutationInProgress: false
+        isSourceMutationInProgress: false,
+        recoveryBackups: [],
+        isRestoringDatabase: false
     )
 }

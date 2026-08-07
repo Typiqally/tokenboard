@@ -17,6 +17,11 @@ protocol AppLedgerRuntime: Sendable {
         calendar: Calendar
     ) async throws -> [DailyUsageRow]
     func skippedRecordCount() async throws -> Int
+    func shutdown() async throws
+}
+
+extension AppLedgerRuntime {
+    func shutdown() async throws {}
 }
 
 protocol AppUsageQuerying: Sendable {
@@ -59,6 +64,13 @@ protocol AppPricingInboxWatching: Sendable {
     ) async throws -> PricingFinalizationOutcome
 }
 
+protocol AppDatabaseRecovering: Sendable {
+    func availableBackups() async throws -> [DatabaseBackup]
+    func restoreLatest(
+        afterShutdown: @Sendable () async throws -> Void
+    ) async throws -> DatabaseBackup
+}
+
 extension AppPricingInboxWatching {
     func status() async -> PricingInboxStatus {
         await pendingCandidate().map(PricingInboxStatus.valid) ?? .empty
@@ -95,6 +107,7 @@ extension SQLiteLedger: AppLedgerRuntime {}
 extension UsageQueryService: AppUsageQuerying {}
 extension IngestionCoordinator: AppIngestionCoordinating {}
 extension PricingInbox: AppPricingInboxWatching {}
+extension DatabaseRecoveryService: AppDatabaseRecovering {}
 
 enum AppLifecycleState: Equatable, Sendable {
     case idle
@@ -108,16 +121,34 @@ enum AppLifecycleState: Equatable, Sendable {
 struct AppPublishedState: Equatable, Sendable {
     var lifecycle: AppLifecycleState
     var presentation: MenuPresentation?
-    var sourceHealth: [Provider: SourceHealth]
     var sourceFileCounts: [Provider: Int]
-    var lastSuccessfulScans: [Provider: Date]
     var grantedProviders: Set<Provider>
     var onboardingRequired: Bool
     var historicalImportApproved: Bool
     var selectedPeriod: CalendarPeriod
     var selectedDisplayMetric: DisplayMetric
-    var lastUpdated: Date?
+    var health: TokenboardHealth
     var isImporting: Bool
+
+    var sourceHealth: [Provider: SourceHealth] {
+        get { [.claudeCode: health.claude, .codex: health.codex] }
+        set {
+            health = health.replacing(
+                claude: newValue[.claudeCode] ?? .notGranted,
+                codex: newValue[.codex] ?? .notGranted
+            )
+        }
+    }
+
+    var lastSuccessfulScans: [Provider: Date] {
+        get { health.providerLastSuccessfulScans }
+        set { health = health.replacing(providerLastSuccessfulScans: newValue) }
+    }
+
+    var lastUpdated: Date? {
+        get { health.lastSuccessfulScan }
+        set { health = health.replacing(lastSuccessfulScan: .some(newValue)) }
+    }
 
     static func initial(
         period: CalendarPeriod,
@@ -127,15 +158,20 @@ struct AppPublishedState: Equatable, Sendable {
         AppPublishedState(
             lifecycle: .idle,
             presentation: nil,
-            sourceHealth: [.claudeCode: .notGranted, .codex: .notGranted],
             sourceFileCounts: [:],
-            lastSuccessfulScans: [:],
             grantedProviders: [],
             onboardingRequired: false,
             historicalImportApproved: historicalImportApproved,
             selectedPeriod: period,
             selectedDisplayMetric: displayMetric,
-            lastUpdated: nil,
+            health: TokenboardHealth(
+                claude: .notGranted,
+                codex: .notGranted,
+                database: .healthy,
+                lastSuccessfulScan: nil,
+                skippedRecordCount: 0,
+                unpricedTokens: 0
+            ),
             isImporting: false
         )
     }

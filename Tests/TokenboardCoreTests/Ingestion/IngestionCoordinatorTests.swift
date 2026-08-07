@@ -498,6 +498,38 @@ final class IngestionCoordinatorTests: XCTestCase {
         await coordinator.stop()
     }
 
+    func testSkippedUnknownFormatReportsAttentionAndBoundedDiagnostics() async throws {
+        let setup = try makeSetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let claudeFile = setup.claudeRoot.appending(path: "unknown.jsonl")
+        try Data().write(to: claudeFile)
+        let scanner = RecordingScanner(outcomes: [
+            .claudeCode: ScanOutcome(
+                committedUsageRecords: 0,
+                skippedRecords: 3,
+                finalOffset: 0
+            )
+        ])
+        let coordinator = IngestionCoordinator(
+            scanner: scanner,
+            watcher: FakeSourceEventWatcher(),
+            clock: ManualIngestionClock(),
+            calendar: calendar
+        )
+
+        let result = try await coordinator.start(roots: setup.roots)
+
+        XCTAssertEqual(
+            result.providers[.claudeCode],
+            .attention(discoveredFiles: 1, scannedFiles: 1)
+        )
+        XCTAssertEqual(
+            result.diagnostics[.claudeCode],
+            ProviderIngestionDiagnostics(skippedRecordCount: 3, attention: [])
+        )
+        await coordinator.stop()
+    }
+
     func testDiscoveryFailureIsReportedAndDoesNotBecomeHealthySuccess() async throws {
         let setup = try makeSetup()
         defer { try? FileManager.default.removeItem(at: setup.directory) }

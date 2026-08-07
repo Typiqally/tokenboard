@@ -147,6 +147,7 @@ extension AppModel {
             next.grantedProviders.remove(provider)
             next.sourceFileCounts[provider] = nil
             next.lastSuccessfulScans[provider] = nil
+            next.lastUpdated = next.lastSuccessfulScans.values.max()
             next.sourceHealth[provider] = .notGranted
             next.onboardingRequired = true
             commitState(next)
@@ -195,7 +196,64 @@ extension AppModel {
         localDataRevealer.reveal([applicationPaths.root])
     }
 
+    func loadRecoveryBackups() async {
+        do {
+            let backups = try await databaseRecovery.availableBackups()
+            var next = settingsState
+            next.recoveryBackups = backups
+            commitSettingsState(next)
+        } catch {
+            var next = settingsState
+            next.recoveryBackups = []
+            next.statusMessage = "Backup list unavailable; the database was not changed"
+            commitSettingsState(next)
+        }
+    }
+
+    func restoreLatestBackup() async {
+        guard case .recoveryRequired = state.health.database,
+              !settingsState.isRestoringDatabase else { return }
+        var nextSettings = settingsState
+        nextSettings.isRestoringDatabase = true
+        nextSettings.statusMessage = "Stopping local writers before restore…"
+        commitSettingsState(nextSettings)
+        do {
+            let backup = try await databaseRecovery.restoreLatest { [weak self] in
+                await self?.shutdown()
+            }
+            nextSettings = settingsState
+            nextSettings.isRestoringDatabase = false
+            nextSettings.statusMessage = "Backup from \(backup.modificationDate.formatted(date: .abbreviated, time: .shortened)) restored and verified · Quit and reopen Tokenboard"
+            commitSettingsState(nextSettings)
+        } catch {
+            nextSettings = settingsState
+            nextSettings.isRestoringDatabase = false
+            nextSettings.statusMessage = "Restore failed safely · Existing database and backup were preserved"
+            commitSettingsState(nextSettings)
+        }
+    }
+
     private func refreshSettings(statusMessage: String?) async {
+        if case .recoveryRequired = state.health.database {
+            await loadRecoveryBackups()
+            commitSettingsState(AppSettingsState(
+                sources: sourceSettings(),
+                pricing: settingsState.pricing,
+                diagnostics: SettingsDiagnosticsState(
+                    health: state.health,
+                    parserVersions: [
+                        .claudeCode: ClaudeCodeAdapter.parserVersion,
+                        .codex: CodexAdapter.parserVersion
+                    ]
+                ),
+                statusMessage: statusMessage ?? settingsState.statusMessage,
+                isLoading: false,
+                isSourceMutationInProgress: false,
+                recoveryBackups: settingsState.recoveryBackups,
+                isRestoringDatabase: settingsState.isRestoringDatabase
+            ))
+            return
+        }
         guard await ensureReady(retryFailed: false) else {
             setSettingsStatus("Settings unavailable until startup completes")
             return
@@ -223,6 +281,22 @@ extension AppModel {
                     candidate: $0.catalog
                 )
             }
+            let resolution = try PriceResolver().resolve(rows: rows, pricing: pricing)
+            let pricingHealth: TokenboardHealth.PricingState
+            if case .invalid = inboxStatus {
+                pricingHealth = .warning(
+                    message: TokenboardHealth.Issue.invalidPricingCandidate.message
+                )
+            } else {
+                pricingHealth = .healthy
+            }
+            var published = state
+            published.health = published.health.replacing(
+                skippedRecordCount: skippedCount,
+                unpricedTokens: resolution.unpricedTokens,
+                pricing: pricingHealth
+            )
+            commitState(published)
 
             commitSettingsState(AppSettingsState(
                 sources: sourceSettings(),
@@ -241,7 +315,7 @@ extension AppModel {
                         .isFinalizationRetryInProgress
                 ),
                 diagnostics: SettingsDiagnosticsState(
-                    skippedRecordCount: skippedCount,
+                    health: published.health,
                     parserVersions: [
                         .claudeCode: ClaudeCodeAdapter.parserVersion,
                         .codex: CodexAdapter.parserVersion
@@ -249,7 +323,9 @@ extension AppModel {
                 ),
                 statusMessage: statusMessage,
                 isLoading: false,
-                isSourceMutationInProgress: sourceMutation != nil
+                isSourceMutationInProgress: sourceMutation != nil,
+                recoveryBackups: settingsState.recoveryBackups,
+                isRestoringDatabase: settingsState.isRestoringDatabase
             ))
         } catch {
             setSettingsLoading(false)

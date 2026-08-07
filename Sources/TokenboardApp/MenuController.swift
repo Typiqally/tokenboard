@@ -27,12 +27,7 @@ enum NativeMenuBuilder {
                 menu.addDisabledItem(unpricedTitle)
             }
         } else {
-            let warning = startupError != nil || state?.sourceHealth.values.contains(where: {
-                switch $0 {
-                case .notGranted, .warning: true
-                case .indexing, .healthy: false
-                }
-            }) == true
+            let warning = startupError != nil || state?.health.hasWarning == true
             statusTitle = warning ? "⚠ Unavailable" : "◉ …"
             menu.addDisabledItem("Token total unavailable")
             menu.addDisabledItem("API equivalent unavailable")
@@ -45,10 +40,10 @@ enum NativeMenuBuilder {
 
         if let state {
             menu.addDisabledItem(healthTitle(
-                state.sourceHealth[.claudeCode],
+                state.health.claude,
                 name: "Claude Code"
             ))
-            menu.addDisabledItem(healthTitle(state.sourceHealth[.codex], name: "Codex"))
+            menu.addDisabledItem(healthTitle(state.health.codex, name: "Codex"))
         } else {
             menu.addDisabledItem("Claude Code: \(startupError ?? "Unavailable")")
             menu.addDisabledItem("Codex: \(startupError ?? "Unavailable")")
@@ -188,7 +183,7 @@ final class MenuController: NSObject, NSMenuDelegate {
     func menuWillOpen(_ menu: NSMenu) {
         guard let updatedItem else { return }
         let relative: String
-        if let lastUpdated = model?.state.lastUpdated {
+        if let lastUpdated = model?.health.lastSuccessfulScan {
             let formatter = RelativeDateTimeFormatter()
             formatter.unitsStyle = .full
             relative = formatter.localizedString(for: lastUpdated, relativeTo: Date())

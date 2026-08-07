@@ -339,6 +339,9 @@ extension AppModel {
               coordinatorStatus == .active(runID: result.runID) else { return }
 
         var next = state
+        if let skippedCount = try? await ledger.skippedRecordCount() {
+            next.health = next.health.replacing(skippedRecordCount: skippedCount)
+        }
         let hasSuccessfulProvider = result.providers.values.contains { outcome in
             if case .success = outcome { return true }
             return false
@@ -366,7 +369,9 @@ extension AppModel {
                     next.sourceFileCounts[provider] = discoveredFiles
                 }
                 next.sourceHealth[provider] = .warning(
-                    message: "Some logs need attention"
+                    message: healthIssue(
+                        for: result.diagnostics[provider]
+                    ).message
                 )
             case .failure:
                 next.sourceHealth[provider] = .warning(message: "Import failed")
@@ -379,6 +384,7 @@ extension AppModel {
            period == state.selectedPeriod,
            case let .success(summary) = summaryResult {
             lastSummary = summary
+            next.health = next.health.replacing(unpricedTokens: summary.unpricedTokens)
             next.presentation = makePresentation(summary: summary, state: next)
         } else if let lastSummary {
             next.presentation = makePresentation(summary: lastSummary, state: next)
@@ -598,6 +604,7 @@ extension AppModel {
                   state.selectedPeriod == period else { return }
             lastSummary = summary
             var next = state
+            next.health = next.health.replacing(unpricedTokens: summary.unpricedTokens)
             next.presentation = makePresentation(summary: summary, state: next)
             commitState(next)
         case let .failure(error):
@@ -640,7 +647,7 @@ extension AppModel {
         MenuPresentation(
             summary: summary,
             displayMetric: state.selectedDisplayMetric,
-            hasHealthWarning: state.sourceHealth.values.contains(where: Self.isWarning)
+            hasHealthWarning: state.health.hasWarning
         )
     }
 
@@ -697,5 +704,14 @@ extension AppModel {
             return description
         }
         return String(describing: error)
+    }
+
+    func healthIssue(
+        for diagnostics: ProviderIngestionDiagnostics?
+    ) -> TokenboardHealth.Issue {
+        guard let diagnostics else { return .unknownFormats }
+        if diagnostics.attention.contains(.truncated) { return .truncatedLog }
+        if diagnostics.attention.contains(.replaced) { return .replacedLog }
+        return .unknownFormats
     }
 }

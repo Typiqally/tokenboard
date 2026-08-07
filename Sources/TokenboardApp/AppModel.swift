@@ -11,6 +11,7 @@ final class AppModel: ObservableObject {
     var onOpenSettings: (() -> Void)?
 
     var presentation: MenuPresentation? { state.presentation }
+    var health: TokenboardHealth { state.health }
     var sourceHealth: [Provider: SourceHealth] { state.sourceHealth }
     var sourceFileCounts: [Provider: Int] { state.sourceFileCounts }
     var onboardingRequired: Bool { state.onboardingRequired }
@@ -34,6 +35,7 @@ final class AppModel: ObservableObject {
     let discovery: any LogDiscovering
     let pasteboard: any AppPlainTextCopying
     let localDataRevealer: any AppLocalDataRevealing
+    let databaseRecovery: any AppDatabaseRecovering
     var activeGrants: [Provider: ActiveSourceGrant] = [:]
     var lastSummary: UsageSummary?
     var lifecycleGeneration: UInt64 = 0
@@ -70,7 +72,8 @@ final class AppModel: ObservableObject {
         discovery: any LogDiscovering = LogDiscovery(),
         sourcePicker: (any AppSourcePicking)? = nil,
         pasteboard: (any AppPlainTextCopying)? = nil,
-        localDataRevealer: (any AppLocalDataRevealing)? = nil
+        localDataRevealer: (any AppLocalDataRevealing)? = nil,
+        databaseRecovery: (any AppDatabaseRecovering)? = nil
     ) {
         self.ledger = ledger
         self.queryService = queryService
@@ -86,6 +89,10 @@ final class AppModel: ObservableObject {
         self.discovery = discovery
         self.pasteboard = pasteboard ?? GeneralPasteboardTextCopier()
         self.localDataRevealer = localDataRevealer ?? WorkspaceLocalDataRevealer()
+        self.databaseRecovery = databaseRecovery ?? DatabaseRecoveryService(
+            databaseURL: applicationPaths.ledger,
+            backupDirectory: applicationPaths.backups
+        )
         state = .initial(
             period: preferences.selectedPeriod,
             displayMetric: preferences.selectedDisplayMetric,
@@ -239,6 +246,7 @@ final class AppModel: ObservableObject {
         isProcessingIngestionResults = false
         inFlightQueries.removeAll()
         closeActiveGrants()
+        try? await ledger.shutdown()
         lastSummary = nil
 
         next = state
