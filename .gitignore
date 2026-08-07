@@ -1,3 +1,7 @@
 .worktrees/
 .superpowers/sdd/
-
+.build/
+.build-strict/
+.DS_Store
+*.xcuserstate
+xcuserdata/
