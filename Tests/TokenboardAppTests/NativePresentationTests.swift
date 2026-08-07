@@ -29,7 +29,12 @@ final class NativePresentationTests: XCTestCase {
         state.grantedProviders = Set(Provider.allCases)
         state.lastUpdated = updated
 
-        let built = NativeMenuBuilder.makeMenu(state: state, startupError: nil, target: nil)
+        let built = NativeMenuBuilder.makeMenu(
+            state: state,
+            startupError: nil,
+            target: nil,
+            canDismissCurrentWarnings: true
+        )
 
         XCTAssertEqual(topLevelTitles(built.menu), [
             "842,198 tokens",
@@ -41,6 +46,7 @@ final class NativePresentationTests: XCTestCase {
             "—",
             "Claude Code: 3 logs",
             "Codex: ⚠ Some logs need attention",
+            "Dismiss Current Warnings",
             "Updated never · Local only",
             "—",
             "Refresh Now",
@@ -58,9 +64,88 @@ final class NativePresentationTests: XCTestCase {
         let metrics = built.menu.items[5].submenu!.items
         XCTAssertEqual(metrics.map(\.title), ["Tokens", "API Value"])
         XCTAssertEqual(metrics.map(\.state), [.off, .on])
-        XCTAssertEqual(built.menu.items[11].keyEquivalent, "r")
-        XCTAssertEqual(built.menu.items[13].keyEquivalent, ",")
-        XCTAssertEqual(built.menu.items[15].keyEquivalent, "q")
+        XCTAssertEqual(built.menu.items[12].keyEquivalent, "r")
+        XCTAssertEqual(built.menu.items[14].keyEquivalent, ",")
+        XCTAssertEqual(built.menu.items[16].keyEquivalent, "q")
+    }
+
+    func testDismissSelectorNeutralizesStatusAndKeepsWarningDetails() throws {
+        let setup = try makeModel()
+        defer { setup.cleanup() }
+        let summary = UsageSummary(
+            period: .thisMonth,
+            tokenTotal: 1_000_000,
+            knownAPIEquivalentUSD: Decimal(string: "3.00")!,
+            unpricedTokens: 84_000
+        )
+        setup.model.lastSummary = summary
+        var state = AppPublishedState.initial(period: .thisMonth, displayMetric: .apiValue)
+        state.lifecycle = .ready
+        state.sourceHealth = [
+            .claudeCode: .warning(
+                issue: .truncatedLog,
+                message: TokenboardHealth.Issue.truncatedLog.message
+            ),
+            .codex: .healthy(fileCount: 2, lastUpdated: .distantPast)
+        ]
+        state.presentation = setup.model.makePresentation(summary: summary, state: state)
+        setup.model.commitState(state)
+        let controller = MenuController(model: setup.model)
+
+        XCTAssertEqual(controller.renderedStatusTitle, "⚠ $3.00+")
+        XCTAssertNotNil(controller.renderedMenu?.item(withTitle: "Dismiss Current Warnings"))
+        XCTAssertTrue(controller.responds(to: NSSelectorFromString("dismissCurrentWarnings")))
+
+        _ = controller.perform(NSSelectorFromString("dismissCurrentWarnings"))
+
+        XCTAssertEqual(controller.renderedStatusTitle, "◉ $3.00+")
+        XCTAssertNil(controller.renderedMenu?.item(withTitle: "Dismiss Current Warnings"))
+        XCTAssertNotNil(controller.renderedMenu?.items.first {
+            $0.title.contains("previously imported log was truncated")
+        })
+        XCTAssertNotNil(controller.renderedMenu?.item(withTitle: "Pricing ⚠ 84K unpriced"))
+    }
+
+    func testDismissActionIsAbsentWhenInapplicableOrMenuIsLocked() {
+        var state = AppPublishedState.initial(period: .today, displayMetric: .tokens)
+        state.lifecycle = .ready
+        state.sourceHealth = [
+            .claudeCode: .warning(
+                issue: .truncatedLog,
+                message: TokenboardHealth.Issue.truncatedLog.message
+            ),
+            .codex: .notGranted
+        ]
+        let inapplicable = NativeMenuBuilder.makeMenu(
+            state: state,
+            startupError: nil,
+            target: nil,
+            canDismissCurrentWarnings: false
+        )
+        let restoring = NativeMenuBuilder.makeMenu(
+            state: state,
+            startupError: nil,
+            target: nil,
+            canDismissCurrentWarnings: true,
+            isRestoringDatabase: true
+        )
+        let relaunchLocked = NativeMenuBuilder.makeMenu(
+            state: state,
+            startupError: nil,
+            target: nil,
+            canDismissCurrentWarnings: true,
+            requiresRelaunch: true
+        )
+        let startupUnavailable = NativeMenuBuilder.makeMenu(
+            state: nil,
+            startupError: "Startup paused",
+            target: nil,
+            canDismissCurrentWarnings: false
+        )
+
+        for built in [inapplicable, restoring, relaunchLocked, startupUnavailable] {
+            XCTAssertNil(built.menu.item(withTitle: "Dismiss Current Warnings"))
+        }
     }
 
     func testOnboardingCopyAndVisibilityRemainExplicitAndConsentNeutral() throws {
