@@ -747,31 +747,27 @@ public actor DatabaseRecoveryService {
         guard path.hasPrefix("/") else {
             throw DatabaseRecoveryError.invalidDatabaseLocation
         }
-        var descriptor = open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+        let descriptor = open(
+            path,
+            O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW
+        )
         guard descriptor >= 0 else {
             throw DatabaseRecoveryError.invalidDatabaseLocation
         }
-        do {
-            for component in path.split(separator: "/").map(String.init) {
-                guard Self.isSinglePathComponent(component) else {
-                    throw DatabaseRecoveryError.invalidDatabaseLocation
-                }
-                let next = openat(
-                    descriptor,
-                    component,
-                    O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW
-                )
-                guard next >= 0 else {
-                    throw DatabaseRecoveryError.invalidDatabaseLocation
-                }
-                Darwin.close(descriptor)
-                descriptor = next
-            }
-            return descriptor
-        } catch {
-            Darwin.close(descriptor)
-            throw error
+        var resolvedPath = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+        let resolutionResult = resolvedPath.withUnsafeMutableBufferPointer { buffer in
+            fcntl(descriptor, F_GETPATH, buffer.baseAddress!)
         }
+        let pathEnd = resolvedPath.firstIndex(of: 0) ?? resolvedPath.endIndex
+        let resolved = resolvedPath[..<pathEnd].withUnsafeBytes {
+            String(decoding: $0, as: UTF8.self)
+        }
+        guard resolutionResult == 0,
+              resolved == path else {
+            Darwin.close(descriptor)
+            throw DatabaseRecoveryError.invalidDatabaseLocation
+        }
+        return descriptor
     }
 
     private func validateSidecars(in parent: Int32) throws {

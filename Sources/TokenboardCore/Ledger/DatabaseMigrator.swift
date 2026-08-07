@@ -647,27 +647,27 @@ public struct DatabaseMigrator {
         guard path.hasPrefix("/") else {
             throw failure(SQLITE_CANTOPEN, "invalid migration backup parent")
         }
-        var descriptor = Darwin.open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC)
-        guard descriptor >= 0 else { throw posixFailure("unable to open migration backup parent") }
-        do {
-            for component in path.split(separator: "/").map(String.init) {
-                guard isSinglePathComponent(component) else {
-                    throw failure(SQLITE_CANTOPEN, "invalid migration backup parent")
-                }
-                let next = openat(
-                    descriptor,
-                    component,
-                    O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW
-                )
-                guard next >= 0 else { throw posixFailure("unable to open migration backup parent") }
-                Darwin.close(descriptor)
-                descriptor = next
-            }
-            return descriptor
-        } catch {
-            Darwin.close(descriptor)
-            throw error
+        let descriptor = Darwin.open(
+            path,
+            O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW
+        )
+        guard descriptor >= 0 else {
+            throw posixFailure("unable to open migration backup parent")
         }
+        var resolvedPath = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+        let resolutionResult = resolvedPath.withUnsafeMutableBufferPointer { buffer in
+            fcntl(descriptor, F_GETPATH, buffer.baseAddress!)
+        }
+        let pathEnd = resolvedPath.firstIndex(of: 0) ?? resolvedPath.endIndex
+        let resolved = resolvedPath[..<pathEnd].withUnsafeBytes {
+            String(decoding: $0, as: UTF8.self)
+        }
+        guard resolutionResult == 0,
+              resolved == path else {
+            Darwin.close(descriptor)
+            throw failure(SQLITE_CANTOPEN, "unsafe migration backup parent")
+        }
+        return descriptor
     }
 
     private func directoriesMatch(_ lhs: Int32, _ rhs: Int32) -> Bool {

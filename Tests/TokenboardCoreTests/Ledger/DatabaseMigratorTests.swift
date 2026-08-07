@@ -508,6 +508,38 @@ final class DatabaseMigratorTests: XCTestCase {
         XCTAssertTrue(operations.contains(.didOpenBackupDirectory))
     }
 
+    func testBackupParentRejectsAncestorSymlinkEscape() throws {
+        let directory = try temporaryDirectory()
+        let escapedRoot = directory.appending(path: "EscapedRoot")
+        let escapedSupport = escapedRoot.appending(path: "Support")
+        try FileManager.default.createDirectory(
+            at: escapedSupport,
+            withIntermediateDirectories: true
+        )
+        let ancestorLink = directory.appending(path: "AncestorLink")
+        try FileManager.default.createSymbolicLink(
+            at: ancestorLink,
+            withDestinationURL: escapedRoot
+        )
+        let database = ancestorLink.appending(path: "Support/ledger.sqlite")
+        let backups = ancestorLink.appending(path: "Support/Backups")
+        let connection = try SQLiteConnection(url: database)
+        try DatabaseMigrator(
+            connection: connection,
+            backupDirectory: backups,
+            migrations: [Migrations.v1]
+        ).migrate()
+
+        XCTAssertThrowsError(try DatabaseMigrator(
+            connection: connection,
+            backupDirectory: backups,
+            migrations: Migrations.all
+        ).migrate())
+
+        XCTAssertEqual(try connection.userVersion, 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: backups.path))
+    }
+
     func testBackupCreationRejectsExistingRegularSymlinkHardlinkAndFIFOWithoutOverwriting() throws {
         for kind in ["regular", "symlink", "hardlink", "fifo"] {
             let directory = try temporaryDirectory()
