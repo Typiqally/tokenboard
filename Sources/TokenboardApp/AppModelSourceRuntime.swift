@@ -671,6 +671,7 @@ extension AppModel {
         return MenuPresentation(
             summary: summary,
             displayMetric: state.selectedDisplayMetric,
+            displayCurrency: state.selectedDisplayCurrency,
             hasHealthWarning: promotesWarning
         )
     }

@@ -6,6 +6,7 @@ final class AppPreferences {
     private enum Key {
         static let selectedPeriod = "selectedPeriod"
         static let selectedDisplayMetric = "selectedDisplayMetric"
+        static let selectedDisplayCurrency = "selectedDisplayCurrency"
         static let historicalImportApproved = "historicalImportApproved"
         static let dismissedWarningSignature = "dismissedWarningSignature"
     }
@@ -30,6 +31,14 @@ final class AppPreferences {
                 .flatMap(DisplayMetric.init(rawValue:)) ?? .tokens
         }
         set { defaults.set(newValue.rawValue, forKey: Key.selectedDisplayMetric) }
+    }
+
+    var selectedDisplayCurrency: DisplayCurrency {
+        get {
+            defaults.string(forKey: Key.selectedDisplayCurrency)
+                .flatMap(DisplayCurrency.init(rawValue:)) ?? .usd
+        }
+        set { defaults.set(newValue.rawValue, forKey: Key.selectedDisplayCurrency) }
     }
 
     var historicalImportApproved: Bool {

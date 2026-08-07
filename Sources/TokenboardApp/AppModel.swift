@@ -17,6 +17,7 @@ final class AppModel: ObservableObject {
     var onboardingRequired: Bool { state.onboardingRequired }
     var selectedPeriod: CalendarPeriod { state.selectedPeriod }
     var selectedDisplayMetric: DisplayMetric { state.selectedDisplayMetric }
+    var selectedDisplayCurrency: DisplayCurrency { state.selectedDisplayCurrency }
     var lastUpdated: Date? { state.lastUpdated }
     var canStartHistoricalImport: Bool { state.canStartHistoricalImport }
     var activeDismissibleWarningSignature: DismissibleWarningSignature? {
@@ -126,6 +127,7 @@ final class AppModel: ObservableObject {
         state = .initial(
             period: preferences.selectedPeriod,
             displayMetric: preferences.selectedDisplayMetric,
+            displayCurrency: preferences.selectedDisplayCurrency,
             historicalImportApproved: preferences.historicalImportApproved
         )
         settingsState = .initial
@@ -244,6 +246,20 @@ final class AppModel: ObservableObject {
         }
         state = next
         await requeryWithoutScanning()
+    }
+
+    func select(displayCurrency: DisplayCurrency) {
+        guard !isDatabaseRestoreInProgress,
+              !isDatabaseRecoveryActionLocked,
+              state.lifecycle != .stopped,
+              state.lifecycle != .shuttingDown else { return }
+        preferences.selectedDisplayCurrency = displayCurrency
+        var next = state
+        next.selectedDisplayCurrency = displayCurrency
+        if let lastSummary {
+            next.presentation = makePresentation(summary: lastSummary, state: next)
+        }
+        state = next
     }
 
     func chooseSource(_ provider: Provider) async {

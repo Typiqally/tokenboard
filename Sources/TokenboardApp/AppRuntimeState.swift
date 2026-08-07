@@ -119,6 +119,7 @@ struct AppPublishedState: Equatable, Sendable {
     var historicalImportApproved: Bool
     var selectedPeriod: CalendarPeriod
     var selectedDisplayMetric: DisplayMetric
+    var selectedDisplayCurrency: DisplayCurrency
     var health: TokenboardHealth
     var sourceWarningIssues: [Provider: Set<TokenboardHealth.Issue>]
     var isImporting: Bool
@@ -157,6 +158,7 @@ struct AppPublishedState: Equatable, Sendable {
     static func initial(
         period: CalendarPeriod,
         displayMetric: DisplayMetric,
+        displayCurrency: DisplayCurrency = .usd,
         historicalImportApproved: Bool = false
     ) -> AppPublishedState {
         AppPublishedState(
@@ -168,6 +170,7 @@ struct AppPublishedState: Equatable, Sendable {
             historicalImportApproved: historicalImportApproved,
             selectedPeriod: period,
             selectedDisplayMetric: displayMetric,
+            selectedDisplayCurrency: displayCurrency,
             health: TokenboardHealth(
                 claude: .notGranted,
                 codex: .notGranted,
