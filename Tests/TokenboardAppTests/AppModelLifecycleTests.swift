@@ -416,6 +416,78 @@ final class AppModelLifecycleTests: XCTestCase {
         XCTAssertTrue(setup.model.canDismissCurrentWarnings)
     }
 
+    func testLowerPriorityAttentionChangeResurfacesDismissedWarning() async throws {
+        let setup = try makeSetup(approved: false)
+        defer { setup.cleanup() }
+        await setup.model.start()
+        await setup.model.startHistoricalImport()
+        let runID = await setup.coordinator.runID()
+
+        await setup.coordinator.emit(attentionResult(
+            runID: runID,
+            sequence: 2,
+            provider: .codex,
+            attentions: [.unsafeSource]
+        ))
+        await waitUntil { setup.model.presentation?.statusTitle == "⚠ 1K" }
+        setup.model.dismissCurrentWarnings()
+        let dismissed = try XCTUnwrap(setup.preferences.dismissedWarningSignature)
+        XCTAssertEqual(setup.model.presentation?.statusTitle, "◉ 1K")
+
+        await setup.coordinator.emit(attentionResult(
+            runID: runID,
+            sequence: 3,
+            provider: .codex,
+            attentions: [.unsafeSource, .truncated]
+        ))
+        await waitUntil { setup.model.presentation?.statusTitle == "⚠ 1K" }
+
+        XCTAssertNotEqual(setup.model.activeDismissibleWarningSignature?.digest, dismissed)
+        XCTAssertTrue(setup.model.canDismissCurrentWarnings)
+        XCTAssertEqual(
+            setup.model.sourceHealth[.codex],
+            .warning(issue: .unsafeSource, message: TokenboardHealth.Issue.unsafeSource.message)
+        )
+    }
+
+    func testChangedWarningPermanentlyInvalidatesOldDismissal() async throws {
+        let setup = try makeSetup(approved: false)
+        defer { setup.cleanup() }
+        await setup.model.start()
+        await setup.model.startHistoricalImport()
+        let runID = await setup.coordinator.runID()
+
+        await setup.coordinator.emit(attentionResult(
+            runID: runID,
+            sequence: 2,
+            provider: .codex,
+            attentions: [.truncated]
+        ))
+        await waitUntil { setup.model.presentation?.statusTitle == "⚠ 1K" }
+        setup.model.dismissCurrentWarnings()
+        XCTAssertEqual(setup.model.presentation?.statusTitle, "◉ 1K")
+
+        await setup.coordinator.emit(attentionResult(
+            runID: runID,
+            sequence: 3,
+            provider: .codex,
+            attentions: [.replaced]
+        ))
+        await waitUntil { setup.model.presentation?.statusTitle == "⚠ 1K" }
+        XCTAssertNil(setup.preferences.dismissedWarningSignature)
+
+        await setup.coordinator.emit(attentionResult(
+            runID: runID,
+            sequence: 4,
+            provider: .codex,
+            attentions: [.truncated]
+        ))
+        await waitUntil { setup.model.presentation?.statusTitle == "⚠ 1K" }
+
+        XCTAssertTrue(setup.model.canDismissCurrentWarnings)
+        XCTAssertNil(setup.preferences.dismissedWarningSignature)
+    }
+
     func testPreloadedMatchingDismissalIsHonoredByNewModel() throws {
         let warningHealth = TokenboardHealth(
             claude: .warning(issue: .truncatedLog, message: TokenboardHealth.Issue.truncatedLog.message),
@@ -1437,6 +1509,20 @@ private func attentionResult(
     provider: Provider,
     attention: ScanOutcome.Attention
 ) -> IngestionBatchResult {
+    attentionResult(
+        runID: runID,
+        sequence: sequence,
+        provider: provider,
+        attentions: [attention]
+    )
+}
+
+private func attentionResult(
+    runID: UInt64,
+    sequence: UInt64,
+    provider: Provider,
+    attentions: Set<ScanOutcome.Attention>
+) -> IngestionBatchResult {
     IngestionBatchResult(
         runID: runID,
         sequence: sequence,
@@ -1447,7 +1533,7 @@ private func attentionResult(
         diagnostics: [
             provider: ProviderIngestionDiagnostics(
                 skippedRecordCount: 0,
-                attention: [attention]
+                attention: attentions
             )
         ]
     )

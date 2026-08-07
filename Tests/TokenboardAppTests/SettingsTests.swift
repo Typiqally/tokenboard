@@ -599,6 +599,26 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(inboxCounts.reject, 0)
     }
 
+    func testRefreshingSettingsReconcilesChangedSkippedCountWithMenuPresentation() async throws {
+        let setup = try makeSetup(candidate: nil, approved: true)
+        defer { setup.cleanup() }
+        await setup.model.start()
+
+        XCTAssertEqual(setup.model.health.skippedRecordCount, 3)
+        XCTAssertEqual(setup.model.presentation?.statusTitle, "⚠ 100K")
+        setup.model.dismissCurrentWarnings()
+        XCTAssertEqual(setup.model.presentation?.statusTitle, "◉ 100K")
+        XCTAssertFalse(setup.model.canDismissCurrentWarnings)
+
+        await setup.ledger.setSkippedRecordCount(4)
+        await setup.model.refreshSettings()
+
+        XCTAssertEqual(setup.model.health.skippedRecordCount, 4)
+        XCTAssertEqual(setup.model.presentation?.statusTitle, "⚠ 100K")
+        XCTAssertTrue(setup.model.canDismissCurrentWarnings)
+        XCTAssertNil(setup.model.preferences.dismissedWarningSignature)
+    }
+
     func testSettingsCandidateActionsRequireReviewAndExposeNoDirectApply() async throws {
         let setup = try makeSetup(candidate: validatedCandidate())
         defer { setup.cleanup() }
@@ -1416,6 +1436,7 @@ private actor SettingsLedger: AppLedgerRuntime {
     private var shutdownFailuresRemaining: Int
     private let shutdownGate: SettingsMutationGate?
     private var shutdowns = 0
+    private var currentSkippedRecordCount = 3
 
     init(
         pricing: PricingSnapshot,
@@ -1442,7 +1463,8 @@ private actor SettingsLedger: AppLedgerRuntime {
     ) {}
     func pricingSnapshot() -> PricingSnapshot { pricing }
     func usageRows(in interval: DateInterval?, calendar: Calendar) -> [DailyUsageRow] { rows }
-    func skippedRecordCount() -> Int { 3 }
+    func skippedRecordCount() -> Int { currentSkippedRecordCount }
+    func setSkippedRecordCount(_ count: Int) { currentSkippedRecordCount = count }
     func shutdown() async throws {
         shutdowns += 1
         recorder.append("ledger.shutdown")
