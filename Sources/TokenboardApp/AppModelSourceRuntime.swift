@@ -345,7 +345,6 @@ extension AppModel {
 
         var next = state
         var nextSourceHealth = next.sourceHealth
-        var nextSourceWarningIssues = next.sourceWarningIssues
         if let skippedCount {
             next.health = next.health.replacing(skippedRecordCount: skippedCount)
         }
@@ -372,9 +371,6 @@ extension AppModel {
                             fileCount: next.sourceFileCounts[provider, default: 0],
                             lastUpdated: successfulUpdate
                         )
-                    nextSourceWarningIssues[provider] = durableSkipped[provider, default: 0] > 0
-                        ? [.unknownFormats]
-                        : nil
                 }
             case let .attention(discoveredFiles, _):
                 if result.scope == .inventory {
@@ -385,17 +381,11 @@ extension AppModel {
                     issue: issue,
                     message: issue.message
                 )
-                nextSourceWarningIssues[provider] = warningIssues(
-                    for: result.diagnostics[provider],
-                    hasDurableSkippedRecords: durableSkipped[provider, default: 0] > 0
-                )
             case .failure:
                 nextSourceHealth[provider] = .warning(issue: .importFailure, message: "Import failed")
-                nextSourceWarningIssues[provider] = [.importFailure]
             }
         }
         next.sourceHealth = nextSourceHealth
-        next.sourceWarningIssues = nextSourceWarningIssues
         if hasSuccessfulProvider {
             next.lastUpdated = successfulUpdate
         }
@@ -419,7 +409,6 @@ extension AppModel {
                 next.presentation = makePresentation(summary: lastSummary, state: next)
             }
         }
-        reconcileWarningPresentation(&next)
         commitState(next)
     }
 
@@ -595,7 +584,6 @@ extension AppModel {
         next.sourceFileCounts[provider] = fileCount
         next.sourceHealth[provider] = .indexing(fileCount: fileCount)
         next.onboardingRequired = !preferences.historicalImportApproved || !hasEveryGrant
-        reconcileWarningPresentation(&next)
         commitState(next)
     }
 
@@ -666,13 +654,10 @@ extension AppModel {
         summary: UsageSummary,
         state: AppPublishedState
     ) -> MenuPresentation {
-        let promotesWarning = state.health.hasNonDismissibleDisplayIntegrityWarning
-            || hasUndismissedDismissibleWarning(state)
         return MenuPresentation(
             summary: summary,
             displayMetric: state.selectedDisplayMetric,
-            displayCurrency: state.selectedDisplayCurrency,
-            hasHealthWarning: promotesWarning
+            displayCurrency: state.selectedDisplayCurrency
         )
     }
 
@@ -702,7 +687,6 @@ extension AppModel {
     func publishWarning(_ issue: TokenboardHealth.Issue, message: String) {
         var next = state
         next.sourceHealth = warningHealth(issue: issue, message: message)
-        reconcileWarningPresentation(&next)
         commitState(next)
     }
 
@@ -747,20 +731,6 @@ extension AppModel {
             return healthIssue(for: attention)
         }
         return .unknownFormats
-    }
-
-    func warningIssues(
-        for diagnostics: ProviderIngestionDiagnostics?,
-        hasDurableSkippedRecords: Bool
-    ) -> Set<TokenboardHealth.Issue> {
-        var issues = Set(diagnostics?.attention.map(healthIssue(for:)) ?? [])
-        if hasDurableSkippedRecords || (diagnostics?.skippedRecordCount ?? 0) > 0 {
-            issues.insert(.unknownFormats)
-        }
-        if issues.isEmpty {
-            issues.insert(.unknownFormats)
-        }
-        return issues
     }
 
     private func healthIssue(for attention: ScanOutcome.Attention) -> TokenboardHealth.Issue {

@@ -8,9 +8,44 @@ final class BundledCatalogTests: XCTestCase {
         let catalog = try PricingCatalogValidator().validate(PricingCatalogLoader().load(data))
 
         XCTAssertEqual(catalog.schemaVersion, 2)
-        XCTAssertEqual(catalog.catalogID, "tokenboard-2026-08-07")
+        XCTAssertEqual(catalog.catalogID, "tokenboard-2026-08-07-2")
         let aliases = catalog.models.flatMap(\.aliases).map(\.observedModelID)
-        XCTAssertEqual(Set(aliases), ["claude-opus-5", "gpt-5.6-sol"])
+        XCTAssertEqual(Set(aliases), [
+            "claude-fable-5",
+            "claude-opus-4-8",
+            "claude-opus-5",
+            "gpt-5.6-sol"
+        ])
+
+        guard let fable = catalog.models.first(where: { $0.canonicalModelID == "claude-fable-5" }) else {
+            return XCTFail("missing claude-fable-5")
+        }
+        XCTAssertEqual(fable.rates.single?.effectiveFrom, "2026-06-09")
+        XCTAssertEqual(fable.rates.single?.prices[.inputUncached], Decimal(string: "10.00"))
+        XCTAssertEqual(fable.rates.single?.prices[.inputCacheRead], Decimal(string: "1.00"))
+        XCTAssertEqual(fable.rates.single?.prices[.inputCacheWrite5m], Decimal(string: "12.50"))
+        XCTAssertEqual(fable.rates.single?.prices[.inputCacheWrite1h], Decimal(string: "20.00"))
+        XCTAssertEqual(fable.rates.single?.prices[.output], Decimal(string: "50.00"))
+        XCTAssertEqual(fable.rates.single?.verifiedAt, "2026-08-07")
+        XCTAssertEqual(
+            fable.rates.single?.provenanceURL.absoluteString,
+            "https://platform.claude.com/docs/en/about-claude/pricing"
+        )
+
+        guard let opus48 = catalog.models.first(where: { $0.canonicalModelID == "claude-opus-4-8" }) else {
+            return XCTFail("missing claude-opus-4-8")
+        }
+        XCTAssertEqual(opus48.rates.single?.effectiveFrom, "2026-05-28")
+        XCTAssertEqual(opus48.rates.single?.prices[.inputUncached], Decimal(string: "5.00"))
+        XCTAssertEqual(opus48.rates.single?.prices[.inputCacheRead], Decimal(string: "0.50"))
+        XCTAssertEqual(opus48.rates.single?.prices[.inputCacheWrite5m], Decimal(string: "6.25"))
+        XCTAssertEqual(opus48.rates.single?.prices[.inputCacheWrite1h], Decimal(string: "10.00"))
+        XCTAssertEqual(opus48.rates.single?.prices[.output], Decimal(string: "25.00"))
+        XCTAssertEqual(opus48.rates.single?.verifiedAt, "2026-08-07")
+        XCTAssertEqual(
+            opus48.rates.single?.provenanceURL.absoluteString,
+            "https://platform.claude.com/docs/en/about-claude/pricing"
+        )
 
         guard let opus = catalog.models.first(where: { $0.canonicalModelID == "claude-opus-5" }) else {
             return XCTFail("missing claude-opus-5")

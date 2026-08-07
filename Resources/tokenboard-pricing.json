@@ -1,12 +1,56 @@
 {
   "schemaVersion": 2,
-  "catalogID": "tokenboard-2026-08-07",
-  "generatedAt": "2026-08-07T00:00:00Z",
+  "catalogID": "tokenboard-2026-08-07-2",
+  "generatedAt": "2026-08-07T21:13:40Z",
   "origin": {
     "kind": "tokenboard_repository",
     "url": "https://raw.githubusercontent.com/Typiqally/tokenboard/main/Resources/tokenboard-pricing.json"
   },
   "models": [
+    {
+      "provider": "claude_code",
+      "canonicalModelID": "claude-fable-5",
+      "aliases": [
+        {"observedModelID":"claude-fable-5","effectiveFrom":"2026-06-09","effectiveTo":null}
+      ],
+      "rates": [
+        {
+          "effectiveFrom":"2026-06-09",
+          "effectiveTo":null,
+          "prices": {
+            "input_uncached":"10.00",
+            "input_cache_read":"1.00",
+            "input_cache_write_5m":"12.50",
+            "input_cache_write_1h":"20.00",
+            "output":"50.00"
+          },
+          "provenanceURL":"https://platform.claude.com/docs/en/about-claude/pricing",
+          "verifiedAt":"2026-08-07"
+        }
+      ]
+    },
+    {
+      "provider": "claude_code",
+      "canonicalModelID": "claude-opus-4-8",
+      "aliases": [
+        {"observedModelID":"claude-opus-4-8","effectiveFrom":"2026-05-28","effectiveTo":null}
+      ],
+      "rates": [
+        {
+          "effectiveFrom":"2026-05-28",
+          "effectiveTo":null,
+          "prices": {
+            "input_uncached":"5.00",
+            "input_cache_read":"0.50",
+            "input_cache_write_5m":"6.25",
+            "input_cache_write_1h":"10.00",
+            "output":"25.00"
+          },
+          "provenanceURL":"https://platform.claude.com/docs/en/about-claude/pricing",
+          "verifiedAt":"2026-08-07"
+        }
+      ]
+    },
     {
       "provider": "claude_code",
       "canonicalModelID": "claude-opus-5",

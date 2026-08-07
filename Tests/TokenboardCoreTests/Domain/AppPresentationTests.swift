@@ -13,11 +13,10 @@ final class AppPresentationTests: XCTestCase {
 
         let view = MenuPresentation(
             summary: summary,
-            displayMetric: .tokens,
-            hasHealthWarning: false
+            displayMetric: .tokens
         )
 
-        XCTAssertEqual(view.statusTitle, "◉ 842K")
+        XCTAssertEqual(view.statusTitle, "842K")
         XCTAssertEqual(view.tokenTitle, "842,198 tokens")
         XCTAssertEqual(view.apiValueTitle, "≈ $7.42 API equivalent")
         XCTAssertNil(view.unpricedTitle)
@@ -33,11 +32,10 @@ final class AppPresentationTests: XCTestCase {
 
         let view = MenuPresentation(
             summary: summary,
-            displayMetric: .apiValue,
-            hasHealthWarning: false
+            displayMetric: .apiValue
         )
 
-        XCTAssertEqual(view.statusTitle, "◉ $3.00+")
+        XCTAssertEqual(view.statusTitle, "$3.00+")
         XCTAssertEqual(view.unpricedTitle, "84K unpriced")
     }
 
@@ -53,11 +51,10 @@ final class AppPresentationTests: XCTestCase {
         let view = MenuPresentation(
             summary: summary,
             displayMetric: .apiValue,
-            displayCurrency: .eur,
-            hasHealthWarning: false
+            displayCurrency: .eur
         )
 
-        XCTAssertEqual(view.statusTitle, "◉ €5.94+")
+        XCTAssertEqual(view.statusTitle, "€5.94+")
         XCTAssertEqual(view.apiValueTitle, "≈ €5.94 API equivalent")
     }
 
@@ -72,11 +69,10 @@ final class AppPresentationTests: XCTestCase {
         let view = MenuPresentation(
             summary: summary,
             displayMetric: .apiValue,
-            displayCurrency: .eur,
-            hasHealthWarning: false
+            displayCurrency: .eur
         )
 
-        XCTAssertEqual(view.statusTitle, "◉ —")
+        XCTAssertEqual(view.statusTitle, "—")
         XCTAssertEqual(view.apiValueTitle, "EUR API equivalent unavailable")
     }
 

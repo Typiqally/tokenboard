@@ -12,6 +12,49 @@ public struct PriceResolution: Equatable, Sendable {
     }
 }
 
+public enum UnpricedUsageReason: String, Equatable, Hashable, Sendable {
+    case opaqueModel = "opaque_model"
+    case missingAlias = "missing_alias"
+    case missingRate = "missing_rate"
+}
+
+public struct UnpricedUsageGroup: Equatable, Identifiable, Sendable {
+    public let provider: Provider
+    public let observedModelID: String
+    public let canonicalModelID: String?
+    public let reason: UnpricedUsageReason
+    public let tokenCount: Int64
+    public let firstObservedDay: String
+    public let lastObservedDay: String
+
+    public var id: String {
+        [
+            provider.rawValue,
+            observedModelID,
+            canonicalModelID ?? "",
+            reason.rawValue
+        ].joined(separator: "/")
+    }
+
+    public init(
+        provider: Provider,
+        observedModelID: String,
+        canonicalModelID: String?,
+        reason: UnpricedUsageReason,
+        tokenCount: Int64,
+        firstObservedDay: String,
+        lastObservedDay: String
+    ) {
+        self.provider = provider
+        self.observedModelID = observedModelID
+        self.canonicalModelID = canonicalModelID
+        self.reason = reason
+        self.tokenCount = tokenCount
+        self.firstObservedDay = firstObservedDay
+        self.lastObservedDay = lastObservedDay
+    }
+}
+
 public enum PriceResolverError: Error, Equatable, Sendable {
     case negativeQuantity
     case tokenTotalOverflow
@@ -52,11 +95,26 @@ public struct PriceResolver: Sendable {
         rows: [DailyUsageRow],
         pricing: PricingSnapshot
     ) throws -> PriceResolution {
+        try analyze(rows: rows, pricing: pricing).resolution
+    }
+
+    public func unpricedUsage(
+        rows: [DailyUsageRow],
+        pricing: PricingSnapshot
+    ) throws -> [UnpricedUsageGroup] {
+        try analyze(rows: rows, pricing: pricing).unpricedUsage
+    }
+
+    private func analyze(
+        rows: [DailyUsageRow],
+        pricing: PricingSnapshot
+    ) throws -> (resolution: PriceResolution, unpricedUsage: [UnpricedUsageGroup]) {
         let aliases = try indexedAliases(pricing.aliases)
         let rates = try indexedRates(pricing.rates)
         var tokenTotal: Int64 = 0
         var knownUSD = Decimal.zero
         var unpricedTokens: Int64 = 0
+        var groups: [UnpricedGroupKey: UnpricedAccumulator] = [:]
 
         for row in rows where row.aggregation == .additive {
             guard row.quantity >= 0 else { throw PriceResolverError.negativeQuantity }
@@ -72,23 +130,51 @@ public struct PriceResolver: Sendable {
                     row.quantity,
                     overflow: .unpricedTokensOverflow
                 )
+                try accumulate(
+                    row,
+                    canonicalModelID: nil,
+                    reason: .opaqueModel,
+                    into: &groups
+                )
                 continue
             }
 
             let aliasKey = AliasKey(provider: row.provider, observedModelID: row.observedModelID)
-            guard let alias = effectiveRecord(in: aliases[aliasKey] ?? [], on: row.localDay.value),
-                  let rate = effectiveRecord(
-                    in: rates[RateKey(
+            guard let alias = effectiveRecord(
+                in: aliases[aliasKey] ?? [],
+                on: row.localDay.value
+            ) else {
+                unpricedTokens = try checkedAdd(
+                    unpricedTokens,
+                    row.quantity,
+                    overflow: .unpricedTokensOverflow
+                )
+                try accumulate(
+                    row,
+                    canonicalModelID: nil,
+                    reason: .missingAlias,
+                    into: &groups
+                )
+                continue
+            }
+            guard let rate = effectiveRecord(
+                in: rates[RateKey(
                         provider: row.provider,
                         canonicalModelID: alias.canonicalModelID,
                         metric: row.metric
                     )] ?? [],
                     on: row.localDay.value
-                  ) else {
+            ) else {
                 unpricedTokens = try checkedAdd(
                     unpricedTokens,
                     row.quantity,
                     overflow: .unpricedTokensOverflow
+                )
+                try accumulate(
+                    row,
+                    canonicalModelID: alias.canonicalModelID,
+                    reason: .missingRate,
+                    into: &groups
                 )
                 continue
             }
@@ -97,10 +183,53 @@ public struct PriceResolver: Sendable {
             knownUSD = try exactAdd(knownUSD, cost)
         }
 
-        return PriceResolution(
-            tokenTotal: tokenTotal,
-            knownUSD: knownUSD,
-            unpricedTokens: unpricedTokens
+        let unpricedUsage = groups.map { key, value in
+            UnpricedUsageGroup(
+                provider: key.provider,
+                observedModelID: key.observedModelID,
+                canonicalModelID: key.canonicalModelID,
+                reason: key.reason,
+                tokenCount: value.tokenCount,
+                firstObservedDay: value.firstObservedDay,
+                lastObservedDay: value.lastObservedDay
+            )
+        }.sorted {
+            if $0.tokenCount != $1.tokenCount { return $0.tokenCount > $1.tokenCount }
+            return ($0.provider.rawValue, $0.observedModelID, $0.reason.rawValue)
+                < ($1.provider.rawValue, $1.observedModelID, $1.reason.rawValue)
+        }
+        return (
+            PriceResolution(
+                tokenTotal: tokenTotal,
+                knownUSD: knownUSD,
+                unpricedTokens: unpricedTokens
+            ),
+            unpricedUsage
+        )
+    }
+
+    private func accumulate(
+        _ row: DailyUsageRow,
+        canonicalModelID: String?,
+        reason: UnpricedUsageReason,
+        into groups: inout [UnpricedGroupKey: UnpricedAccumulator]
+    ) throws {
+        let key = UnpricedGroupKey(
+            provider: row.provider,
+            observedModelID: row.observedModelID,
+            canonicalModelID: canonicalModelID,
+            reason: reason
+        )
+        let day = row.localDay.value
+        let existing = groups[key]
+        groups[key] = UnpricedAccumulator(
+            tokenCount: try checkedAdd(
+                existing?.tokenCount ?? 0,
+                row.quantity,
+                overflow: .unpricedTokensOverflow
+            ),
+            firstObservedDay: min(existing?.firstObservedDay ?? day, day),
+            lastObservedDay: max(existing?.lastObservedDay ?? day, day)
         )
     }
 
@@ -322,4 +451,17 @@ private struct RateKey: Hashable {
         hasher.combine(canonicalModelID)
         hasher.combine(metric.rawValue)
     }
+}
+
+private struct UnpricedGroupKey: Hashable {
+    let provider: Provider
+    let observedModelID: String
+    let canonicalModelID: String?
+    let reason: UnpricedUsageReason
+}
+
+private struct UnpricedAccumulator {
+    let tokenCount: Int64
+    let firstObservedDay: String
+    let lastObservedDay: String
 }

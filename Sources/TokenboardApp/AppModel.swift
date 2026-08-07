@@ -20,15 +20,6 @@ final class AppModel: ObservableObject {
     var selectedDisplayCurrency: DisplayCurrency { state.selectedDisplayCurrency }
     var lastUpdated: Date? { state.lastUpdated }
     var canStartHistoricalImport: Bool { state.canStartHistoricalImport }
-    var activeDismissibleWarningSignature: DismissibleWarningSignature? {
-        dismissibleWarningSignature(in: state)
-    }
-    var canDismissCurrentWarnings: Bool {
-        guard state.presentation != nil,
-              !state.health.hasNonDismissibleDisplayIntegrityWarning,
-              let active = activeDismissibleWarningSignature else { return false }
-        return preferences.dismissedWarningSignature != active.digest
-    }
     var isSourceMutationInProgress: Bool { sourceMutation != nil }
     var isDatabaseRestoreInProgress: Bool {
         restoreActivity != nil || preservationActivity != nil || settingsState.isRestoringDatabase
@@ -144,40 +135,6 @@ final class AppModel: ObservableObject {
 
     func commitSettingsState(_ next: AppSettingsState) {
         settingsState = next
-    }
-
-    func dismissibleWarningSignature(
-        in state: AppPublishedState
-    ) -> DismissibleWarningSignature? {
-        DismissibleWarningSignature(
-            health: state.health,
-            sourceWarningIssues: state.sourceWarningIssues
-        )
-    }
-
-    func hasUndismissedDismissibleWarning(_ state: AppPublishedState) -> Bool {
-        guard let active = dismissibleWarningSignature(in: state) else { return false }
-        return preferences.dismissedWarningSignature != active.digest
-    }
-
-    func dismissCurrentWarnings() {
-        guard canDismissCurrentWarnings,
-              let active = activeDismissibleWarningSignature,
-              let lastSummary else { return }
-        preferences.dismissedWarningSignature = active.digest
-        var next = state
-        next.presentation = makePresentation(summary: lastSummary, state: next)
-        commitState(next)
-    }
-
-    func reconcileWarningPresentation(_ state: inout AppPublishedState) {
-        if let dismissed = preferences.dismissedWarningSignature,
-           dismissibleWarningSignature(in: state)?.digest != dismissed {
-            preferences.dismissedWarningSignature = nil
-        }
-        if let lastSummary {
-            state.presentation = makePresentation(summary: lastSummary, state: state)
-        }
     }
 
     func start() async {

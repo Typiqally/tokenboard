@@ -15,18 +15,6 @@ public enum TokenboardHealthIssue: String, Equatable, Sendable {
     case integrityFailure = "integrity_failure"
     case invalidPricingCatalog = "invalid_pricing_catalog"
 
-    public var isDismissibleSourceWarning: Bool {
-        switch self {
-        case .unknownFormats, .staleBookmark, .missingRoot, .truncatedLog,
-             .replacedLog, .oversizedRecord, .unsafeSource,
-             .missingStableIdentity, .importFailure:
-            true
-        case .applicationFailure, .migrationFailure, .integrityFailure,
-             .invalidPricingCatalog:
-            false
-        }
-    }
-
     public var message: String {
         switch self {
         case .unknownFormats: "Unknown source formats were skipped"
@@ -94,22 +82,6 @@ public struct TokenboardHealth: Equatable, Sendable {
         }
     }
 
-    public var hasWarning: Bool {
-        Self.isWarning(claude)
-            || Self.isWarning(codex)
-            || database != .healthy
-            || pricing != .healthy
-            || skippedRecordCount > 0
-            || unpricedTokens > 0
-    }
-
-    public var hasDisplayIntegrityWarning: Bool {
-        Self.affectsDisplayIntegrity(claude)
-            || Self.affectsDisplayIntegrity(codex)
-            || database != .healthy
-            || skippedRecordCount > 0
-    }
-
     public func replacing(
         claude: SourceHealth? = nil,
         codex: SourceHealth? = nil,
@@ -131,23 +103,5 @@ public struct TokenboardHealth: Equatable, Sendable {
                 ?? self.providerLastSuccessfulScans,
             pricing: pricing ?? self.pricing
         )
-    }
-
-    private static func isWarning(_ health: SourceHealth) -> Bool {
-        switch health {
-        case .notGranted, .warning:
-            true
-        case .indexing, .healthy:
-            false
-        }
-    }
-
-    private static func affectsDisplayIntegrity(_ health: SourceHealth) -> Bool {
-        switch health {
-        case .warning:
-            true
-        case .notGranted, .indexing, .healthy:
-            false
-        }
     }
 }

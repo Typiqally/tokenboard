@@ -30,8 +30,7 @@ enum NativeMenuBuilder {
             menu.addDisabledItem(presentation.tokenTitle)
             menu.addDisabledItem(presentation.apiValueTitle)
         } else {
-            let warning = startupError != nil || state?.health.hasWarning == true
-            statusTitle = warning ? "⚠ Unavailable" : "◉ …"
+            statusTitle = startupError == nil ? "…" : "Unavailable"
             menu.addDisabledItem("Token total unavailable")
             menu.addDisabledItem("API equivalent unavailable")
         }

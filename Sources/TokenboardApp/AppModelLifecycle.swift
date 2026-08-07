@@ -99,7 +99,6 @@ extension AppModel {
             next.grantedProviders = Set(resolved.grants.keys)
             next.onboardingRequired = !preferences.historicalImportApproved
                 || resolved.grants.count != Provider.allCases.count
-            reconcileWarningPresentation(&next)
             commitState(next)
             startPricingUpdateConsumer(pricingUpdates, generation: generation)
         } catch {
@@ -119,7 +118,6 @@ extension AppModel {
                 issue: .applicationFailure,
                 message: "Startup paused: \(Self.errorDescription(error))"
             )
-            reconcileWarningPresentation(&next)
             commitState(next)
         }
     }
@@ -151,7 +149,6 @@ extension AppModel {
         next.health = next.health.replacing(
             database: .recoveryRequired(message: issue.message)
         )
-        reconcileWarningPresentation(&next)
         commitState(next)
         await performLoadRecoveryBackups()
     }

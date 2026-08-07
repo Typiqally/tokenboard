@@ -106,27 +106,15 @@ struct AppPublishedState: Equatable, Sendable {
     var selectedDisplayMetric: DisplayMetric
     var selectedDisplayCurrency: DisplayCurrency
     var health: TokenboardHealth
-    var sourceWarningIssues: [Provider: Set<TokenboardHealth.Issue>]
     var isImporting: Bool
 
     var sourceHealth: [Provider: SourceHealth] {
         get { [.claudeCode: health.claude, .codex: health.codex] }
         set {
-            let previous = sourceHealth
             health = health.replacing(
                 claude: newValue[.claudeCode] ?? .notGranted,
                 codex: newValue[.codex] ?? .notGranted
             )
-            for provider in Provider.allCases {
-                let updated = newValue[provider] ?? .notGranted
-                guard previous[provider] != updated else { continue }
-                if case let .warning(issue, _) = updated,
-                   issue.isDismissibleSourceWarning {
-                    sourceWarningIssues[provider] = [issue]
-                } else {
-                    sourceWarningIssues[provider] = nil
-                }
-            }
         }
     }
 
@@ -164,7 +152,6 @@ struct AppPublishedState: Equatable, Sendable {
                 skippedRecordCount: 0,
                 unpricedTokens: 0
             ),
-            sourceWarningIssues: [:],
             isImporting: false
         )
     }

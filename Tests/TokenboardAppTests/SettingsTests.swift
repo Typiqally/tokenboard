@@ -17,7 +17,7 @@ final class SettingsTests: XCTestCase {
         )
     }
 
-    func testDiagnosticsCollectsCurrentSourceWarnings() {
+    func testDiagnosticsCollectsCurrentSourceIssuesBehindTechnicalDetails() {
         let health = TokenboardHealth(
             claude: .warning(issue: .truncatedLog, message: "Imported log was truncated"),
             codex: .notGranted,
@@ -27,10 +27,21 @@ final class SettingsTests: XCTestCase {
             unpricedTokens: 0
         )
 
-        XCTAssertEqual(SettingsWarningRow.current(in: health), [
-            SettingsWarningRow(provider: .claudeCode, message: "Imported log was truncated"),
-            SettingsWarningRow(provider: .codex, message: "Access required")
+        XCTAssertEqual(SettingsDiagnosticIssue.current(in: health), [
+            SettingsDiagnosticIssue(provider: .claudeCode, message: "Imported log was truncated"),
+            SettingsDiagnosticIssue(provider: .codex, message: "Access required")
         ])
+        XCTAssertEqual(SettingsCopy.technicalDetails, "Technical details")
+    }
+
+    func testRoutineSourceSettingsHideIssueCopy() {
+        XCTAssertNil(SourceSettingsPresentation.status(
+            for: .warning(issue: .truncatedLog, message: "Imported log was truncated")
+        ))
+        XCTAssertEqual(
+            SourceSettingsPresentation.status(for: .indexing(fileCount: 3)),
+            "Ready to scan 3 logs"
+        )
     }
 
     func testPricingUpdateCopyExplainsTheNetworkBoundaryAndNextStep() {
@@ -52,10 +63,9 @@ final class SettingsTests: XCTestCase {
     func testPricingOverviewKeepsOnlyEssentialCatalogMetadata() {
         XCTAssertEqual(
             PricingOverviewCopy.visibleLabels,
-            ["Display currency", "Model pricing", "Exchange rates"]
+            ["Display currency", "Unpriced usage", "Model pricing", "Exchange rates"]
         )
         XCTAssertFalse(PricingOverviewCopy.visibleLabels.contains("Official provenance"))
-        XCTAssertFalse(PricingOverviewCopy.visibleLabels.contains("Unpriced models"))
     }
 
     func testPricingSummaryShowsActiveModelRatesAndLatestExchangeSnapshot() async throws {
@@ -89,6 +99,26 @@ final class SettingsTests: XCTestCase {
             )
         ])
         XCTAssertEqual(setup.model.settingsState.pricing.exchangeRates, exchangeRates)
+    }
+
+    func testPricingSummaryPublishesModelLevelUnpricedUsageForTheSelectedPeriod() async throws {
+        let setup = try makeSetup()
+        defer { setup.cleanup() }
+
+        await setup.model.start()
+        await setup.model.refreshSettings()
+
+        XCTAssertEqual(setup.model.settingsState.pricing.unpricedUsage, [
+            UnpricedUsageGroup(
+                provider: .codex,
+                observedModelID: "gpt-preview",
+                canonicalModelID: nil,
+                reason: .missingAlias,
+                tokenCount: 100_000,
+                firstObservedDay: "2026-08-05",
+                lastObservedDay: "2026-08-05"
+            )
+        ])
     }
 
     func testRecoveryLoadsBackupWithoutRestoringUntilExplicitActionAndUsesShutdownBarrier() async throws {
@@ -621,24 +651,19 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(setup.model.settingsState.pricing.activeCatalogID, "current")
     }
 
-    func testRefreshingSettingsReconcilesChangedSkippedCountWithMenuPresentation() async throws {
+    func testRefreshingSettingsKeepsTechnicalIssuesOutOfMenuPresentation() async throws {
         let setup = try makeSetup(approved: true)
         defer { setup.cleanup() }
         await setup.model.start()
 
         XCTAssertEqual(setup.model.health.skippedRecordCount, 3)
-        XCTAssertEqual(setup.model.presentation?.statusTitle, "⚠ 100K")
-        setup.model.dismissCurrentWarnings()
-        XCTAssertEqual(setup.model.presentation?.statusTitle, "◉ 100K")
-        XCTAssertFalse(setup.model.canDismissCurrentWarnings)
+        XCTAssertEqual(setup.model.presentation?.statusTitle, "100K")
 
         await setup.ledger.setSkippedRecordCount(4)
         await setup.model.refreshSettings()
 
         XCTAssertEqual(setup.model.health.skippedRecordCount, 4)
-        XCTAssertEqual(setup.model.presentation?.statusTitle, "⚠ 100K")
-        XCTAssertTrue(setup.model.canDismissCurrentWarnings)
-        XCTAssertNil(setup.model.preferences.dismissedWarningSignature)
+        XCTAssertEqual(setup.model.presentation?.statusTitle, "100K")
     }
 
     func testCopyPromptExportsFirstAndWritesOneAutomaticUpdatePrompt() async throws {
@@ -656,6 +681,7 @@ final class SettingsTests: XCTestCase {
         XCTAssertTrue(prompt.contains(setup.paths.pricing.appending(path: "current-tokenboard-pricing.json.tmp").path))
         XCTAssertFalse(prompt.contains("Pricing/Inbox"))
         XCTAssertFalse(prompt.contains("review"))
+        XCTAssertTrue(prompt.contains("codex / gpt-preview"))
         XCTAssertEqual(setup.model.settingsState.statusMessage, "Prompt copied · Tokenboard made no network request")
     }
 

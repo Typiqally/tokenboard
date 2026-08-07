@@ -28,8 +28,9 @@ struct SourceSettingsView: View {
                     Text("Never")
                 }
             }
-            if let source {
-                Text(healthDescription(source.health))
+            if let source,
+               let status = SourceSettingsPresentation.status(for: source.health) {
+                Text(status)
                     .foregroundStyle(.secondary)
             }
             HStack {
@@ -53,17 +54,15 @@ struct SourceSettingsView: View {
         case .codex: "Codex"
         }
     }
+}
 
-    private func healthDescription(_ health: SourceHealth) -> String {
+enum SourceSettingsPresentation {
+    static func status(for health: SourceHealth) -> String? {
         switch health {
-        case .notGranted:
-            "Access not granted"
+        case .notGranted, .healthy, .warning:
+            nil
         case let .indexing(fileCount):
             "Ready to scan \(fileCount) logs"
-        case let .healthy(fileCount, _):
-            "Healthy · \(fileCount) logs"
-        case let .warning(_, message):
-            "Needs attention · \(message)"
         }
     }
 }

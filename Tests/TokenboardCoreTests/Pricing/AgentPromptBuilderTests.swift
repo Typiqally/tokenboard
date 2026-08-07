@@ -45,4 +45,30 @@ final class AgentPromptBuilderTests: XCTestCase {
         XCTAssertTrue(prompt.contains("Do not include transcript content"))
         XCTAssertTrue(prompt.contains("report every source consulted"))
     }
+
+    func testPromptNamesLocalCoverageTargetsWithoutUsageCountsOrOpaqueIdentifiers() throws {
+        let opaqueIdentifier = "unknown-" + String(repeating: "b", count: 64)
+        let prompt = AgentPromptBuilder().build(
+            paths: paths,
+            coverageTargets: [
+                PricingResearchTarget(provider: .codex, observedModelID: "gpt-5.6-terra"),
+                PricingResearchTarget(provider: .claudeCode, observedModelID: "claude-fable-5"),
+                PricingResearchTarget(provider: .claudeCode, observedModelID: "claude-fable-5"),
+                PricingResearchTarget(provider: .codex, observedModelID: opaqueIdentifier)
+            ]
+        )
+
+        XCTAssertTrue(prompt.contains("Local pricing coverage targets"))
+        XCTAssertTrue(prompt.contains("claude_code / claude-fable-5"))
+        XCTAssertTrue(prompt.contains("codex / gpt-5.6-terra"))
+        let fableIndex = try XCTUnwrap(prompt.range(
+            of: "claude_code / claude-fable-5"
+        )?.lowerBound)
+        let terraIndex = try XCTUnwrap(prompt.range(
+            of: "codex / gpt-5.6-terra"
+        )?.lowerBound)
+        XCTAssertLessThan(fableIndex, terraIndex)
+        XCTAssertFalse(prompt.contains(opaqueIdentifier))
+        XCTAssertFalse(prompt.contains("token count"))
+    }
 }

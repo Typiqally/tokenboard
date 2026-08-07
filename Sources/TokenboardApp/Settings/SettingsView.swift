@@ -4,6 +4,7 @@ import TokenboardCore
 enum SettingsCopy {
     static let launchAtLogin = "Off by default. No helper process."
     static let privacy = "No network entitlement · No conversation content stored"
+    static let technicalDetails = "Technical details"
 }
 
 enum SettingsSection: String, CaseIterable, Identifiable {
@@ -33,21 +34,21 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     }
 }
 
-struct SettingsWarningRow: Equatable, Identifiable {
+struct SettingsDiagnosticIssue: Equatable, Identifiable {
     let provider: Provider
     let message: String
 
     var id: String { provider.rawValue }
 
-    static func current(in health: TokenboardHealth) -> [SettingsWarningRow] {
+    static func current(in health: TokenboardHealth) -> [SettingsDiagnosticIssue] {
         Provider.allCases.compactMap { provider in
             switch health.source(provider) {
             case .notGranted:
-                SettingsWarningRow(provider: provider, message: "Access required")
+                SettingsDiagnosticIssue(provider: provider, message: "Access required")
             case .indexing, .healthy:
                 nil
             case let .warning(_, message):
-                SettingsWarningRow(provider: provider, message: message)
+                SettingsDiagnosticIssue(provider: provider, message: message)
             }
         }
     }
@@ -57,6 +58,7 @@ struct SettingsView: View {
     @ObservedObject var model: AppModel
     @ObservedObject var launchAtLogin: LaunchAtLoginController
     @State private var selectedSection: SettingsSection? = .general
+    @State private var technicalDetailsExpanded = false
 
     var body: some View {
         NavigationSplitView {
@@ -136,60 +138,53 @@ struct SettingsView: View {
     }
 
     private var diagnosticsSection: some View {
-        Group {
-            Section("Warnings") {
-                let warnings = SettingsWarningRow.current(in: model.health)
-                if warnings.isEmpty {
-                    Text("None")
-                        .foregroundStyle(.secondary)
+        Section("Diagnostics") {
+            if case .recoveryRequired = model.health.database {
+                DatabaseRecoveryView(model: model)
+            }
+            LabeledContent("Database") {
+                Text(databaseDescription(model.health.database))
+            }
+            LabeledContent("Last successful scan") {
+                if let date = model.health.lastSuccessfulScan {
+                    Text(date.formatted(date: .abbreviated, time: .standard))
                 } else {
-                    ForEach(warnings) { warning in
-                        LabeledContent(warning.provider.displayName) {
-                            Text(warning.message)
-                                .multilineTextAlignment(.trailing)
-                        }
-                    }
-                    Button("Dismiss Current Warnings") {
-                        model.dismissCurrentWarnings()
-                    }
-                    .disabled(!model.canDismissCurrentWarnings)
-                    Text(model.canDismissCurrentWarnings
-                        ? "Hides the current menu bar warning indicator until a warning changes."
-                        : "Warning details remain here for reference.")
-                        .foregroundStyle(.secondary)
+                    Text("Never")
                 }
             }
+            Button("Reveal Local Data") {
+                model.revealLocalData()
+            }
+            Text(SettingsCopy.privacy)
+                .foregroundStyle(.secondary)
 
-            Section("Diagnostics") {
-                if case .recoveryRequired = model.health.database {
-                    DatabaseRecoveryView(model: model)
-                }
-                LabeledContent("Database") {
-                    Text(databaseDescription(model.health.database))
-                }
-                LabeledContent("Last successful scan") {
-                    if let date = model.health.lastSuccessfulScan {
-                        Text(date.formatted(date: .abbreviated, time: .standard))
+            DisclosureGroup(
+                SettingsCopy.technicalDetails,
+                isExpanded: $technicalDetailsExpanded
+            ) {
+                let issues = SettingsDiagnosticIssue.current(in: model.health)
+                VStack(alignment: .leading, spacing: 10) {
+                    if issues.isEmpty {
+                        Text("No source issues")
+                            .foregroundStyle(.secondary)
                     } else {
-                        Text("Never")
+                        ForEach(issues) { issue in
+                            LabeledContent(issue.provider.displayName) {
+                                Text(issue.message)
+                                    .multilineTextAlignment(.trailing)
+                            }
+                        }
+                    }
+                    LabeledContent("Skipped records") {
+                        Text("\(model.health.skippedRecordCount)")
+                    }
+                    ForEach(Provider.allCases, id: \.rawValue) { provider in
+                        LabeledContent("\(provider.displayName) parser") {
+                            Text("v\(model.settingsState.diagnostics.parserVersions[provider, default: 0])")
+                        }
                     }
                 }
-                LabeledContent("Skipped records") {
-                    Text("\(model.health.skippedRecordCount)")
-                }
-                LabeledContent("Unpriced tokens") {
-                    Text(ValueFormatter.exactTokens(model.health.unpricedTokens))
-                }
-                ForEach(Provider.allCases, id: \.rawValue) { provider in
-                    LabeledContent("\(provider.displayName) parser") {
-                        Text("v\(model.settingsState.diagnostics.parserVersions[provider, default: 0])")
-                    }
-                }
-                Button("Reveal Local Data") {
-                    model.revealLocalData()
-                }
-                Text(SettingsCopy.privacy)
-                    .foregroundStyle(.secondary)
+                .padding(.top, 6)
             }
         }
     }

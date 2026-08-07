@@ -20,12 +20,14 @@ struct ActiveModelPricingSummary: Equatable, Identifiable, Sendable {
 
 struct PricingSettingsState: Equatable, Sendable {
     var activeModels: [ActiveModelPricingSummary]
+    var unpricedUsage: [UnpricedUsageGroup]
     var exchangeRates: ExchangeRateSnapshot?
     var activeCatalogID: String?
     var catalogStatus: PricingCatalogStatus?
 
     static let empty = PricingSettingsState(
         activeModels: [],
+        unpricedUsage: [],
         exchangeRates: nil,
         activeCatalogID: nil,
         catalogStatus: nil

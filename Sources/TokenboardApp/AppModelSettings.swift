@@ -26,7 +26,13 @@ extension AppModel {
                     temporaryCatalog: applicationPaths.pricing.appending(
                         path: PricingInbox.temporaryCatalogFilename
                     )
-                )
+                ),
+                coverageTargets: settingsState.pricing.unpricedUsage.map {
+                    PricingResearchTarget(
+                        provider: $0.provider,
+                        observedModelID: $0.observedModelID
+                    )
+                }
             )
             guard pasteboard.replace(with: prompt) else {
                 throw AppSettingsError.pasteboardWriteFailed
@@ -85,7 +91,6 @@ extension AppModel {
             next.lastUpdated = next.lastSuccessfulScans.values.max()
             next.sourceHealth[provider] = .notGranted
             next.onboardingRequired = true
-            reconcileWarningPresentation(&next)
             commitState(next)
             await querySelectedSummary()
             await performRefreshSettings(statusMessage: "Source access revoked · Committed totals retained")
@@ -355,6 +360,7 @@ extension AppModel {
             let skippedCount = try await ledger.skippedRecordCount()
             let catalogStatus = await pricingInbox.status()
             let resolution = try PriceResolver().resolve(rows: rows, pricing: pricing)
+            let unpricedUsage = try PriceResolver().unpricedUsage(rows: rows, pricing: pricing)
             let pricingHealth: TokenboardHealth.PricingState
             if case .invalid = catalogStatus {
                 pricingHealth = .warning(
@@ -369,7 +375,6 @@ extension AppModel {
                 unpricedTokens: resolution.unpricedTokens,
                 pricing: pricingHealth
             )
-            reconcileWarningPresentation(&published)
             commitState(published)
 
             commitSettingsState(AppSettingsState(
@@ -379,6 +384,7 @@ extension AppModel {
                         in: pricing,
                         on: LocalDay(date: now(), calendar: calendar).value
                     ),
+                    unpricedUsage: unpricedUsage,
                     exchangeRates: pricing.latestExchangeRates,
                     activeCatalogID: pricing.catalogIDs.last,
                     catalogStatus: catalogStatus

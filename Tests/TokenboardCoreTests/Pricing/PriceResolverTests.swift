@@ -3,6 +3,71 @@ import XCTest
 @testable import TokenboardCore
 
 final class PriceResolverTests: XCTestCase {
+    func testUnpricedUsageGroupsMissingAliasesRatesAndOpaqueModelsByObservedModel() throws {
+        let opaqueIdentifier = "unknown-" + String(repeating: "b", count: 64)
+        let rows = [
+            row(
+                day: "2026-08-04",
+                provider: .claudeCode,
+                model: "claude-fable-5",
+                metric: .inputCacheRead,
+                quantity: 10
+            ),
+            row(
+                day: "2026-08-05",
+                provider: .claudeCode,
+                model: "claude-fable-5",
+                metric: .output,
+                quantity: 20
+            ),
+            row(day: "2026-08-05", model: "gpt-observed", metric: .output, quantity: 40),
+            row(day: "2026-08-05", model: opaqueIdentifier, metric: .inputUncached, quantity: 50),
+            row(
+                day: "2026-08-05",
+                model: "gpt-observed",
+                metric: .detailReasoningOutput,
+                aggregation: .informationalSubset,
+                quantity: 1_000
+            )
+        ]
+        let snapshot = pricing(
+            aliases: [alias(model: "gpt-observed")],
+            rates: [rate(metric: .inputUncached, usd: "2", from: "2026-01-01")]
+        )
+
+        let groups = try PriceResolver().unpricedUsage(rows: rows, pricing: snapshot)
+
+        XCTAssertEqual(groups, [
+            UnpricedUsageGroup(
+                provider: .codex,
+                observedModelID: opaqueIdentifier,
+                canonicalModelID: nil,
+                reason: .opaqueModel,
+                tokenCount: 50,
+                firstObservedDay: "2026-08-05",
+                lastObservedDay: "2026-08-05"
+            ),
+            UnpricedUsageGroup(
+                provider: .codex,
+                observedModelID: "gpt-observed",
+                canonicalModelID: "gpt-canonical",
+                reason: .missingRate,
+                tokenCount: 40,
+                firstObservedDay: "2026-08-05",
+                lastObservedDay: "2026-08-05"
+            ),
+            UnpricedUsageGroup(
+                provider: .claudeCode,
+                observedModelID: "claude-fable-5",
+                canonicalModelID: nil,
+                reason: .missingAlias,
+                tokenCount: 30,
+                firstObservedDay: "2026-08-04",
+                lastObservedDay: "2026-08-05"
+            )
+        ])
+    }
+
     func testResolvesEachAdditiveRowUsingHistoricalAliasAndExactMetricRate() throws {
         let rows = [
             row(day: "2026-08-31", model: "gpt-observed", metric: .inputUncached, quantity: 1_000_000),

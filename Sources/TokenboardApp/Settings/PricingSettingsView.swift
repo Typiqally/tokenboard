@@ -3,9 +3,10 @@ import TokenboardCore
 
 enum PricingOverviewCopy {
     static let displayCurrency = "Display currency"
+    static let unpricedUsage = "Unpriced usage"
     static let modelPricing = "Model pricing"
     static let exchangeRates = "Exchange rates"
-    static let visibleLabels = [displayCurrency, modelPricing, exchangeRates]
+    static let visibleLabels = [displayCurrency, unpricedUsage, modelPricing, exchangeRates]
 }
 
 enum PricingUpdateCopy {
@@ -51,6 +52,27 @@ struct PricingSettingsView: View {
             if model.selectedDisplayCurrency != .usd,
                pricing.exchangeRates?.rates[model.selectedDisplayCurrency] == nil {
                 Text("\(model.selectedDisplayCurrency.rawValue) is unavailable. Update pricing to add its exchange rate.")
+                    .foregroundStyle(.secondary)
+            }
+
+            Divider()
+
+            Text(PricingOverviewCopy.unpricedUsage)
+                .font(.headline)
+            if pricing.unpricedUsage.isEmpty {
+                Text("All observed usage in this period has pricing.")
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(pricing.unpricedUsage) { usage in
+                    VStack(alignment: .leading, spacing: 3) {
+                        LabeledContent(usage.observedModelID) {
+                            Text("\(ValueFormatter.exactTokens(usage.tokenCount)) tokens")
+                        }
+                        Text("\(Self.providerName(usage.provider)) · \(Self.unpricedReason(usage))")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Text("For \(Self.periodName(model.selectedPeriod).lowercased()).")
                     .foregroundStyle(.secondary)
             }
 
@@ -104,6 +126,9 @@ struct PricingSettingsView: View {
             Text(PricingUpdateCopy.explanation)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            Text("The prompt includes the missing model identifiers shown above, never usage amounts or conversation data.")
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             Button(PricingUpdateCopy.buttonTitle) {
                 Task { await model.copyAgentPrompt() }
             }
@@ -142,6 +167,25 @@ struct PricingSettingsView: View {
         case .inputUnclassified: "Unclassified input"
         case .output: "Output"
         case .detailReasoningOutput: "Reasoning detail"
+        }
+    }
+
+    private static func unpricedReason(_ usage: UnpricedUsageGroup) -> String {
+        switch usage.reason {
+        case .opaqueModel: "Unknown model identifier"
+        case .missingAlias: "Missing catalog entry"
+        case .missingRate:
+            usage.canonicalModelID.map { "Missing rate for \($0)" } ?? "Missing rate"
+        }
+    }
+
+    private static func periodName(_ period: CalendarPeriod) -> String {
+        switch period {
+        case .today: "Today"
+        case .thisWeek: "This week"
+        case .thisMonth: "This month"
+        case .thisYear: "This year"
+        case .allTime: "All time"
         }
     }
 

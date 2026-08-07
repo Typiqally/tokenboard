@@ -22,8 +22,7 @@ final class NativePresentationTests: XCTestCase {
         state.lifecycle = .ready
         state.presentation = MenuPresentation(
             summary: summary,
-            displayMetric: .apiValue,
-            hasHealthWarning: true
+            displayMetric: .apiValue
         )
         state.sourceHealth = [
             .claudeCode: .healthy(fileCount: 3, lastUpdated: updated),
@@ -56,7 +55,7 @@ final class NativePresentationTests: XCTestCase {
             "—",
             "Quit Tokenboard"
         ])
-        XCTAssertEqual(built.statusTitle, "⚠ $7.42+")
+        XCTAssertEqual(built.statusTitle, "$7.42+")
         XCTAssertEqual(built.updatedItem.title, "Updated never")
 
         let period = built.menu.items[3].submenu!.items
@@ -74,7 +73,7 @@ final class NativePresentationTests: XCTestCase {
         XCTAssertEqual(built.menu.items[13].keyEquivalent, "q")
     }
 
-    func testMenuOmitsWarningDetailsAndDismissAction() throws {
+    func testDiagnosticIssuesDoNotChangeTheMenuStatus() throws {
         let setup = try makeModel()
         defer { setup.cleanup() }
         let summary = UsageSummary(
@@ -97,11 +96,10 @@ final class NativePresentationTests: XCTestCase {
         setup.model.commitState(state)
         let controller = MenuController(model: setup.model)
 
-        XCTAssertEqual(controller.renderedStatusTitle, "⚠ $3.00+")
+        XCTAssertEqual(controller.renderedStatusTitle, "$3.00+")
         XCTAssertFalse(controller.renderedMenu?.items.contains {
             $0.title.hasPrefix("Warnings (")
         } == true)
-        XCTAssertFalse(controller.responds(to: NSSelectorFromString("dismissCurrentWarnings")))
         XCTAssertNotNil(controller.renderedMenu?.item(withTitle: "Pricing (84K unpriced)"))
     }
 
@@ -111,7 +109,7 @@ final class NativePresentationTests: XCTestCase {
             "Only token counts, model IDs, and timestamps are read. Conversation content is never retained."
         )
         XCTAssertEqual(
-            OnboardingCopy.coverageWarning,
+            OnboardingCopy.coverageNote,
             "Tokenboard cannot recover conversations deleted before this first import."
         )
 
@@ -147,14 +145,13 @@ final class NativePresentationTests: XCTestCase {
                 knownAPIEquivalentUSD: 0,
                 unpricedTokens: 0
             ),
-            displayMetric: .tokens,
-            hasHealthWarning: false
+            displayMetric: .tokens
         )
 
         setup.model.commitState(emitted)
 
         XCTAssertEqual(controller.renderedMenu?.items.first?.title, "456 tokens")
-        XCTAssertEqual(controller.renderedStatusTitle, "◉ 456")
+        XCTAssertEqual(controller.renderedStatusTitle, "456")
         let periodParent = controller.renderedMenu?.items.first(where: { $0.title == "Period: This Week" })
         let year = periodParent?.submenu?.items.first(where: { $0.title == "This Year" })
         XCTAssertEqual(year?.representedObject as? String, "this_year")

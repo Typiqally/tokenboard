@@ -3,7 +3,7 @@ import TokenboardCore
 
 enum OnboardingCopy {
     static let privacy = "Only token counts, model IDs, and timestamps are read. Conversation content is never retained."
-    static let coverageWarning = "Tokenboard cannot recover conversations deleted before this first import."
+    static let coverageNote = "Tokenboard cannot recover conversations deleted before this first import."
 }
 
 struct OnboardingActionState: Equatable {
@@ -36,11 +36,9 @@ struct OnboardingView: View {
             }
 
             Section {
-                Label(
-                    OnboardingCopy.coverageWarning,
-                    systemImage: "exclamationmark.triangle"
-                )
-                .fixedSize(horizontal: false, vertical: true)
+                Text(OnboardingCopy.coverageNote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             HStack {

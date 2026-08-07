@@ -21,10 +21,8 @@ public struct MenuPresentation: Equatable, Sendable {
     public init(
         summary: UsageSummary,
         displayMetric: DisplayMetric,
-        displayCurrency: DisplayCurrency = .usd,
-        hasHealthWarning: Bool
+        displayCurrency: DisplayCurrency = .usd
     ) {
-        let symbol = hasHealthWarning ? "⚠" : "◉"
         let compactTokens = ValueFormatter.compactTokens(summary.tokenTotal)
         tokenTitle = "\(ValueFormatter.exactTokens(summary.tokenTotal)) tokens"
         let converted = CurrencyConverter.convert(
@@ -35,13 +33,13 @@ public struct MenuPresentation: Equatable, Sendable {
         if let converted {
             let formatted = ValueFormatter.currency(converted, currency: displayCurrency)
             statusTitle = displayMetric == .tokens
-                ? "\(symbol) \(compactTokens)"
-                : "\(symbol) \(formatted)\(summary.unpricedTokens > 0 ? "+" : "")"
+                ? compactTokens
+                : "\(formatted)\(summary.unpricedTokens > 0 ? "+" : "")"
             apiValueTitle = "≈ \(formatted) API equivalent"
         } else {
             statusTitle = displayMetric == .tokens
-                ? "\(symbol) \(compactTokens)"
-                : "\(symbol) —"
+                ? compactTokens
+                : "—"
             apiValueTitle = "\(displayCurrency.rawValue) API equivalent unavailable"
         }
         unpricedTitle = summary.unpricedTokens > 0
