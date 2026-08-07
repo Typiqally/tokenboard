@@ -109,6 +109,8 @@ final class TokenboardPipelineTests: XCTestCase {
             .missingRoot,
             .truncatedLog,
             .replacedLog,
+            .importFailure,
+            .applicationFailure,
             .migrationFailure,
             .integrityFailure,
             .invalidPricingCandidate
