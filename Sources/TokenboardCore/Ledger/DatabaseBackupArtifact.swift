@@ -155,12 +155,26 @@ enum DatabaseBackupArtifact {
     }
 
     private static func schemaManifest(_ connection: SQLiteConnection) throws -> [String] {
-        try connection.queryStrings("""
+        var manifest = try connection.queryStrings("""
         SELECT type || ':' || hex(name) || ':' || hex(tbl_name) || ':' || hex(COALESCE(sql, ''))
         FROM sqlite_master
         WHERE name NOT LIKE 'sqlite_%'
+          AND NOT (type = 'table' AND name = 'schema_migrations')
         ORDER BY type, name, tbl_name, sql;
         """)
+        manifest.append(contentsOf: try connection.queryStrings("""
+        SELECT 'schema_migrations:column:' || cid || ':' || hex(name) || ':'
+               || upper(type) || ':' || [notnull] || ':'
+               || hex(COALESCE(dflt_value, '')) || ':' || pk || ':' || hidden
+        FROM pragma_table_xinfo('schema_migrations')
+        ORDER BY cid;
+        """))
+        manifest.append(contentsOf: try connection.queryStrings("""
+        SELECT 'schema_migrations:flags:' || wr || ':' || strict
+        FROM pragma_table_list('schema_migrations')
+        WHERE type = 'table' AND name = 'schema_migrations';
+        """))
+        return manifest.sorted()
     }
 
     private static func digest(of descriptor: Int32) throws -> String {
