@@ -36,11 +36,15 @@ final class SettingsTests: XCTestCase {
     func testPricingUpdateCopyExplainsTheNetworkBoundaryAndNextStep() {
         XCTAssertEqual(
             PricingUpdateCopy.explanation,
-            "Tokenboard never connects to the internet. Copy an update prompt and run it in Claude Code or Codex. The prompt tells the agent to use only the source you choose and save a candidate in Tokenboard’s local inbox for your review."
+            "Tokenboard never connects to the internet. It creates a prompt for Claude Code or Codex, which saves a local pricing candidate for your review."
         )
         XCTAssertEqual(
             PricingUpdateCopy.methodQuestion,
-            "How should the agent update pricing?"
+            "What should the copied prompt tell the agent to do?"
+        )
+        XCTAssertEqual(
+            PricingUpdateCopy.selectionEffect,
+            "This choice changes the instructions copied to your clipboard. Tokenboard itself still has no network access."
         )
         XCTAssertEqual(
             PricingUpdateCopy.methodTitle(.tokenboardRepository),
@@ -57,6 +61,14 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(
             PricingUpdateCopy.methodDescription(.officialResearch),
             "Research only official OpenAI and Anthropic websites."
+        )
+        XCTAssertEqual(
+            PricingUpdateCopy.copyButtonTitle(.tokenboardRepository),
+            "Copy Catalog-Only Prompt"
+        )
+        XCTAssertEqual(
+            PricingUpdateCopy.copyButtonTitle(.officialResearch),
+            "Copy Official-Research Prompt"
         )
         XCTAssertEqual(
             PricingUpdateCopy.inboxStatus(.empty),
