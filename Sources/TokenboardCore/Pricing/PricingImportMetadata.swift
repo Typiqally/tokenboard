@@ -1,6 +1,6 @@
 public enum PricingImportMetadata {
     public static let bundledRepositoryOrigin = "bundled_repository"
-    public static let agentCandidateOrigin = "agent_candidate"
+    public static let agentCatalogOrigin = "agent_catalog"
     public static let schemaV1ValidSummary = "schema_v1_valid"
     public static let schemaV2ValidSummary = "schema_v2_valid"
 
@@ -14,7 +14,7 @@ public enum PricingImportMetadata {
 
     static let allowedOrigins: Set<String> = [
         bundledRepositoryOrigin,
-        agentCandidateOrigin
+        agentCatalogOrigin
     ]
     static let allowedValidationSummaries: Set<String> = [
         schemaV1ValidSummary,

@@ -21,41 +21,14 @@ struct ActiveModelPricingSummary: Equatable, Identifiable, Sendable {
 struct PricingSettingsState: Equatable, Sendable {
     var activeModels: [ActiveModelPricingSummary]
     var exchangeRates: ExchangeRateSnapshot?
-    var pendingCandidate: PendingPricingCandidate?
-    var preview: PricingPreview?
-    var validationConflicts: [String]
-    var inboxStatus: PricingInboxStatus
-    var isFinalizationRetryInProgress: Bool
-
-    var canApply: Bool {
-        if case .valid = inboxStatus {} else { return false }
-        return pendingCandidate != nil
-            && preview != nil
-            && validationConflicts.isEmpty
-            && preview?.diff.conflicts.isEmpty == true
-    }
-
-    var finalizationIdentity: PricingCandidateIdentity? {
-        switch inboxStatus {
-        case let .appliedFinalizing(identity), let .rejectedFinalizing(identity):
-            identity
-        default:
-            nil
-        }
-    }
-
-    var canRetryFinalization: Bool {
-        finalizationIdentity != nil && !isFinalizationRetryInProgress
-    }
+    var activeCatalogID: String?
+    var catalogStatus: PricingCatalogStatus?
 
     static let empty = PricingSettingsState(
         activeModels: [],
         exchangeRates: nil,
-        pendingCandidate: nil,
-        preview: nil,
-        validationConflicts: [],
-        inboxStatus: .empty,
-        isFinalizationRetryInProgress: false
+        activeCatalogID: nil,
+        catalogStatus: nil
     )
 }
 
@@ -98,11 +71,6 @@ struct AppSettingsState: Equatable, Sendable {
     var recoveryBackups: [DatabaseBackup]
     var isRestoringDatabase: Bool
     var databaseRecoveryDisposition: DatabaseRecoveryDisposition
-
-    var isFinalizationRetryInProgress: Bool {
-        get { pricing.isFinalizationRetryInProgress }
-        set { pricing.isFinalizationRetryInProgress = newValue }
-    }
 
     static let initial = AppSettingsState(
         sources: [:],

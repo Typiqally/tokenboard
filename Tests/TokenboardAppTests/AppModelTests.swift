@@ -271,18 +271,9 @@ private actor RuntimePricingInbox: AppPricingInboxWatching {
     init(recorder: OrderedRecorder) { self.recorder = recorder }
     func start() { recorder.append("inbox.start") }
     func stop() { recorder.append("inbox.stop") }
-    func pendingCandidate() -> PendingPricingCandidate? { nil }
+    func status() -> PricingCatalogStatus? { nil }
+    func updates() -> AsyncStream<PricingCatalogStatus> { AsyncStream { $0.finish() } }
     func exportCurrentSnapshot() {}
-    func applyPending(
-        matching identity: PricingCandidateIdentity
-    ) throws -> PricingApplyOutcome {
-        throw PricingInboxError.noPendingCandidate
-    }
-    func rejectPending(
-        matching identity: PricingCandidateIdentity
-    ) throws -> PricingRejectOutcome {
-        throw PricingInboxError.noPendingCandidate
-    }
 }
 
 private final class RuntimeBookmarkAccess: SecurityScopedBookmarkAccessing, @unchecked Sendable {

@@ -1,60 +1,37 @@
 import Foundation
 
-public enum AgentPricingSource: String, Hashable, Sendable {
-    case tokenboardRepository
-    case officialResearch
-}
-
 public struct AgentPricingPaths: Equatable, Sendable {
     public let currentCatalog: URL
-    public let temporaryCandidate: URL
-    public let finalCandidate: URL
+    public let temporaryCatalog: URL
 
-    public init(currentCatalog: URL, temporaryCandidate: URL, finalCandidate: URL) {
+    public init(currentCatalog: URL, temporaryCatalog: URL) {
         self.currentCatalog = currentCatalog
-        self.temporaryCandidate = temporaryCandidate
-        self.finalCandidate = finalCandidate
+        self.temporaryCatalog = temporaryCatalog
     }
 }
 
 public struct AgentPromptBuilder: Sendable {
     public init() {}
 
-    public func build(source: AgentPricingSource, paths: AgentPricingPaths) -> String {
-        let sourcePolicy: String
-        switch source {
-        case .tokenboardRepository:
-            sourcePolicy = """
-            Source policy: Use only this source: https://raw.githubusercontent.com/Typiqally/tokenboard/main/Resources/tokenboard-pricing.json
-            Do not research or fetch pricing from any other source.
-            """
-        case .officialResearch:
-            sourcePolicy = """
-            Source policy: Research current model pricing from first-party sources. Use only official pages on these exact hosts for model pricing: anthropic.com, www.anthropic.com, platform.claude.com, docs.anthropic.com, www-cdn.anthropic.com, openai.com, www.openai.com, platform.openai.com, help.openai.com. Fetch exchange rates only from this exact official ECB source: https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml. Do not use mirrors, search-result summaries, aggregators, or any other source.
+    public func build(paths: AgentPricingPaths) -> String {
+        """
+        Update Tokenboard's complete, authoritative pricing catalog. Read the current catalog first and preserve substantiated historical entries unless reliable evidence supports correcting or removing them. Add effective dates whenever the evidence supports them, and leave uncertain periods absent instead of guessing.
 
-            Put model pricing and exchange rates in one candidate with schemaVersion 2. The exchangeRates object must use USD as its base and contain exactly USD, EUR, JPY, GBP, and CNY, expressed as units of target currency per 1 USD. Use 1 for USD. ECB publishes units per EUR, so calculate every non-EUR target rate as target-per-EUR divided by USD-per-EUR, and calculate EUR as 1 divided by USD-per-EUR. Use values from the same ECB reference date, record that date as effectiveDate, and do not combine dates.
-            """
-        }
+        Research policy: You may use public web sources. Prefer primary model-provider pricing pages, documentation, announcements, and changelogs. When primary evidence is unavailable or incomplete, use reputable secondary sources and web archives, corroborating important rates where practical. Use a reliable public exchange-rate source for USD, EUR, JPY, GBP, and CNY. Record the strongest supporting HTTPS provenance URL on every model-rate period and on the exchange-rate snapshot, and report every source consulted. Never invent a rate, date, model mapping, or source.
 
-        return """
-        Update Tokenboard's complete pricing ledger. Read the current catalog from the exact path below. Preserve every substantiated historical entry. Add only rates and effective dates supported by the allowed sources. Leave uncertain periods absent; do not infer or invent them.
+        Put the complete model-pricing ledger and one current exchange-rate snapshot in a schemaVersion 2 catalog. Use origin kind web_research. Exchange rates must use USD as their base and contain exactly USD, EUR, JPY, GBP, and CNY as units of target currency per 1 USD, with USD equal to 1. Use one reference date for the full exchange-rate snapshot.
 
-        \(sourcePolicy)
-
-        Exact current catalog path (read only):
+        Exact active catalog path (read this first; atomic rename destination only):
         \(resolvedPath(paths.currentCatalog))
 
-        Exact temporary candidate path (the only permitted write destination):
-        \(resolvedPath(paths.temporaryCandidate))
+        Exact temporary path (the only permitted write destination):
+        \(resolvedPath(paths.temporaryCatalog))
 
-        Exact final candidate path (rename destination only):
-        \(resolvedPath(paths.finalCandidate))
-
-        Produce one candidate containing the complete substantiated ledger. Do not open or modify any SQLite file. Do not write anywhere except the temporary candidate path below. Validate schemaVersion 2, write UTF-8 JSON smaller than 1 MiB, then atomically rename the temporary candidate to the final candidate path. If network or filesystem permission is unavailable, stop and ask me explicitly. Do not choose another source, destination, or update mechanism.
+        Do not open or modify any SQLite file. Do not write anywhere except the exact temporary path. Validate the complete catalog locally, write UTF-8 JSON smaller than 1 MiB, fsync it when your environment permits, then atomically replace the active catalog by renaming the temporary file to the exact active path. If network or filesystem permission is unavailable, stop and ask me explicitly. Do not choose another destination or update mechanism.
 
         Do not include transcript content, prompts, user source paths, session IDs, project data, or any other private usage data in the pricing catalog or your report.
 
-        After the rename, report sources consulted, model rates and exchange rates added, uncertainties left unpriced, and the exact final path. Tokenboard itself will validate the file and require me to approve it.
+        After the rename, report every source consulted, model rates and exchange rates changed, corrections or removals made, and uncertainties left unpriced. Tokenboard applies valid changes automatically after validating the file locally; invalid changes leave the last valid pricing active.
         """
     }
 

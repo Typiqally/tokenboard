@@ -69,6 +69,7 @@ extension AppModel {
             guard accepts(generation) else { return }
 
             inboxStatus = .starting
+            let pricingUpdates = await pricingInbox.updates()
             try await pricingInbox.start()
             guard accepts(generation) else { return }
             inboxStatus = .active(runID: generation)
@@ -100,6 +101,7 @@ extension AppModel {
                 || resolved.grants.count != Provider.allCases.count
             reconcileWarningPresentation(&next)
             commitState(next)
+            startPricingUpdateConsumer(pricingUpdates, generation: generation)
         } catch {
             guard accepts(generation) else { return }
             readyGeneration = nil
@@ -131,6 +133,9 @@ extension AppModel {
         if coordinatorStatus != .inactive {
             await coordinator.stop()
         }
+        pricingUpdateConsumerTask?.cancel()
+        await pricingUpdateConsumerTask?.value
+        pricingUpdateConsumerTask = nil
         if inboxStatus != .inactive {
             try? await pricingInbox.stop()
         }
@@ -149,6 +154,35 @@ extension AppModel {
         reconcileWarningPresentation(&next)
         commitState(next)
         await performLoadRecoveryBackups()
+    }
+
+    func startPricingUpdateConsumer(
+        _ updates: AsyncStream<PricingCatalogStatus>,
+        generation: UInt64
+    ) {
+        pricingUpdateConsumerTask?.cancel()
+        pricingUpdateConsumerTask = Task { @MainActor [weak self] in
+            for await status in updates {
+                guard !Task.isCancelled else { break }
+                await self?.receivePricingCatalogStatus(status, generation: generation)
+            }
+        }
+    }
+
+    func receivePricingCatalogStatus(
+        _ status: PricingCatalogStatus,
+        generation: UInt64
+    ) async {
+        guard accepts(generation), isReadyForSources else { return }
+        await runSettingsOperation { [weak self] in
+            guard let self,
+                  self.accepts(generation),
+                  self.isReadyForSources else { return }
+            if case .current = status {
+                await self.querySelectedSummary()
+            }
+            await self.performRefreshSettings(statusMessage: nil)
+        }
     }
 
     func finishStartupBehavior() async {

@@ -56,14 +56,9 @@ protocol AppPricingInboxWatching: Sendable {
     func start() async throws
     func quiesce() async throws
     func stop() async throws
-    func pendingCandidate() async -> PendingPricingCandidate?
-    func status() async -> PricingInboxStatus
+    func status() async -> PricingCatalogStatus?
+    func updates() async -> AsyncStream<PricingCatalogStatus>
     func exportCurrentSnapshot() async throws
-    func applyPending(matching identity: PricingCandidateIdentity) async throws -> PricingApplyOutcome
-    func rejectPending(matching identity: PricingCandidateIdentity) async throws -> PricingRejectOutcome
-    func retryFinalization(
-        matching identity: PricingCandidateIdentity
-    ) async throws -> PricingFinalizationOutcome
 }
 
 protocol AppDatabaseRecovering: Sendable {
@@ -83,16 +78,6 @@ extension AppDatabaseRecovering {
 
 extension AppPricingInboxWatching {
     func quiesce() async throws {}
-
-    func status() async -> PricingInboxStatus {
-        await pendingCandidate().map(PricingInboxStatus.valid) ?? .empty
-    }
-
-    func retryFinalization(
-        matching identity: PricingCandidateIdentity
-    ) async throws -> PricingFinalizationOutcome {
-        throw PricingInboxError.noPendingCandidate
-    }
 }
 
 extension SQLiteLedger: AppLedgerRuntime {}

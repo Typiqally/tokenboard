@@ -35,14 +35,9 @@ Monitoring is driven by filesystem events. There is no polling timer, helper, da
 
 ## Updating pricing through your agent
 
-Tokenboard never fetches pricing. In Settings, copy an agent prompt and choose one source policy:
+Tokenboard never fetches pricing. In Settings, copy the pricing-update prompt and paste it into Claude Code or Codex. The external agent clearly requests any network or filesystem access it needs, researches public sources, reports what it used, and atomically replaces Tokenboard's single local pricing catalog.
 
-1. Use the bundled/public `tokenboard-pricing.json` catalog as the only update source.
-2. Have the agent research current pricing from the official Anthropic and OpenAI hosts named in the prompt.
-
-Paste that prompt into Claude Code or Codex. The external agent tells you when it needs filesystem or network access, reads the exported current pricing-catalog snapshot, and atomically writes a local candidate into Tokenboard's inbox. You do not locate or manually import a JSON file. Tokenboard validates and previews the candidate locally, and pricing changes only after you click Apply.
-
-The repository catalog is a convenient source, not an automatic updater. Both choices preserve substantiated historical entries, require provenance and effective dates, and leave uncertain coverage unpriced.
+Tokenboard validates that file locally and applies valid changes automatically. An invalid update leaves the last valid pricing active. The catalog is the complete authoritative ledger, so an update can append history, correct an entry, or remove an unsupported entry. The prompt tells the agent to preserve substantiated history, include provenance and effective dates, and leave uncertain coverage unpriced.
 
 ## Known limits
 

@@ -292,18 +292,9 @@ private actor PresentationCoordinator: AppIngestionCoordinating {
 private actor PresentationInbox: AppPricingInboxWatching {
     func start() {}
     func stop() {}
-    func pendingCandidate() -> PendingPricingCandidate? { nil }
+    func status() -> PricingCatalogStatus? { nil }
+    func updates() -> AsyncStream<PricingCatalogStatus> { AsyncStream { $0.finish() } }
     func exportCurrentSnapshot() {}
-    func applyPending(
-        matching identity: PricingCandidateIdentity
-    ) throws -> PricingApplyOutcome {
-        throw PricingInboxError.noPendingCandidate
-    }
-    func rejectPending(
-        matching identity: PricingCandidateIdentity
-    ) throws -> PricingRejectOutcome {
-        throw PricingInboxError.noPendingCandidate
-    }
 }
 
 private final class PresentationBookmarkAccess: SecurityScopedBookmarkAccessing, @unchecked Sendable {

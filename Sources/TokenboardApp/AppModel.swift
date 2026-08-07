@@ -80,6 +80,7 @@ final class AppModel: ObservableObject {
     var recoveryBarrierTask: Task<Result<Void, any Error>, Never>?
     var isWriterQuiescing = false
     var resultConsumerTask: Task<Void, Never>?
+    var pricingUpdateConsumerTask: Task<Void, Never>?
     var pendingIngestionResults: [IngestionResultKey: IngestionBatchResult] = [:]
     var knownIngestionResults: Set<IngestionResultKey> = []
     var ingestionResultWaiters: [IngestionResultKey: [CheckedContinuation<Void, Never>]] = [:]
@@ -371,11 +372,13 @@ final class AppModel: ObservableObject {
         let currentSourceMutation = sourceMutation?.task
         let currentSettingsActivity = settingsActivity?.task
         let currentResultConsumer = resultConsumerTask
+        let currentPricingUpdateConsumer = pricingUpdateConsumerTask
         let currentQueries = Array(inFlightQueries.values)
         startup?.cancel()
         currentActivity?.cancel()
         currentSourceMutation?.cancel()
         currentResultConsumer?.cancel()
+        currentPricingUpdateConsumer?.cancel()
         currentQueries.forEach { $0.cancel() }
         pendingIngestionResults.removeAll()
         knownIngestionResults.removeAll()
@@ -393,6 +396,7 @@ final class AppModel: ObservableObject {
         await currentSourceMutation?.value
         await currentSettingsActivity?.value
         await currentResultConsumer?.value
+        await currentPricingUpdateConsumer?.value
         for query in currentQueries { _ = await query.value }
 
         await coordinator.stop()
@@ -412,6 +416,7 @@ final class AppModel: ObservableObject {
         sourceMutation = nil
         settingsActivity = nil
         resultConsumerTask = nil
+        pricingUpdateConsumerTask = nil
         lastAppliedSequence.removeAll()
         isProcessingIngestionResults = false
         inFlightQueries.removeAll()

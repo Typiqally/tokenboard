@@ -1,18 +1,5 @@
-import Foundation
 import SwiftUI
 import TokenboardCore
-
-enum PricingSettingsCandidateAction: Equatable, Identifiable {
-    case review(PricingCandidateIdentity)
-    case reject(PricingCandidateIdentity)
-
-    var id: String {
-        switch self {
-        case let .review(identity): "review-\(identity.digest)"
-        case let .reject(identity): "reject-\(identity.digest)"
-        }
-    }
-}
 
 enum PricingOverviewCopy {
     static let displayCurrency = "Display currency"
@@ -21,176 +8,29 @@ enum PricingOverviewCopy {
     static let visibleLabels = [displayCurrency, modelPricing, exchangeRates]
 }
 
-struct PricingPromptOption: Equatable, Identifiable {
-    let source: AgentPricingSource
-    let buttonTitle: String
-    let description: String
-
-    var id: AgentPricingSource { source }
-}
-
 enum PricingUpdateCopy {
-    static let explanation = "Tokenboard never connects to the internet. Copy one of the prompts below into Claude Code or Codex. The agent saves a local pricing candidate for your review."
-    static let promptOptions = [
-        PricingPromptOption(
-            source: .tokenboardRepository,
-            buttonTitle: "Copy Catalog-Only Prompt",
-            description: "Uses only Tokenboard’s published model prices and exchange rates on GitHub."
-        ),
-        PricingPromptOption(
-            source: .officialResearch,
-            buttonTitle: "Copy Official-Sites Prompt",
-            description: "Researches official OpenAI and Anthropic pricing plus ECB exchange rates."
-        )
-    ]
+    static let buttonTitle = "Copy Pricing Update Prompt"
+    static let explanation = "Tokenboard has no network access. Paste this prompt into Claude Code or Codex; the agent researches pricing, reports its sources, and safely replaces the local catalog. Valid changes apply automatically."
 
-    static func inboxStatus(_ status: PricingInboxStatus) -> String {
-        switch status {
-        case .empty:
-            "No candidate is waiting. Run the copied prompt to create one."
-        case .valid:
-            "A candidate is ready for review."
-        case let .invalid(reason):
-            switch reason {
-            case .invalidCatalog:
-                "The candidate file was rejected because its pricing catalog is invalid. Active pricing was not changed."
-            case .unsafeFile:
-                "The candidate file was rejected because it is not a safe local file. Active pricing was not changed."
-            case .candidateTooLarge:
-                "The candidate file was rejected because it is larger than 1 MiB. Active pricing was not changed."
-            case .unreadableCandidate:
-                "The candidate file could not be read safely. Active pricing was not changed."
-            }
-        case .applying:
-            "Applying the approved pricing candidate."
-        case .appliedFinalizing:
-            "Pricing was updated. Finishing local file cleanup."
-        case .rejecting:
-            "Rejecting the pricing candidate."
-        case .rejectedFinalizing:
-            "Candidate rejected. Finishing local file cleanup."
-        }
-    }
-}
-
-struct PricingReviewContent: Equatable {
-    let modelsAdded: String
-    let aliases: [String]
-    let rates: [String]
-    let provenanceURLs: [String]
-    let exchangeRates: [String]
-    let exchangeRateProvenance: String
-    let currentKnownValue: String
-    let candidateKnownValue: String
-    let newlyPricedTokens: String
-    let remainingUnpricedTokens: String
-    let conflictsAndGaps: [String]
-
-    init(
-        preview: PricingPreview,
-        validationConflicts: [String],
-        displayCurrency: DisplayCurrency
-    ) {
-        modelsAdded = preview.diff.modelsAdded.joined(separator: ", ")
-        aliases = preview.reviewAliases.map { alias in
-            "\(alias.provider.rawValue) · \(alias.observedModelID) → \(alias.canonicalModelID) · \(Self.interval(from: alias.effectiveFrom, to: alias.effectiveTo))"
-        }
-        rates = preview.reviewRates.map { rate in
-            let price = NSDecimalNumber(decimal: rate.usdPerMillion).stringValue
-            return "\(rate.provider.rawValue) · \(rate.canonicalModelID) · \(rate.metric.rawValue) · $\(price) / 1M · \(Self.interval(from: rate.effectiveFrom, to: rate.effectiveTo)) · \(rate.provenanceURL.absoluteString) · verified \(rate.verifiedAt)"
-        }
-        provenanceURLs = Array(Set(preview.reviewRates.map { $0.provenanceURL.absoluteString })).sorted()
-        let changedCurrencies = Set(preview.diff.exchangeRatesChanged)
-        if let candidateRates = preview.candidateExchangeRates {
-            exchangeRates = DisplayCurrency.allCases.compactMap { currency in
-                candidateRates.rates[currency].map {
-                    "\(currency.rawValue) · \(Self.decimal($0)) per USD · \(changedCurrencies.contains(currency) ? "changed" : "unchanged")"
-                }
-            }
-            exchangeRateProvenance = "\(candidateRates.provenanceURL.absoluteString) · checked \(candidateRates.verifiedAt)"
-        } else {
-            exchangeRates = []
-            exchangeRateProvenance = "Unavailable"
-        }
-        currentKnownValue = Self.convertedValue(
-            preview.currentKnownUSD,
-            currency: displayCurrency,
-            exchangeRates: preview.currentExchangeRates
-        )
-        candidateKnownValue = Self.convertedValue(
-            preview.candidateKnownUSD,
-            currency: displayCurrency,
-            exchangeRates: preview.candidateExchangeRates
-        )
-        newlyPricedTokens = ValueFormatter.exactTokens(preview.newlyPricedTokens)
-        remainingUnpricedTokens = ValueFormatter.exactTokens(preview.remainingUnpricedTokens)
-
-        var issues = validationConflicts + preview.diff.conflicts
-        issues.append(contentsOf: preview.unresolvedGaps.map { gap in
-            "\(gap.provider.rawValue)/\(gap.observedModelID) · \(gap.metric.rawValue) · \(gap.effectiveDate) · \(ValueFormatter.exactTokens(gap.unpricedTokens)) unpriced"
-        })
-        if preview.unresolvedGaps.isEmpty, preview.remainingUnpricedTokens > 0 {
-            issues.append("\(ValueFormatter.exactTokens(preview.remainingUnpricedTokens)) tokens remain unpriced")
-        }
-        conflictsAndGaps = issues.isEmpty ? ["None"] : issues
-    }
-
-    private static func interval(from: String, to: String?) -> String {
-        "\(from) → \(to ?? "open")"
-    }
-
-    private static func convertedValue(
-        _ usd: Decimal,
-        currency: DisplayCurrency,
-        exchangeRates: ExchangeRateSnapshot?
+    static func status(
+        _ status: PricingCatalogStatus?,
+        activeCatalogID: String?
     ) -> String {
-        guard let value = CurrencyConverter.convert(
-            usd: usd,
-            to: currency,
-            rates: exchangeRates?.rates
-        ) else { return "\(currency.rawValue) unavailable" }
-        return "≈ \(ValueFormatter.currency(value, currency: currency))"
-    }
-
-    private static func decimal(_ value: Decimal) -> String {
-        NSDecimalNumber(decimal: value).stringValue
-    }
-}
-
-struct PricingReviewSelection: Equatable, Identifiable {
-    let identity: PricingCandidateIdentity
-    let content: PricingReviewContent
-    let allowsApply: Bool
-
-    var id: PricingCandidateIdentity { identity }
-
-    func isCurrent(in pricing: PricingSettingsState) -> Bool {
-        pricing.pendingCandidate?.identity == identity
+        switch status {
+        case let .current(catalogID):
+            "Active catalog · \(catalogID)"
+        case .invalid:
+            activeCatalogID.map { "Last update failed · Keeping \($0)" }
+                ?? "Last update failed · No valid catalog is active"
+        case nil:
+            activeCatalogID.map { "Active catalog · \($0)" }
+                ?? "Pricing catalog is starting"
+        }
     }
 }
 
 struct PricingSettingsView: View {
     @ObservedObject var model: AppModel
-    @State private var reviewSelection: PricingReviewSelection?
-
-    var candidateActions: [PricingSettingsCandidateAction] {
-        guard let identity = model.settingsState.pricing.pendingCandidate?.identity else { return [] }
-        return [.review(identity), .reject(identity)]
-    }
-
-    var currentReviewSelection: PricingReviewSelection? {
-        let pricing = model.settingsState.pricing
-        guard let candidate = pricing.pendingCandidate, let preview = pricing.preview else { return nil }
-        return PricingReviewSelection(
-            identity: candidate.identity,
-            content: PricingReviewContent(
-                preview: preview,
-                validationConflicts: pricing.validationConflicts,
-                displayCurrency: model.selectedDisplayCurrency
-            ),
-            allowsApply: pricing.canApply
-        )
-    }
 
     var body: some View {
         let pricing = model.settingsState.pricing
@@ -264,49 +104,14 @@ struct PricingSettingsView: View {
             Text(PricingUpdateCopy.explanation)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            ForEach(PricingUpdateCopy.promptOptions) { option in
-                VStack(alignment: .leading, spacing: 4) {
-                    Button(option.buttonTitle) {
-                        Task { await model.copyAgentPrompt(source: option.source) }
-                    }
-                    Text(option.description)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+            Button(PricingUpdateCopy.buttonTitle) {
+                Task { await model.copyAgentPrompt() }
             }
-
-            LabeledContent("Candidate ready") {
-                Text(pricing.pendingCandidate?.catalog.catalogID ?? "No")
-            }
-            Text(PricingUpdateCopy.inboxStatus(pricing.inboxStatus))
-                .foregroundStyle(.secondary)
-            HStack {
-                ForEach(candidateActions) { action in
-                    switch action {
-                    case let .review(identity):
-                        Button("Review") {
-                            guard let selection = currentReviewSelection,
-                                  selection.identity == identity else { return }
-                            reviewSelection = selection
-                        }
-                    case let .reject(identity):
-                        Button("Reject", role: .destructive) {
-                            Task { await model.rejectPendingPricing(rejectedIdentity: identity) }
-                        }
-                    }
-                }
-                if pricing.finalizationIdentity != nil {
-                    Button(model.settingsState.isFinalizationRetryInProgress
-                        ? "Retrying Finalization…"
-                        : "Retry Finalization") {
-                        Task { await model.retryPricingFinalization() }
-                    }
-                    .disabled(!pricing.canRetryFinalization)
-                }
-            }
-        }
-        .sheet(item: $reviewSelection) { selection in
-            PricingReviewView(model: model, review: selection)
+            Text(PricingUpdateCopy.status(
+                pricing.catalogStatus,
+                activeCatalogID: pricing.activeCatalogID
+            ))
+            .foregroundStyle(.secondary)
         }
     }
 

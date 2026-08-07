@@ -1,63 +1,23 @@
 import Darwin
 import Foundation
 
-enum PricingInboxDirectory: Equatable, Sendable {
-    case pricing
-    case inbox
-    case applied
-    case rejected
-}
-
-struct PricingInboxFileIdentity: Equatable, Sendable {
-    let device: UInt64
-    let inode: UInt64
-}
-
-struct PricingInboxOpenedFile: Sendable {
+struct PricingCatalogOpenedFile: Sendable {
     let data: Data
-    let identity: PricingInboxFileIdentity
 }
 
-enum PricingInboxMutation: Equatable, Sendable {
-    case moveInbox(from: String, to: String)
-    case replaceCanonical(directory: PricingInboxDirectory, name: String)
-    case installCanonical(directory: PricingInboxDirectory, name: String)
-    case removeInbox(name: String)
-}
-
-struct PricingInboxMutationError: Error, Equatable, Sendable {
-    let mutation: PricingInboxMutation
-    let mutationCompleted: Bool
-    let failure: PricingInboxError
-}
-
-protocol PricingInboxFileSystem: AnyObject, Sendable {
+protocol PricingCatalogFileSystem: AnyObject, Sendable {
     func open(rootPath: String) throws
     func close()
-    func duplicateInboxDescriptor() throws -> Int32
-    func readIfPresent(in directory: PricingInboxDirectory, name: String) throws -> PricingInboxOpenedFile?
-    func listInbox() throws -> [String]
-    func moveInbox(from: String, to: String, exclusive: Bool) throws
-    func replaceCanonical(_ data: Data, in directory: PricingInboxDirectory, name: String) throws
-    func installCanonicalIfAbsent(
-        _ data: Data,
-        in directory: PricingInboxDirectory,
-        name: String
-    ) throws -> Bool
-    func removeInbox(name: String) throws
+    func duplicatePricingDescriptor() throws -> Int32
+    func readIfPresent(name: String) throws -> PricingCatalogOpenedFile?
+    func replaceCanonical(_ data: Data, name: String) throws
+    func installCanonicalIfAbsent(_ data: Data, name: String) throws -> Bool
 }
 
-final class POSIXPricingInboxFileSystem: PricingInboxFileSystem, @unchecked Sendable {
-    private struct Handles {
-        let pricing: Int32
-        let inbox: Int32
-        let applied: Int32
-        let rejected: Int32
-    }
-
+final class POSIXPricingCatalogFileSystem: PricingCatalogFileSystem, @unchecked Sendable {
     private let lock = NSLock()
     private let directorySync: @Sendable (Int32) -> Int32
-    private var handles: Handles?
+    private var pricingDescriptor: Int32?
 
     init(directorySync: @escaping @Sendable (Int32) -> Int32 = { Darwin.fsync($0) }) {
         self.directorySync = directorySync
@@ -67,9 +27,9 @@ final class POSIXPricingInboxFileSystem: PricingInboxFileSystem, @unchecked Send
 
     func open(rootPath: String) throws {
         guard rootPath.hasPrefix("/"), !rootPath.utf8.contains(0) else {
-            throw PricingInboxError.invalidApplicationSupportDirectory
+            throw PricingCatalogError.invalidApplicationSupportDirectory
         }
-        if lock.withLock({ handles != nil }) { return }
+        if lock.withLock({ pricingDescriptor != nil }) { return }
 
         if !FileManager.default.fileExists(atPath: rootPath) {
             do {
@@ -79,243 +39,146 @@ final class POSIXPricingInboxFileSystem: PricingInboxFileSystem, @unchecked Send
                     attributes: [.posixPermissions: 0o700]
                 )
             } catch {
-                throw PricingInboxError.fileOperationFailed("could not create application support directory")
+                throw PricingCatalogError.fileOperationFailed(
+                    "could not create application support directory"
+                )
             }
         }
 
         let root = Darwin.open(rootPath, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
-        guard root >= 0 else { throw PricingInboxError.insecureManagedDirectory("Application Support") }
+        guard root >= 0 else {
+            throw PricingCatalogError.insecureManagedDirectory("Application Support")
+        }
         defer { Darwin.close(root) }
         var rootStatus = stat()
         guard fstat(root, &rootStatus) == 0,
               rootStatus.st_mode & S_IFMT == S_IFDIR,
               rootStatus.st_uid == geteuid() else {
-            throw PricingInboxError.insecureManagedDirectory("Application Support")
+            throw PricingCatalogError.insecureManagedDirectory("Application Support")
         }
 
-        var opened: [Int32] = []
-        do {
-            let pricing = try createAndOpenDirectory(parent: root, name: "Pricing")
-            opened.append(pricing)
-            let inbox = try createAndOpenDirectory(parent: pricing, name: "Inbox")
-            opened.append(inbox)
-            let applied = try createAndOpenDirectory(parent: pricing, name: "Applied")
-            opened.append(applied)
-            let rejected = try createAndOpenDirectory(parent: pricing, name: "Rejected")
-            opened.append(rejected)
-            let newHandles = Handles(pricing: pricing, inbox: inbox, applied: applied, rejected: rejected)
-            let installed = lock.withLock { () -> Bool in
-                guard handles == nil else { return false }
-                handles = newHandles
-                return true
-            }
-            if !installed { opened.forEach { Darwin.close($0) } }
-        } catch {
-            opened.forEach { Darwin.close($0) }
-            throw error
+        let pricing = try createAndOpenDirectory(parent: root, name: "Pricing")
+        let installed = lock.withLock { () -> Bool in
+            guard pricingDescriptor == nil else { return false }
+            pricingDescriptor = pricing
+            return true
         }
+        if !installed { Darwin.close(pricing) }
     }
 
     func close() {
-        let closing = lock.withLock { () -> Handles? in
-            defer { handles = nil }
-            return handles
+        let closing = lock.withLock { () -> Int32? in
+            defer { pricingDescriptor = nil }
+            return pricingDescriptor
         }
-        guard let closing else { return }
-        Darwin.close(closing.rejected)
-        Darwin.close(closing.applied)
-        Darwin.close(closing.inbox)
-        Darwin.close(closing.pricing)
+        if let closing { Darwin.close(closing) }
     }
 
-    func duplicateInboxDescriptor() throws -> Int32 {
-        let descriptor = try descriptor(for: .inbox)
+    func duplicatePricingDescriptor() throws -> Int32 {
+        let descriptor = try pricing()
         let duplicate = fcntl(descriptor, F_DUPFD_CLOEXEC, 0)
         guard duplicate >= 0 else {
-            throw PricingInboxError.couldNotMonitorInbox(errno)
+            throw PricingCatalogError.couldNotMonitor(errno)
         }
         return duplicate
     }
 
-    func readIfPresent(
-        in directory: PricingInboxDirectory,
-        name: String
-    ) throws -> PricingInboxOpenedFile? {
+    func readIfPresent(name: String) throws -> PricingCatalogOpenedFile? {
         try validate(name: name)
-        let directoryDescriptor = try descriptor(for: directory)
-        let file = openat(directoryDescriptor, name, O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC)
+        let directory = try pricing()
+        let file = openat(directory, name, O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC)
         if file < 0, errno == ENOENT { return nil }
-        guard file >= 0 else {
-            throw PricingInboxError.candidateUnavailable
-        }
+        guard file >= 0 else { throw PricingCatalogError.catalogUnavailable }
         defer { Darwin.close(file) }
 
         var status = stat()
         guard fstat(file, &status) == 0 else {
-            throw PricingInboxError.candidateUnavailable
+            throw PricingCatalogError.catalogUnavailable
         }
         guard status.st_mode & S_IFMT == S_IFREG else {
-            throw PricingInboxError.candidateNotRegularFile
+            throw PricingCatalogError.catalogNotRegularFile
         }
         guard status.st_nlink == 1 else {
-            throw PricingInboxError.candidateHasMultipleLinks
+            throw PricingCatalogError.catalogHasMultipleLinks
         }
         guard status.st_size >= 0, status.st_size <= 1_048_576 else {
-            throw PricingInboxError.candidateTooLarge
+            throw PricingCatalogError.catalogTooLarge
         }
 
         var data = Data()
         data.reserveCapacity(Int(status.st_size))
-        var buffer = [UInt8](repeating: 0, count: 64 * 1024)
+        var buffer = [UInt8](repeating: 0, count: 64 * 1_024)
         while true {
             let count = Darwin.read(file, &buffer, buffer.count)
             if count == 0 { break }
             if count < 0 {
                 if errno == EINTR { continue }
-                throw PricingInboxError.candidateUnavailable
+                throw PricingCatalogError.catalogUnavailable
             }
             guard data.count + count <= 1_048_576 else {
-                throw PricingInboxError.candidateTooLarge
+                throw PricingCatalogError.catalogTooLarge
             }
             data.append(buffer, count: count)
         }
-        return PricingInboxOpenedFile(
-            data: data,
-            identity: PricingInboxFileIdentity(device: UInt64(status.st_dev), inode: UInt64(status.st_ino))
-        )
+        return PricingCatalogOpenedFile(data: data)
     }
 
-    func listInbox() throws -> [String] {
-        let inbox = try descriptor(for: .inbox)
-        let duplicate = fcntl(inbox, F_DUPFD_CLOEXEC, 0)
-        guard duplicate >= 0, let directory = fdopendir(duplicate) else {
-            if duplicate >= 0 { Darwin.close(duplicate) }
-            throw PricingInboxError.fileOperationFailed("could not enumerate inbox")
-        }
-        defer { closedir(directory) }
-        var names: [String] = []
-        while let entry = readdir(directory) {
-            let name = withUnsafePointer(to: &entry.pointee.d_name) { pointer in
-                pointer.withMemoryRebound(to: CChar.self, capacity: Int(MAXNAMLEN) + 1) {
-                    String(cString: $0)
-                }
-            }
-            if name != ".", name != ".." { names.append(name) }
-        }
-        return names.sorted()
-    }
-
-    func moveInbox(from: String, to: String, exclusive: Bool) throws {
-        try validate(name: from)
-        try validate(name: to)
-        let inbox = try descriptor(for: .inbox)
-        let result: Int32
-        if exclusive {
-            result = renameatx_np(inbox, from, inbox, to, UInt32(RENAME_EXCL))
-        } else {
-            result = renameat(inbox, from, inbox, to)
-        }
-        guard result == 0 else { throw PricingInboxError.candidateUnavailable }
-        try sync(
-            directory: inbox,
-            after: .moveInbox(from: from, to: to)
-        )
-    }
-
-    func replaceCanonical(_ data: Data, in directory: PricingInboxDirectory, name: String) throws {
+    func replaceCanonical(_ data: Data, name: String) throws {
         try validate(name: name)
-        let directoryDescriptor = try descriptor(for: directory)
-        try requireAbsentOrRegular(directory: directoryDescriptor, name: name)
-        let temporary = try writeTemporaryCanonical(data, directory: directoryDescriptor)
+        let directory = try pricing()
+        try requireAbsentOrRegular(directory: directory, name: name)
+        let temporary = try writeTemporaryCanonical(data, directory: directory)
         var installed = false
-        defer { if !installed { _ = unlinkat(directoryDescriptor, temporary, 0) } }
-        guard renameat(directoryDescriptor, temporary, directoryDescriptor, name) == 0 else {
-            throw PricingInboxError.fileOperationFailed("could not replace canonical file")
+        defer { if !installed { _ = unlinkat(directory, temporary, 0) } }
+        guard renameat(directory, temporary, directory, name) == 0 else {
+            throw PricingCatalogError.fileOperationFailed("could not replace pricing catalog")
         }
         installed = true
-        try sync(
-            directory: directoryDescriptor,
-            after: .replaceCanonical(directory: directory, name: name)
-        )
+        try sync(directory: directory)
     }
 
-    func installCanonicalIfAbsent(
-        _ data: Data,
-        in directory: PricingInboxDirectory,
-        name: String
-    ) throws -> Bool {
+    func installCanonicalIfAbsent(_ data: Data, name: String) throws -> Bool {
         try validate(name: name)
-        let directoryDescriptor = try descriptor(for: directory)
-        let temporary = try writeTemporaryCanonical(data, directory: directoryDescriptor)
+        let directory = try pricing()
+        let temporary = try writeTemporaryCanonical(data, directory: directory)
         var installed = false
-        defer { if !installed { _ = unlinkat(directoryDescriptor, temporary, 0) } }
-        let result = renameatx_np(
-            directoryDescriptor,
-            temporary,
-            directoryDescriptor,
-            name,
-            UInt32(RENAME_EXCL)
-        )
-        if result != 0, errno == EEXIST {
-            guard unlinkat(directoryDescriptor, temporary, 0) == 0 else {
-                throw PricingInboxError.fileOperationFailed("could not remove canonical temporary file")
-            }
-            installed = true
-            try sync(directory: directoryDescriptor)
-            return false
-        }
-        guard result == 0 else {
-            throw PricingInboxError.fileOperationFailed("could not install canonical file")
+        defer { if !installed { _ = unlinkat(directory, temporary, 0) } }
+        if renameatx_np(directory, temporary, directory, name, UInt32(RENAME_EXCL)) != 0 {
+            if errno == EEXIST { return false }
+            throw PricingCatalogError.fileOperationFailed("could not install pricing catalog")
         }
         installed = true
-        try sync(
-            directory: directoryDescriptor,
-            after: .installCanonical(directory: directory, name: name)
-        )
+        try sync(directory: directory)
         return true
-    }
-
-    func removeInbox(name: String) throws {
-        try validate(name: name)
-        let inbox = try descriptor(for: .inbox)
-        if unlinkat(inbox, name, 0) != 0 {
-            if errno == ENOENT {
-                try sync(directory: inbox)
-                return
-            }
-            throw PricingInboxError.fileOperationFailed("could not remove processed candidate")
-        }
-        try sync(directory: inbox, after: .removeInbox(name: name))
     }
 
     private func createAndOpenDirectory(parent: Int32, name: String) throws -> Int32 {
         if mkdirat(parent, name, mode_t(0o700)) != 0, errno != EEXIST {
-            throw PricingInboxError.fileOperationFailed("could not create managed directory")
+            throw PricingCatalogError.insecureManagedDirectory(name)
         }
-        let directory = openat(parent, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
-        guard directory >= 0 else {
-            throw PricingInboxError.insecureManagedDirectory(name)
+        let descriptor = openat(
+            parent,
+            name,
+            O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+        )
+        guard descriptor >= 0 else {
+            throw PricingCatalogError.insecureManagedDirectory(name)
         }
         var status = stat()
-        guard fstat(directory, &status) == 0,
+        guard fstat(descriptor, &status) == 0,
               status.st_mode & S_IFMT == S_IFDIR,
               status.st_uid == geteuid() else {
-            Darwin.close(directory)
-            throw PricingInboxError.insecureManagedDirectory(name)
+            Darwin.close(descriptor)
+            throw PricingCatalogError.insecureManagedDirectory(name)
         }
-        return directory
+        return descriptor
     }
 
-    private func descriptor(for directory: PricingInboxDirectory) throws -> Int32 {
-        try lock.withLock {
-            guard let handles else { throw PricingInboxError.fileOperationFailed("pricing directories are closed") }
-            switch directory {
-            case .pricing: return handles.pricing
-            case .inbox: return handles.inbox
-            case .applied: return handles.applied
-            case .rejected: return handles.rejected
-            }
+    private func pricing() throws -> Int32 {
+        guard let descriptor = lock.withLock({ pricingDescriptor }) else {
+            throw PricingCatalogError.fileOperationFailed("pricing catalog is not open")
         }
+        return descriptor
     }
 
     private func validate(name: String) throws {
@@ -325,7 +188,7 @@ final class POSIXPricingInboxFileSystem: PricingInboxFileSystem, @unchecked Send
               name.utf8.count <= Int(NAME_MAX),
               !name.utf8.contains(0),
               !name.contains("/") else {
-            throw PricingInboxError.fileOperationFailed("invalid managed filename")
+            throw PricingCatalogError.fileOperationFailed("invalid managed filename")
         }
     }
 
@@ -333,15 +196,17 @@ final class POSIXPricingInboxFileSystem: PricingInboxFileSystem, @unchecked Send
         var status = stat()
         if fstatat(directory, name, &status, AT_SYMLINK_NOFOLLOW) == 0 {
             guard status.st_mode & S_IFMT == S_IFREG, status.st_nlink == 1 else {
-                throw PricingInboxError.fileOperationFailed("canonical destination is not a regular file")
+                throw PricingCatalogError.fileOperationFailed(
+                    "pricing catalog destination is not a regular file"
+                )
             }
         } else if errno != ENOENT {
-            throw PricingInboxError.fileOperationFailed("could not inspect canonical destination")
+            throw PricingCatalogError.fileOperationFailed("could not inspect pricing catalog")
         }
     }
 
     private func writeTemporaryCanonical(_ data: Data, directory: Int32) throws -> String {
-        let name = ".tokenboard-canonical-\(UUID().uuidString).tmp"
+        let name = ".tokenboard-pricing-\(UUID().uuidString).tmp"
         let file = openat(
             directory,
             name,
@@ -349,7 +214,7 @@ final class POSIXPricingInboxFileSystem: PricingInboxFileSystem, @unchecked Send
             mode_t(0o600)
         )
         guard file >= 0 else {
-            throw PricingInboxError.fileOperationFailed("could not create canonical temporary file")
+            throw PricingCatalogError.fileOperationFailed("could not create temporary catalog")
         }
         var shouldRemove = true
         defer {
@@ -366,31 +231,21 @@ final class POSIXPricingInboxFileSystem: PricingInboxFileSystem, @unchecked Send
                 )
                 if result < 0, errno == EINTR { continue }
                 guard result > 0 else {
-                    throw PricingInboxError.fileOperationFailed("could not write canonical temporary file")
+                    throw PricingCatalogError.fileOperationFailed("could not write temporary catalog")
                 }
                 offset += result
             }
         }
         guard fsync(file) == 0 else {
-            throw PricingInboxError.fileOperationFailed("could not sync canonical temporary file")
+            throw PricingCatalogError.fileOperationFailed("could not sync temporary catalog")
         }
         shouldRemove = false
         return name
     }
 
-    private func sync(directory: Int32, after mutation: PricingInboxMutation) throws {
-        guard directorySync(directory) == 0 else {
-            throw PricingInboxMutationError(
-                mutation: mutation,
-                mutationCompleted: true,
-                failure: .fileOperationFailed("could not sync managed directory")
-            )
-        }
-    }
-
     private func sync(directory: Int32) throws {
         guard directorySync(directory) == 0 else {
-            throw PricingInboxError.fileOperationFailed("could not sync managed directory")
+            throw PricingCatalogError.fileOperationFailed("could not sync pricing directory")
         }
     }
 }

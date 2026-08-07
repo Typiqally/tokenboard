@@ -51,6 +51,7 @@ public struct CatalogOrigin: Codable, Equatable, Sendable {
     public enum Kind: String, Codable, Sendable {
         case tokenboardRepository = "tokenboard_repository"
         case officialResearch = "official_research"
+        case webResearch = "web_research"
     }
 
     public let kind: Kind

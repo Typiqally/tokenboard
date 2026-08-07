@@ -25,9 +25,7 @@ public enum LedgerValidationError: Error, Equatable, Sendable {
 
 public enum PricingLedgerError: Error, Equatable, Sendable {
     case canonicalContentMismatch
-    case catalogIDConflict(String)
     case semanticConflict(String)
-    case overlappingInterval(String)
     case invalidImportMetadata
 }
 
@@ -300,14 +298,12 @@ public actor SQLiteLedger: LedgerStore {
         }
 
         try connection.transaction {
-            if let existing = try importedCanonicalJSON(catalogID: catalog.catalogID, using: connection) {
-                guard existing == canonicalString else {
-                    throw PricingLedgerError.catalogIDConflict(catalog.catalogID)
-                }
-                return
-            }
-
-            try validatePricingUnion(catalog, using: connection)
+            try connection.execute("""
+            DELETE FROM fx_rates;
+            DELETE FROM model_aliases;
+            DELETE FROM price_rates;
+            DELETE FROM catalog_imports;
+            """)
             for model in catalog.models {
                 for alias in model.aliases {
                     try insertAliasIfNew(alias, model: model, catalogID: catalog.catalogID, using: connection)
@@ -491,7 +487,7 @@ public actor SQLiteLedger: LedgerStore {
                 guard Self.isGregorianDay(effectiveDate), Self.isGregorianDay(verifiedAt),
                       let components = URLComponents(string: rawProvenance),
                       components.scheme?.lowercased() == "https",
-                      components.host?.lowercased() == "www.ecb.europa.eu",
+                      components.host != nil,
                       let provenanceURL = components.url else {
                     throw LedgerError.corruptData("stored exchange-rate metadata is invalid")
                 }
@@ -530,133 +526,6 @@ public actor SQLiteLedger: LedgerStore {
                 }
             default:
                 throw failure(sqlite3_errcode(connection.handle), using: connection)
-            }
-        }
-    }
-
-    private func importedCanonicalJSON(catalogID: String, using connection: SQLiteConnection) throws -> String? {
-        let statement = try prepare("SELECT canonical_json FROM catalog_imports WHERE catalog_id = ?;", using: connection)
-        defer { sqlite3_finalize(statement) }
-        try bind(catalogID, to: statement, at: 1, using: connection)
-        switch sqlite3_step(statement) {
-        case SQLITE_ROW:
-            return try requiredText(statement, at: 0)
-        case SQLITE_DONE:
-            return nil
-        default:
-            throw failure(sqlite3_errcode(connection.handle), using: connection)
-        }
-    }
-
-    private func validatePricingUnion(
-        _ catalog: ValidatedPricingCatalog,
-        using connection: SQLiteConnection
-    ) throws {
-        var aliasesByKey: [PricingAliasHistoryKey: [StoredModelAlias]] = [:]
-        for alias in try readModelAliases(using: connection) {
-            aliasesByKey[
-                PricingAliasHistoryKey(provider: alias.provider, observedModelID: alias.observedModelID),
-                default: []
-            ].append(alias)
-        }
-        var ratesByKey: [PricingRateHistoryKey: [StoredPriceRate]] = [:]
-        for rate in try readPriceRates(using: connection) {
-            ratesByKey[
-                PricingRateHistoryKey(
-                    provider: rate.provider,
-                    canonicalModelID: rate.canonicalModelID,
-                    metric: rate.metric
-                ),
-                default: []
-            ].append(rate)
-        }
-
-        for model in catalog.models {
-            for alias in model.aliases {
-                aliasesByKey[
-                    PricingAliasHistoryKey(provider: model.provider, observedModelID: alias.observedModelID),
-                    default: []
-                ].append(StoredModelAlias(
-                    provider: model.provider,
-                    observedModelID: alias.observedModelID,
-                    canonicalModelID: model.canonicalModelID,
-                    effectiveFrom: alias.effectiveFrom,
-                    effectiveTo: alias.effectiveTo
-                ))
-            }
-            for rate in model.rates {
-                for (metric, price) in rate.prices {
-                    ratesByKey[
-                        PricingRateHistoryKey(
-                            provider: model.provider,
-                            canonicalModelID: model.canonicalModelID,
-                            metric: metric
-                        ),
-                        default: []
-                    ].append(StoredPriceRate(
-                        provider: model.provider,
-                        canonicalModelID: model.canonicalModelID,
-                        metric: metric,
-                        usdPerMillion: price,
-                        effectiveFrom: rate.effectiveFrom,
-                        effectiveTo: rate.effectiveTo,
-                        provenanceURL: rate.provenanceURL,
-                        verifiedAt: rate.verifiedAt
-                    ))
-                }
-            }
-        }
-
-        for key in aliasesByKey.keys.sorted(by: Self.aliasHistoryKeyOrder) {
-            var uniqueByStart: [String: StoredModelAlias] = [:]
-            for alias in aliasesByKey[key, default: []] {
-                if let existing = uniqueByStart[alias.effectiveFrom] {
-                    guard existing == alias else {
-                        throw PricingLedgerError.semanticConflict(
-                            "alias \(key.provider.rawValue)/\(key.observedModelID)/\(alias.effectiveFrom)"
-                        )
-                    }
-                } else {
-                    uniqueByStart[alias.effectiveFrom] = alias
-                }
-            }
-            let ordered = uniqueByStart.values.sorted { $0.effectiveFrom < $1.effectiveFrom }
-            try validateStoredIntervals(
-                ordered.map { ($0.effectiveFrom, $0.effectiveTo) },
-                label: "alias \(key.provider.rawValue)/\(key.observedModelID)"
-            )
-        }
-
-        for key in ratesByKey.keys.sorted(by: Self.rateHistoryKeyOrder) {
-            var uniqueByStart: [String: StoredPriceRate] = [:]
-            for rate in ratesByKey[key, default: []] {
-                if let existing = uniqueByStart[rate.effectiveFrom] {
-                    guard existing == rate else {
-                        throw PricingLedgerError.semanticConflict(
-                            "rate \(key.provider.rawValue)/\(key.canonicalModelID)/\(key.metric.rawValue)/\(rate.effectiveFrom)"
-                        )
-                    }
-                } else {
-                    uniqueByStart[rate.effectiveFrom] = rate
-                }
-            }
-            let ordered = uniqueByStart.values.sorted { $0.effectiveFrom < $1.effectiveFrom }
-            try validateStoredIntervals(
-                ordered.map { ($0.effectiveFrom, $0.effectiveTo) },
-                label: "rate \(key.provider.rawValue)/\(key.canonicalModelID)/\(key.metric.rawValue)"
-            )
-        }
-    }
-
-    private func validateStoredIntervals(
-        _ intervals: [(from: String, to: String?)],
-        label: String
-    ) throws {
-        for index in intervals.indices where index > intervals.startIndex {
-            let previous = intervals[intervals.index(before: index)]
-            let current = intervals[index]
-            if let previousEnd = previous.to, previousEnd > current.from {
-                throw PricingLedgerError.overlappingInterval(label)
             }
         }
     }
@@ -1211,27 +1080,7 @@ private struct UsageKey: Hashable {
     let metric: UsageMetric
 }
 
-private struct PricingAliasHistoryKey: Hashable {
-    let provider: Provider
-    let observedModelID: String
-}
-
-private struct PricingRateHistoryKey: Hashable {
-    let provider: Provider
-    let canonicalModelID: String
-    let metric: UsageMetric
-}
-
 private extension SQLiteLedger {
-    static func aliasHistoryKeyOrder(_ lhs: PricingAliasHistoryKey, _ rhs: PricingAliasHistoryKey) -> Bool {
-        (lhs.provider.rawValue, lhs.observedModelID) < (rhs.provider.rawValue, rhs.observedModelID)
-    }
-
-    static func rateHistoryKeyOrder(_ lhs: PricingRateHistoryKey, _ rhs: PricingRateHistoryKey) -> Bool {
-        (lhs.provider.rawValue, lhs.canonicalModelID, lhs.metric.rawValue)
-            < (rhs.provider.rawValue, rhs.canonicalModelID, rhs.metric.rawValue)
-    }
-
     static let allowedSkippedReasons: Set<String> = [
         "malformed_record",
         "missing_model",

@@ -27,7 +27,8 @@ final class PricingCatalogValidatorTests: XCTestCase {
             .replacingOccurrences(of: #""schemaVersion": 1"#, with: #""schemaVersion": 2"#)
             .replacingOccurrences(
                 of: #""models": ["#,
-                with: #""exchangeRates": {
+                with: #"""
+      "exchangeRates": {
         "baseCurrency": "USD",
         "effectiveDate": "2026-08-07",
         "verifiedAt": "2026-08-07",
@@ -40,7 +41,8 @@ final class PricingCatalogValidatorTests: XCTestCase {
           "CNY": "6.747637625"
         }
       },
-      "models": ["#
+      "models": [
+      """#
             )
     }
 
@@ -86,6 +88,31 @@ final class PricingCatalogValidatorTests: XCTestCase {
         )
     }
 
+    func testWebResearchCatalogAcceptsReputableHTTPSProvenance() throws {
+        let researched = validV2
+            .replacingOccurrences(
+                of: #""kind":"official_research","url":"https://openai.com/api/pricing/""#,
+                with: #""kind":"web_research","url":"https://llmprices.example/research""#
+            )
+            .replacingOccurrences(
+                of: "https://openai.com/api/pricing/",
+                with: "https://archive.example/openai-pricing"
+            )
+            .replacingOccurrences(
+                of: "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml",
+                with: "https://rates.example/usd"
+            )
+
+        let catalog = try validate(researched)
+
+        XCTAssertEqual(catalog.origin.kind, .webResearch)
+        XCTAssertEqual(
+            catalog.models[0].rates[0].provenanceURL.host,
+            "archive.example"
+        )
+        XCTAssertEqual(catalog.exchangeRates?.provenanceURL.host, "rates.example")
+    }
+
     func testSchemaKeysRequireFXOnlyForVersion2() {
         let v1WithFX = validV2.replacingOccurrences(of: #""schemaVersion": 2"#, with: #""schemaVersion": 1"#)
         assertLoadingError(.invalidStructure("catalog has missing or unknown keys")) {
@@ -119,13 +146,6 @@ final class PricingCatalogValidatorTests: XCTestCase {
             (
                 validV2.replacingOccurrences(of: #""effectiveDate": "2026-08-07""#, with: #""effectiveDate": "2026-02-30""#),
                 .invalidDate("2026-02-30")
-            ),
-            (
-                validV2.replacingOccurrences(
-                    of: "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml",
-                    with: "https://rates.invalid/latest"
-                ),
-                .invalidExchangeRateProvenance
             )
         ]
 
@@ -292,16 +312,18 @@ final class PricingCatalogValidatorTests: XCTestCase {
         }
     }
 
-    func testProviderProvenanceAndCatalogOriginReachSeparateValidationBranches() throws {
+    func testResearchProvenanceRequiresStructurallySafeHTTPSURLs() throws {
         let decoded = try load(valid)
         let invalidOrigin = PricingCatalog(
             schemaVersion: decoded.schemaVersion,
             catalogID: decoded.catalogID,
             generatedAt: decoded.generatedAt,
-            origin: CatalogOrigin(kind: .officialResearch, url: "https://prices.invalid/catalog"),
+            origin: CatalogOrigin(kind: .webResearch, url: "http://prices.example/catalog"),
             models: decoded.models
         )
-        assertValidationError(.invalidOrigin) { _ = try PricingCatalogValidator().validate(invalidOrigin) }
+        assertValidationError(.invalidURL("http://prices.example/catalog")) {
+            _ = try PricingCatalogValidator().validate(invalidOrigin)
+        }
 
         let originalModel = decoded.models[0]
         let originalRate = originalModel.rates[0]
@@ -318,12 +340,12 @@ final class PricingCatalogValidatorTests: XCTestCase {
                     effectiveFrom: originalRate.effectiveFrom,
                     effectiveTo: originalRate.effectiveTo,
                     prices: originalRate.prices,
-                    provenanceURL: "https://prices.invalid/rate",
+                    provenanceURL: "https://user:secret@prices.example/rate",
                     verifiedAt: originalRate.verifiedAt
                 )]
             )]
         )
-        assertValidationError(.invalidProvenance(provider: .codex)) {
+        assertValidationError(.invalidURL("https://user:secret@prices.example/rate")) {
             _ = try PricingCatalogValidator().validate(invalidProvenance)
         }
     }
@@ -400,31 +422,6 @@ final class PricingCatalogValidatorTests: XCTestCase {
         assertValidationError(.overlappingInterval("codex/gpt-test")) {
             _ = try PricingCatalogValidator().validate(catalog)
         }
-    }
-
-    func testCatalogDiffReportsSemanticAdditionsAndConflicts() throws {
-        let candidate = try validate(valid)
-        let empty = PricingSnapshot(catalogIDs: [], rates: [], aliases: [])
-        XCTAssertEqual(
-            CatalogDiff.compare(candidate: candidate, against: empty),
-            CatalogDiff(modelsAdded: ["codex/gpt-test"], aliasesAdded: 1, ratesAdded: 3, conflicts: [])
-        )
-
-        let conflict = PricingSnapshot(
-            catalogIDs: ["older"],
-            rates: [StoredPriceRate(
-                provider: .codex,
-                canonicalModelID: "gpt-test",
-                metric: .inputUncached,
-                usdPerMillion: 7,
-                effectiveFrom: "2026-01-01",
-                effectiveTo: nil,
-                provenanceURL: URL(string: "https://openai.com/api/pricing/")!,
-                verifiedAt: "2026-08-05"
-            )],
-            aliases: []
-        )
-        XCTAssertEqual(CatalogDiff.compare(candidate: candidate, against: conflict).conflicts.count, 1)
     }
 
     private func load(_ string: String) throws -> PricingCatalog {

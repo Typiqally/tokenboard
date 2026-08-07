@@ -1755,18 +1755,9 @@ private actor LifecycleInbox: AppPricingInboxWatching {
         }
     }
     func stop() { stops += 1 }
-    func pendingCandidate() -> PendingPricingCandidate? { nil }
+    func status() -> PricingCatalogStatus? { nil }
+    func updates() -> AsyncStream<PricingCatalogStatus> { AsyncStream { $0.finish() } }
     func exportCurrentSnapshot() {}
-    func applyPending(
-        matching identity: PricingCandidateIdentity
-    ) throws -> PricingApplyOutcome {
-        throw PricingInboxError.noPendingCandidate
-    }
-    func rejectPending(
-        matching identity: PricingCandidateIdentity
-    ) throws -> PricingRejectOutcome {
-        throw PricingInboxError.noPendingCandidate
-    }
     func counts() -> [Int] { [starts, stops] }
 }
 

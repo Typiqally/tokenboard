@@ -3,7 +3,31 @@ import XCTest
 @testable import TokenboardCore
 
 final class PricingLedgerTests: XCTestCase {
-    func testSchemaV2PersistsCompleteExchangeSnapshotAndRetainsHistory() async throws {
+    func testAuthoritativeCatalogReplacementCorrectsAndRemovesPricingRows() async throws {
+        let ledger = try makeLedger()
+        try await ledger.migrate()
+        let first = try catalog(id: "catalog-a", models: [
+            model(inputPrice: 5),
+            model(canonicalModelID: "removed-model", observedModelID: "removed-model")
+        ])
+        let replacement = try catalog(id: "catalog-b", models: [model(inputPrice: 7)])
+
+        try await apply(first, to: ledger)
+        try await apply(replacement, to: ledger)
+
+        let snapshot = try await ledger.pricingSnapshot()
+        XCTAssertEqual(snapshot.catalogIDs, ["catalog-b"])
+        XCTAssertEqual(Set(snapshot.aliases.map(\.canonicalModelID)), ["gpt-test"])
+        XCTAssertEqual(Set(snapshot.rates.map(\.canonicalModelID)), ["gpt-test"])
+        XCTAssertEqual(
+            snapshot.rates.first { $0.metric == .inputUncached }?.usdPerMillion,
+            7
+        )
+        let latest = try await ledger.latestAppliedPricingCatalogJSON()
+        XCTAssertEqual(latest, replacement.canonicalJSON)
+    }
+
+    func testSchemaV2ReplacementKeepsOnlyTheAuthoritativeExchangeSnapshot() async throws {
         let ledger = try makeLedger()
         try await ledger.migrate()
         let first = try catalogV2(id: "catalog-fx-a", eur: "0.86")
@@ -13,9 +37,9 @@ final class PricingLedgerTests: XCTestCase {
         try await apply(second, to: ledger)
 
         let snapshot = try await ledger.pricingSnapshot()
-        XCTAssertEqual(snapshot.exchangeRateSnapshots.count, 2)
-        XCTAssertEqual(snapshot.exchangeRateSnapshots.map(\.catalogID), ["catalog-fx-a", "catalog-fx-b"])
-        XCTAssertEqual(snapshot.exchangeRateSnapshots[0].rates[.eur], Decimal(string: "0.86"))
+        XCTAssertEqual(snapshot.exchangeRateSnapshots.count, 1)
+        XCTAssertEqual(snapshot.exchangeRateSnapshots.map(\.catalogID), ["catalog-fx-b"])
+        XCTAssertEqual(snapshot.exchangeRateSnapshots[0].rates[.eur], Decimal(string: "0.87"))
         XCTAssertEqual(snapshot.latestExchangeRates?.rates[.eur], Decimal(string: "0.87"))
         XCTAssertEqual(snapshot.latestExchangeRates?.rates[.usd], Decimal(string: "1"))
     }
@@ -49,7 +73,8 @@ final class PricingLedgerTests: XCTestCase {
             try await self.apply(try self.catalogV2(id: "catalog-fx-failure"), to: setup.ledger)
         }
 
-        XCTAssertEqual(try await setup.ledger.pricingSnapshot(), before)
+        let afterFailure = try await setup.ledger.pricingSnapshot()
+        XCTAssertEqual(afterFailure, before)
         XCTAssertEqual(
             try database.queryStrings("SELECT catalog_id FROM catalog_imports ORDER BY catalog_id;"),
             []
@@ -76,7 +101,7 @@ final class PricingLedgerTests: XCTestCase {
         XCTAssertEqual(latest, second.canonicalJSON)
     }
 
-    func testApplyingSameCatalogIsIdempotentAndChangedContentForSameIDConflicts() async throws {
+    func testApplyingSameCatalogIsIdempotentAndChangedContentForSameIDReplacesIt() async throws {
         let ledger = try makeLedger()
         try await ledger.migrate()
         let first = try catalog(id: "catalog-a", models: [model()])
@@ -92,14 +117,15 @@ final class PricingLedgerTests: XCTestCase {
         XCTAssertEqual(afterRetry, afterFirst)
 
         let changed = try catalog(id: "catalog-a", models: [model(inputPrice: 7)])
-        await assertPricingError(.catalogIDConflict("catalog-a")) {
-            try await self.apply(changed, to: ledger)
-        }
-        let afterConflict = try await snapshot(from: ledger)
-        XCTAssertEqual(afterConflict, afterFirst)
+        try await apply(changed, to: ledger)
+        let afterCorrection = try await snapshot(from: ledger)
+        XCTAssertEqual(
+            afterCorrection.rates.first { $0.metric == .inputUncached }?.usdPerMillion,
+            7
+        )
     }
 
-    func testFullHistoryImportDeduplicatesExactRowsAndAppendsLaterOpenIntervals() async throws {
+    func testFullHistoryCatalogReplacesPriorCatalogAndKeepsItsOwnIntervals() async throws {
         let ledger = try makeLedger()
         try await ledger.migrate()
         let first = try catalog(id: "catalog-a", models: [model()])
@@ -120,131 +146,13 @@ final class PricingLedgerTests: XCTestCase {
         try await apply(history, to: ledger)
 
         let snapshot = try await ledger.pricingSnapshot()
-        XCTAssertEqual(snapshot.catalogIDs, ["catalog-a", "catalog-b"])
+        XCTAssertEqual(snapshot.catalogIDs, ["catalog-b"])
         XCTAssertEqual(snapshot.aliases.map(\.effectiveFrom), ["2026-01-01", "2026-07-01"])
         XCTAssertEqual(
             snapshot.rates.filter { $0.metric == .inputUncached }.map(\.effectiveFrom),
             ["2026-01-01", "2026-07-01"]
         )
         XCTAssertNil(snapshot.rates.first { $0.effectiveFrom == "2026-01-01" }?.effectiveTo)
-    }
-
-    func testStoredBoundedRateRejectsCandidateStartInsideInterval() async throws {
-        let ledger = try makeLedger()
-        try await ledger.migrate()
-        let stored = try catalog(id: "catalog-a", models: [model(aliasTo: nil, rateTo: "2026-06-01")])
-        try await apply(stored, to: ledger)
-        let before = try await ledger.pricingSnapshot()
-
-        let overlapping = try catalog(id: "catalog-b", models: [model(
-            aliasFrom: "2026-05-01",
-            aliasTo: nil,
-            rateFrom: "2026-05-01",
-            rateTo: nil,
-            inputPrice: 6
-        )])
-        await assertPricingError(.overlappingInterval("rate codex/gpt-test/input_uncached")) {
-            try await self.apply(overlapping, to: ledger)
-        }
-        let afterRejection = try await snapshot(from: ledger)
-        XCTAssertEqual(afterRejection, before)
-    }
-
-    func testStoredBoundedAliasRejectsCandidateStartInsideInterval() async throws {
-        let ledger = try makeLedger()
-        try await ledger.migrate()
-        let stored = try catalog(id: "catalog-a", models: [model(aliasTo: "2026-06-01", rateTo: nil)])
-        try await apply(stored, to: ledger)
-        let before = try await ledger.pricingSnapshot()
-
-        let overlapping = try catalog(id: "catalog-b", models: [model(
-            aliasFrom: "2026-05-01",
-            aliasTo: nil,
-            rateFrom: "2026-05-01",
-            rateTo: nil,
-            inputPrice: 6
-        )])
-        await assertPricingError(.overlappingInterval("alias codex/gpt-test")) {
-            try await self.apply(overlapping, to: ledger)
-        }
-        let afterRejection = try await snapshot(from: ledger)
-        XCTAssertEqual(afterRejection, before)
-    }
-
-    func testStoredExplicitBoundaryAndGapAllowAliasesAndRates() async throws {
-        for candidateStart in ["2026-06-01", "2026-07-01"] {
-            let ledger = try makeLedger()
-            try await ledger.migrate()
-            let stored = try catalog(id: "catalog-a", models: [model(
-                aliasTo: "2026-06-01",
-                rateTo: "2026-06-01"
-            )])
-            try await apply(stored, to: ledger)
-            let candidate = try catalog(id: "catalog-b", models: [model(
-                aliasFrom: candidateStart,
-                rateFrom: candidateStart,
-                inputPrice: 6
-            )])
-
-            try await apply(candidate, to: ledger)
-
-            let snapshot = try await ledger.pricingSnapshot()
-            XCTAssertEqual(snapshot.catalogIDs, ["catalog-a", "catalog-b"])
-            XCTAssertEqual(snapshot.aliases.map(\.effectiveFrom), ["2026-01-01", candidateStart])
-            XCTAssertEqual(snapshot.rates.count, 4)
-        }
-    }
-
-    func testValidNewRowsBeforeLaterOverlapRollBackEntireTransaction() async throws {
-        let ledger = try makeLedger()
-        try await ledger.migrate()
-        let stored = try catalog(id: "catalog-a", models: [model(
-            canonicalModelID: "z-conflict",
-            observedModelID: "z-conflict",
-            aliasTo: "2026-06-01",
-            rateTo: "2026-06-01"
-        )])
-        try await apply(stored, to: ledger)
-        let before = try await ledger.pricingSnapshot()
-
-        let candidate = try catalog(id: "catalog-b", models: [
-            model(canonicalModelID: "a-new", observedModelID: "a-new", inputPrice: 4),
-            model(
-                canonicalModelID: "z-conflict",
-                observedModelID: "z-conflict",
-                aliasFrom: "2026-05-01",
-                rateFrom: "2026-05-01",
-                inputPrice: 6
-            )
-        ])
-        await assertPricingError(.overlappingInterval("alias codex/z-conflict")) {
-            try await self.apply(candidate, to: ledger)
-        }
-
-        let afterRejection = try await snapshot(from: ledger)
-        XCTAssertEqual(afterRejection, before)
-    }
-
-    func testValidNewRowsBeforeLaterSameStartConflictRollBackEntireTransaction() async throws {
-        let ledger = try makeLedger()
-        try await ledger.migrate()
-        let stored = try catalog(id: "catalog-a", models: [model(
-            canonicalModelID: "z-conflict",
-            observedModelID: "z-conflict"
-        )])
-        try await apply(stored, to: ledger)
-        let before = try await ledger.pricingSnapshot()
-
-        let candidate = try catalog(id: "catalog-b", models: [
-            model(canonicalModelID: "a-new", observedModelID: "a-new", inputPrice: 4),
-            model(canonicalModelID: "z-conflict", observedModelID: "z-conflict", inputPrice: 7)
-        ])
-        await assertPricingError(.semanticConflict("rate codex/z-conflict/input_uncached/2026-01-01")) {
-            try await self.apply(candidate, to: ledger)
-        }
-
-        let afterRejection = try await snapshot(from: ledger)
-        XCTAssertEqual(afterRejection, before)
     }
 
     func testLaterRateInsertFailureRollsBackEarlierRowsAndCatalogImport() async throws {
@@ -330,7 +238,7 @@ final class PricingLedgerTests: XCTestCase {
             try await ledger.applyPricingCatalog(
                 candidate,
                 canonicalJSON: Data("{}".utf8),
-                origin: PricingImportMetadata.agentCandidateOrigin,
+                origin: PricingImportMetadata.agentCatalogOrigin,
                 validationSummary: PricingImportMetadata.schemaV1ValidSummary
             )
         }
@@ -349,7 +257,7 @@ final class PricingLedgerTests: XCTestCase {
                 try await ledger.applyPricingCatalog(
                     candidate,
                     canonicalJSON: candidate.canonicalJSON,
-                    origin: PricingImportMetadata.agentCandidateOrigin,
+                    origin: PricingImportMetadata.agentCatalogOrigin,
                     validationSummary: invalidSummary
                 )
             }
@@ -500,7 +408,7 @@ final class PricingLedgerTests: XCTestCase {
     private func apply(
         _ catalog: ValidatedPricingCatalog,
         to ledger: SQLiteLedger,
-        origin: String = PricingImportMetadata.agentCandidateOrigin
+        origin: String = PricingImportMetadata.agentCatalogOrigin
     ) async throws {
         try await ledger.applyPricingCatalog(
             catalog,

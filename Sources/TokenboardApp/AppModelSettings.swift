@@ -9,29 +9,23 @@ extension AppModel {
         }
     }
 
-    func copyAgentPrompt(source: AgentPricingSource) async {
+    func copyAgentPrompt() async {
         await runSettingsOperation { [weak self] in
-            await self?.performCopyAgentPrompt(source: source)
+            await self?.performCopyAgentPrompt()
         }
     }
 
-    private func performCopyAgentPrompt(source: AgentPricingSource) async {
+    private func performCopyAgentPrompt() async {
         do {
             try await pricingInbox.exportCurrentSnapshot()
-            let inbox = applicationPaths.pricing.appending(
-                path: "Inbox",
-                directoryHint: .isDirectory
-            )
             let prompt = AgentPromptBuilder().build(
-                source: source,
                 paths: AgentPricingPaths(
                     currentCatalog: applicationPaths.pricing.appending(
                         path: PricingInbox.currentCatalogFilename
                     ),
-                    temporaryCandidate: inbox.appending(
-                        path: PricingInbox.temporaryCandidateFilename
-                    ),
-                    finalCandidate: inbox.appending(path: PricingInbox.candidateFilename)
+                    temporaryCatalog: applicationPaths.pricing.appending(
+                        path: PricingInbox.temporaryCatalogFilename
+                    )
                 )
             )
             guard pasteboard.replace(with: prompt) else {
@@ -40,91 +34,6 @@ extension AppModel {
             setSettingsStatus("Prompt copied · Tokenboard made no network request")
         } catch {
             setSettingsStatus("Prompt copy failed: \(Self.errorDescription(error))")
-        }
-    }
-
-    func applyPendingPricing(reviewedIdentity identity: PricingCandidateIdentity) async {
-        await runSettingsOperation { [weak self] in
-            await self?.performApplyPendingPricing(reviewedIdentity: identity)
-        }
-    }
-
-    private func performApplyPendingPricing(reviewedIdentity identity: PricingCandidateIdentity) async {
-        guard settingsState.pricing.pendingCandidate?.identity == identity else {
-            setSettingsStatus("Pricing candidate changed · Review the replacement before applying")
-            return
-        }
-        guard settingsState.pricing.canApply else {
-            setSettingsStatus("Pricing candidate has conflicts that block Apply")
-            return
-        }
-        setSettingsLoading(true)
-        do {
-            let outcome = try await pricingInbox.applyPending(matching: identity)
-            await querySelectedSummary()
-            await performRefreshSettings(
-                statusMessage: outcome == .finalized
-                    ? "Pricing applied · API-equivalent value refreshed"
-                    : "Pricing applied · File finalization will retry"
-            )
-        } catch {
-            await performRefreshSettings(statusMessage: error as? PricingInboxError == .candidateChanged
-                ? "Pricing candidate changed · Review the replacement before applying"
-                : "Pricing apply failed · Active pricing unchanged")
-        }
-    }
-
-    func rejectPendingPricing(rejectedIdentity identity: PricingCandidateIdentity) async {
-        await runSettingsOperation { [weak self] in
-            await self?.performRejectPendingPricing(rejectedIdentity: identity)
-        }
-    }
-
-    private func performRejectPendingPricing(rejectedIdentity identity: PricingCandidateIdentity) async {
-        guard settingsState.pricing.pendingCandidate?.identity == identity else {
-            setSettingsStatus("Pricing candidate changed · Review the replacement before rejecting")
-            return
-        }
-        setSettingsLoading(true)
-        do {
-            let outcome = try await pricingInbox.rejectPending(matching: identity)
-            await performRefreshSettings(
-                statusMessage: outcome == .finalized
-                    ? "Pricing candidate rejected · Active pricing unchanged"
-                    : "Pricing rejected · File finalization will retry"
-            )
-        } catch {
-            await performRefreshSettings(statusMessage: error as? PricingInboxError == .candidateChanged
-                ? "Pricing candidate changed · Review the replacement before rejecting"
-                : "Pricing rejection failed · Active pricing unchanged")
-        }
-    }
-
-    func retryPricingFinalization() async {
-        await runSettingsOperation { [weak self] in
-            await self?.performRetryPricingFinalization()
-        }
-    }
-
-    private func performRetryPricingFinalization() async {
-        guard !settingsState.isFinalizationRetryInProgress,
-              let identity = settingsState.pricing.finalizationIdentity else {
-            return
-        }
-        setFinalizationRetryInProgress(true)
-        defer { setFinalizationRetryInProgress(false) }
-        do {
-            let outcome = try await pricingInbox.retryFinalization(matching: identity)
-            if outcome == .applied {
-                await querySelectedSummary()
-            }
-            await performRefreshSettings(statusMessage: outcome == .applied
-                ? "Pricing file finalization completed"
-                : "Rejected candidate file finalization completed")
-        } catch {
-            await performRefreshSettings(statusMessage: error as? PricingInboxError == .candidateChanged
-                ? "Pricing finalization changed · Refresh Settings before retrying"
-                : "Pricing finalization retry failed · Files remain safely pending")
         }
     }
 
@@ -409,7 +318,7 @@ extension AppModel {
         }
     }
 
-    private func performRefreshSettings(statusMessage: String?) async {
+    func performRefreshSettings(statusMessage: String?) async {
         if case .recoveryRequired = state.health.database {
             await performLoadRecoveryBackups()
             commitSettingsState(AppSettingsState(
@@ -444,25 +353,12 @@ extension AppModel {
             let pricing = try await ledger.pricingSnapshot()
             let rows = try await ledger.usageRows(in: interval, calendar: calendar)
             let skippedCount = try await ledger.skippedRecordCount()
-            let inboxStatus = await pricingInbox.status()
-            let pending: PendingPricingCandidate?
-            if case let .valid(candidate) = inboxStatus {
-                pending = candidate
-            } else {
-                pending = nil
-            }
-            let preview = try pending.map {
-                try PricingPreview.make(
-                    rows: rows,
-                    currentPricing: pricing,
-                    candidate: $0.catalog
-                )
-            }
+            let catalogStatus = await pricingInbox.status()
             let resolution = try PriceResolver().resolve(rows: rows, pricing: pricing)
             let pricingHealth: TokenboardHealth.PricingState
-            if case .invalid = inboxStatus {
+            if case .invalid = catalogStatus {
                 pricingHealth = .warning(
-                    message: TokenboardHealth.Issue.invalidPricingCandidate.message
+                    message: TokenboardHealth.Issue.invalidPricingCatalog.message
                 )
             } else {
                 pricingHealth = .healthy
@@ -484,12 +380,8 @@ extension AppModel {
                         on: LocalDay(date: now(), calendar: calendar).value
                     ),
                     exchangeRates: pricing.latestExchangeRates,
-                    pendingCandidate: pending,
-                    preview: preview,
-                    validationConflicts: [],
-                    inboxStatus: inboxStatus,
-                    isFinalizationRetryInProgress: settingsState
-                        .isFinalizationRetryInProgress
+                    activeCatalogID: pricing.catalogIDs.last,
+                    catalogStatus: catalogStatus
                 ),
                 diagnostics: SettingsDiagnosticsState(
                     health: published.health,
@@ -511,7 +403,7 @@ extension AppModel {
         }
     }
 
-    private func runSettingsOperation(
+    func runSettingsOperation(
         _ operation: @escaping @MainActor () async -> Void
     ) async {
         while let existing = settingsActivity {
@@ -599,12 +491,6 @@ extension AppModel {
     func setSourceMutationInProgress(_ inProgress: Bool) {
         var next = settingsState
         next.isSourceMutationInProgress = inProgress
-        commitSettingsState(next)
-    }
-
-    private func setFinalizationRetryInProgress(_ inProgress: Bool) {
-        var next = settingsState
-        next.isFinalizationRetryInProgress = inProgress
         commitSettingsState(next)
     }
 

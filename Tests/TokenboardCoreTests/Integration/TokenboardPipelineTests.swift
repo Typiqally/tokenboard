@@ -37,7 +37,7 @@ final class TokenboardPipelineTests: XCTestCase {
         try await ledger.applyPricingCatalog(
             catalog,
             canonicalJSON: catalog.canonicalJSON,
-            origin: PricingImportMetadata.agentCandidateOrigin,
+            origin: PricingImportMetadata.agentCatalogOrigin,
             validationSummary: PricingImportMetadata.schemaV1ValidSummary
         )
         let priced = try await query.summary(period: .allTime, now: pipelineNow(), calendar: calendar)
@@ -113,7 +113,7 @@ final class TokenboardPipelineTests: XCTestCase {
             .applicationFailure,
             .migrationFailure,
             .integrityFailure,
-            .invalidPricingCandidate
+            .invalidPricingCatalog
         ]
         let messages = issues.map(\.message)
 

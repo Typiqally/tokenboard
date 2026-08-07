@@ -36,30 +36,16 @@ final class SettingsTests: XCTestCase {
     func testPricingUpdateCopyExplainsTheNetworkBoundaryAndNextStep() {
         XCTAssertEqual(
             PricingUpdateCopy.explanation,
-            "Tokenboard never connects to the internet. Copy one of the prompts below into Claude Code or Codex. The agent saves a local pricing candidate for your review."
+            "Tokenboard has no network access. Paste this prompt into Claude Code or Codex; the agent researches pricing, reports its sources, and safely replaces the local catalog. Valid changes apply automatically."
+        )
+        XCTAssertEqual(PricingUpdateCopy.buttonTitle, "Copy Pricing Update Prompt")
+        XCTAssertEqual(
+            PricingUpdateCopy.status(.current(catalogID: "current"), activeCatalogID: "current"),
+            "Active catalog · current"
         )
         XCTAssertEqual(
-            PricingUpdateCopy.promptOptions,
-            [
-                PricingPromptOption(
-                    source: .tokenboardRepository,
-                    buttonTitle: "Copy Catalog-Only Prompt",
-                    description: "Uses only Tokenboard’s published model prices and exchange rates on GitHub."
-                ),
-                PricingPromptOption(
-                    source: .officialResearch,
-                    buttonTitle: "Copy Official-Sites Prompt",
-                    description: "Researches official OpenAI and Anthropic pricing plus ECB exchange rates."
-                )
-            ]
-        )
-        XCTAssertEqual(
-            PricingUpdateCopy.inboxStatus(.empty),
-            "No candidate is waiting. Run the copied prompt to create one."
-        )
-        XCTAssertEqual(
-            PricingUpdateCopy.inboxStatus(.invalid(.invalidCatalog)),
-            "The candidate file was rejected because its pricing catalog is invalid. Active pricing was not changed."
+            PricingUpdateCopy.status(.invalid(.invalidCatalog), activeCatalogID: "current"),
+            "Last update failed · Keeping current"
         )
     }
 
@@ -89,7 +75,7 @@ final class SettingsTests: XCTestCase {
             aliases: [storedAlias()],
             exchangeRateSnapshots: [exchangeRates]
         )
-        let setup = try makeSetup(candidate: nil, pricing: pricing)
+        let setup = try makeSetup(pricing: pricing)
         defer { setup.cleanup() }
 
         await setup.model.start()
@@ -110,7 +96,7 @@ final class SettingsTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: recoveryFiles.root) }
         let backup = recoveryFiles.backup
         let recovery = SettingsRecovery(backup: backup)
-        let setup = try makeSetup(candidate: nil, databaseRecovery: recovery)
+        let setup = try makeSetup(databaseRecovery: recovery)
         defer { setup.cleanup() }
         var failed = setup.model.state
         failed.lifecycle = .failed(message: TokenboardHealth.Issue.integrityFailure.message)
@@ -144,7 +130,6 @@ final class SettingsTests: XCTestCase {
         let shutdownGate = SettingsMutationGate()
         let recovery = SettingsRecovery(backup: recoveryFiles.backup)
         let setup = try makeSetup(
-            candidate: nil,
             ledgerShutdownGate: shutdownGate,
             databaseRecovery: recovery
         )
@@ -194,7 +179,7 @@ final class SettingsTests: XCTestCase {
         ).availableBackups()
         let newer = try XCTUnwrap(listing.first { $0.id != captured.id })
         let recovery = SettingsRecovery(backup: captured)
-        let setup = try makeSetup(candidate: nil, databaseRecovery: recovery)
+        let setup = try makeSetup(databaseRecovery: recovery)
         defer { setup.cleanup() }
         publishRecoveryRequired(in: setup.model)
         await setup.model.refreshSettings()
@@ -215,7 +200,7 @@ final class SettingsTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: recoveryFiles.root) }
         let gate = SettingsMutationGate()
         let recovery = SettingsRecovery(backup: recoveryFiles.backup, stageGate: gate)
-        let setup = try makeSetup(candidate: nil, databaseRecovery: recovery)
+        let setup = try makeSetup(databaseRecovery: recovery)
         defer { setup.cleanup() }
         publishRecoveryRequired(in: setup.model)
         await setup.model.refreshSettings()
@@ -270,7 +255,7 @@ final class SettingsTests: XCTestCase {
             backup: recoveryFiles.backup,
             restoreError: .cleanupPending
         )
-        let setup = try makeSetup(candidate: nil, databaseRecovery: recovery)
+        let setup = try makeSetup(databaseRecovery: recovery)
         defer { setup.cleanup() }
         publishRecoveryRequired(in: setup.model)
         await setup.model.refreshSettings()
@@ -301,7 +286,7 @@ final class SettingsTests: XCTestCase {
         let recoveryFiles = try await makeRecoveryBackup()
         defer { try? FileManager.default.removeItem(at: recoveryFiles.root) }
         let recovery = SettingsRecovery(backup: recoveryFiles.backup)
-        let setup = try makeSetup(candidate: nil, databaseRecovery: recovery)
+        let setup = try makeSetup(databaseRecovery: recovery)
         defer { setup.cleanup() }
         var pricingOpenCount = 0
         var settingsOpenCount = 0
@@ -349,7 +334,7 @@ final class SettingsTests: XCTestCase {
             backup: recoveryFiles.backup,
             restoreError: .preservationRetryRequired
         )
-        let setup = try makeSetup(candidate: nil, databaseRecovery: recovery)
+        let setup = try makeSetup(databaseRecovery: recovery)
         defer { setup.cleanup() }
         publishRecoveryRequired(in: setup.model)
         await setup.model.refreshSettings()
@@ -382,7 +367,7 @@ final class SettingsTests: XCTestCase {
             backup: recoveryFiles.backup,
             restoreError: .preservationFailed
         )
-        let setup = try makeSetup(candidate: nil, databaseRecovery: recovery)
+        let setup = try makeSetup(databaseRecovery: recovery)
         defer { setup.cleanup() }
         var settingsOpenCount = 0
         setup.model.onOpenSettings = { settingsOpenCount += 1 }
@@ -423,7 +408,7 @@ final class SettingsTests: XCTestCase {
             restoreError: .preservationRetryRequired,
             preservationRetryGate: retryGate
         )
-        let setup = try makeSetup(candidate: nil, databaseRecovery: recovery)
+        let setup = try makeSetup(databaseRecovery: recovery)
         defer { setup.cleanup() }
         publishRecoveryRequired(in: setup.model)
         await setup.model.refreshSettings()
@@ -460,7 +445,7 @@ final class SettingsTests: XCTestCase {
             backup: recoveryFiles.backup,
             restoreError: .preservationRetryRequired
         )
-        let setup = try makeSetup(candidate: nil, databaseRecovery: recovery)
+        let setup = try makeSetup(databaseRecovery: recovery)
         defer { setup.cleanup() }
         var settingsOpenCount = 0
         setup.model.onOpenSettings = { settingsOpenCount += 1 }
@@ -489,7 +474,7 @@ final class SettingsTests: XCTestCase {
             backup: recoveryFiles.backup,
             availabilityError: .backupTooLarge(maximumBytes: 256 * 1_024 * 1_024)
         )
-        let setup = try makeSetup(candidate: nil, databaseRecovery: recovery)
+        let setup = try makeSetup(databaseRecovery: recovery)
         defer { setup.cleanup() }
         publishRecoveryRequired(in: setup.model)
 
@@ -532,7 +517,6 @@ final class SettingsTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: recoveryFiles.root) }
         let recovery = SettingsRecovery(backup: recoveryFiles.backup)
         let setup = try makeSetup(
-            candidate: nil,
             ledgerShutdownError: SettingsError.injected,
             databaseRecovery: recovery
         )
@@ -562,7 +546,6 @@ final class SettingsTests: XCTestCase {
 
     func testTerminationRefusesStrictCloseFailureAndCanRetryWithoutRestartingWriters() async throws {
         let setup = try makeSetup(
-            candidate: nil,
             ledgerShutdownError: SettingsError.injected
         )
         defer { setup.cleanup() }
@@ -591,7 +574,7 @@ final class SettingsTests: XCTestCase {
             defer { try? FileManager.default.removeItem(at: recoveryFiles.root) }
             let gate = SettingsMutationGate()
             let recovery = SettingsRecovery(backup: recoveryFiles.backup, stageGate: gate)
-            let setup = try makeSetup(candidate: nil, databaseRecovery: recovery)
+            let setup = try makeSetup(databaseRecovery: recovery)
             defer { setup.cleanup() }
             publishRecoveryRequired(in: setup.model)
             await setup.model.refreshSettings()
@@ -616,42 +599,6 @@ final class SettingsTests: XCTestCase {
         }
     }
 
-    func testShutdownAwaitsPricingApplyBeforeInboxQuiescenceAndLedgerClose() async throws {
-        let applyGate = SettingsMutationGate()
-        let setup = try makeSetup(
-            candidate: validatedCandidate(),
-            pricingApplyGate: applyGate
-        )
-        defer { setup.cleanup() }
-        await setup.model.start()
-        await setup.model.refreshSettings()
-        setup.recorder.reset()
-        let reviewedIdentity = try XCTUnwrap(
-            setup.model.settingsState.pricing.pendingCandidate?.identity
-        )
-
-        let apply = Task {
-            await setup.model.applyPendingPricing(reviewedIdentity: reviewedIdentity)
-        }
-        await applyGate.waitUntilEntered()
-        let shutdown = Task { await setup.model.shutdown() }
-        try? await Task.sleep(for: .milliseconds(20))
-        let shutdownCount = await setup.ledger.shutdownCount()
-        XCTAssertEqual(shutdownCount, 0)
-        XCTAssertFalse(setup.recorder.snapshot.contains("inbox.quiesce"))
-
-        await applyGate.release()
-        await apply.value
-        _ = await shutdown.value
-        let events = setup.recorder.snapshot
-        let applyComplete = try XCTUnwrap(events.firstIndex(of: "inbox.apply.complete"))
-        let quiesce = try XCTUnwrap(events.firstIndex(of: "inbox.quiesce"))
-        let stop = try XCTUnwrap(events.firstIndex(of: "inbox.stop"))
-        let close = try XCTUnwrap(events.firstIndex(of: "ledger.shutdown"))
-        XCTAssertTrue(applyComplete < quiesce)
-        XCTAssertTrue(quiesce < stop)
-        XCTAssertTrue(stop < close)
-    }
 
     private func publishRecoveryRequired(in model: AppModel) {
         var failed = model.state
@@ -665,40 +612,17 @@ final class SettingsTests: XCTestCase {
     }
 
     func testRefreshingSettingsWaitsForStartupWhenOpenedOnDemand() async throws {
-        let setup = try makeSetup(candidate: validatedCandidate())
+        let setup = try makeSetup()
         defer { setup.cleanup() }
 
         await setup.model.refreshSettings()
 
         XCTAssertEqual(setup.model.state.lifecycle, .ready)
-        XCTAssertNotNil(setup.model.settingsState.pricing.preview)
-    }
-
-    func testRefreshingSettingsBuildsAReviewWithoutApplyingTheCandidate() async throws {
-        let setup = try makeSetup(candidate: validatedCandidate())
-        defer { setup.cleanup() }
-        await setup.model.start()
-
-        await setup.model.refreshSettings()
-
-        XCTAssertEqual(setup.model.settingsState.pricing.preview?.currentKnownUSD, .zero)
-        XCTAssertEqual(
-            setup.model.settingsState.pricing.preview?.candidateKnownUSD,
-            Decimal(string: "0.20")
-        )
-        XCTAssertEqual(setup.model.settingsState.pricing.preview?.newlyPricedTokens, 100_000)
-        XCTAssertEqual(setup.model.settingsState.diagnostics.skippedRecordCount, 3)
-        XCTAssertEqual(
-            setup.model.settingsState.diagnostics.parserVersions,
-            [.claudeCode: ClaudeCodeAdapter.parserVersion, .codex: CodexAdapter.parserVersion]
-        )
-        let inboxCounts = await setup.inbox.counts()
-        XCTAssertEqual(inboxCounts.apply, 0)
-        XCTAssertEqual(inboxCounts.reject, 0)
+        XCTAssertEqual(setup.model.settingsState.pricing.activeCatalogID, "current")
     }
 
     func testRefreshingSettingsReconcilesChangedSkippedCountWithMenuPresentation() async throws {
-        let setup = try makeSetup(candidate: nil, approved: true)
+        let setup = try makeSetup(approved: true)
         defer { setup.cleanup() }
         await setup.model.start()
 
@@ -717,361 +641,21 @@ final class SettingsTests: XCTestCase {
         XCTAssertNil(setup.model.preferences.dismissedWarningSignature)
     }
 
-    func testSettingsCandidateActionsRequireReviewAndExposeNoDirectApply() async throws {
-        let setup = try makeSetup(candidate: validatedCandidate())
-        defer { setup.cleanup() }
-        await setup.model.start()
-        await setup.model.refreshSettings()
-        let identity = try XCTUnwrap(
-            setup.model.settingsState.pricing.pendingCandidate?.identity
-        )
-
-        XCTAssertEqual(
-            PricingSettingsView(model: setup.model).candidateActions,
-            [.review(identity), .reject(identity)]
-        )
-    }
-
-    func testReviewContentDisplaysEveryAliasMappingAndRateField() async throws {
-        let setup = try makeSetup(candidate: validatedCandidate())
-        defer { setup.cleanup() }
-        await setup.model.start()
-        await setup.model.refreshSettings()
-        let selection = try XCTUnwrap(
-            PricingSettingsView(model: setup.model).currentReviewSelection
-        )
-
-        XCTAssertEqual(selection.content.aliases, [
-            "codex · gpt-preview → gpt-preview · 2026-01-01 → open"
-        ])
-        XCTAssertEqual(selection.content.rates, [
-            "codex · gpt-preview · input_uncached · $2 / 1M · 2026-01-01 → open · https://openai.com/api/pricing/ · verified 2026-08-05",
-            "codex · gpt-preview · output · $30 / 1M · 2026-01-01 → open · https://openai.com/api/pricing/ · verified 2026-08-05"
-        ])
-    }
-
-    func testReviewContentShowsExchangeRateDiffAndSelectedCurrencyValues() async throws {
-        let setup = try makeSetup(candidate: try validatedCurrencyCandidate())
-        defer { setup.cleanup() }
-        await setup.model.start()
-        setup.model.select(displayCurrency: .eur)
-        await setup.model.refreshSettings()
-        let selection = try XCTUnwrap(
-            PricingSettingsView(model: setup.model).currentReviewSelection
-        )
-
-        XCTAssertTrue(selection.content.exchangeRates.contains("EUR · 0.9 per USD · changed"))
-        XCTAssertEqual(
-            selection.content.exchangeRateProvenance,
-            "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml · checked 2026-08-07"
-        )
-        XCTAssertEqual(selection.content.currentKnownValue, "EUR unavailable")
-        XCTAssertEqual(selection.content.candidateKnownValue, "≈ €0.18")
-    }
-
-    func testApplyRequiresConflictFreePreviewThenRefreshesTheSelectedSummary() async throws {
-        let setup = try makeSetup(candidate: validatedCandidate())
-        defer { setup.cleanup() }
-        await setup.model.start()
-        await setup.model.refreshSettings()
-        let queryCountBeforeApply = await setup.query.callCount()
-        let reviewedIdentity = try XCTUnwrap(
-            setup.model.settingsState.pricing.pendingCandidate?.identity
-        )
-
-        await setup.model.applyPendingPricing(reviewedIdentity: reviewedIdentity)
-
-        let inboxCounts = await setup.inbox.counts()
-        let queryCountAfterApply = await setup.query.callCount()
-        XCTAssertEqual(inboxCounts.apply, 1)
-        XCTAssertEqual(inboxCounts.reject, 0)
-        XCTAssertEqual(queryCountAfterApply, queryCountBeforeApply + 1)
-        XCTAssertEqual(setup.model.settingsState.pricing.pendingCandidate, nil)
-        XCTAssertEqual(setup.model.settingsState.statusMessage, "Pricing applied · API-equivalent value refreshed")
-    }
-
-    func testCommittedFinalizationPendingStillRefreshesSummaryAndPublishesSafeStatus() async throws {
-        let setup = try makeSetup(
-            candidate: validatedCandidate(),
-            applyOutcome: .committedFinalizationPending
-        )
-        defer { setup.cleanup() }
-        await setup.model.start()
-        await setup.model.refreshSettings()
-        let callsBefore = await setup.query.callCount()
-        let reviewedIdentity = try XCTUnwrap(
-            setup.model.settingsState.pricing.pendingCandidate?.identity
-        )
-
-        await setup.model.applyPendingPricing(reviewedIdentity: reviewedIdentity)
-
-        let callsAfter = await setup.query.callCount()
-        XCTAssertEqual(callsAfter, callsBefore + 1)
-        XCTAssertEqual(
-            setup.model.settingsState.statusMessage,
-            "Pricing applied · File finalization will retry"
-        )
-    }
-
-    func testAppliedFinalizationRetryIsReachableRefreshesSummaryAndDoesNotApplyAgain() async throws {
-        let identity = PricingCandidateIdentity(canonicalJSON: Data("applied-finalizing".utf8))
-        let setup = try makeSetup(
-            candidate: nil,
-            pricingInboxStatus: .appliedFinalizing(identity),
-            finalizationOutcome: .applied
-        )
-        defer { setup.cleanup() }
-        await setup.model.start()
-        await setup.model.refreshSettings()
-        let queriesBeforeRetry = await setup.query.callCount()
-
-        XCTAssertEqual(setup.model.settingsState.pricing.finalizationIdentity, identity)
-        XCTAssertTrue(setup.model.settingsState.pricing.canRetryFinalization)
-        XCTAssertFalse(setup.model.settingsState.pricing.canApply)
-
-        await setup.model.retryPricingFinalization()
-
-        let counts = await setup.inbox.counts()
-        let queriesAfterRetry = await setup.query.callCount()
-        XCTAssertEqual(counts.apply, 0)
-        XCTAssertEqual(counts.reject, 0)
-        XCTAssertEqual(counts.retry, 1)
-        XCTAssertEqual(queriesAfterRetry, queriesBeforeRetry + 1)
-        XCTAssertEqual(setup.model.settingsState.pricing.inboxStatus, .empty)
-        XCTAssertEqual(
-            setup.model.settingsState.statusMessage,
-            "Pricing file finalization completed"
-        )
-        XCTAssertFalse(setup.model.settingsState.isFinalizationRetryInProgress)
-    }
-
-    func testRejectedFinalizationRetryIsSerializedAndDoesNotMutatePricingOrSummary() async throws {
-        let identity = PricingCandidateIdentity(canonicalJSON: Data("rejected-finalizing".utf8))
-        let gate = SettingsMutationGate()
-        let setup = try makeSetup(
-            candidate: nil,
-            pricingInboxStatus: .rejectedFinalizing(identity),
-            finalizationOutcome: .rejected,
-            finalizationRetryGate: gate
-        )
-        defer { setup.cleanup() }
-        await setup.model.start()
-        await setup.model.refreshSettings()
-        let pricingBefore = await setup.ledger.currentPricing()
-        let queriesBeforeRetry = await setup.query.callCount()
-
-        let first = Task { await setup.model.retryPricingFinalization() }
-        await gate.waitUntilEntered()
-        XCTAssertTrue(setup.model.settingsState.isFinalizationRetryInProgress)
-        XCTAssertFalse(setup.model.settingsState.pricing.canRetryFinalization)
-        let second = Task { await setup.model.retryPricingFinalization() }
-        await Task.yield()
-        await gate.release()
-        await first.value
-        await second.value
-
-        let counts = await setup.inbox.counts()
-        let pricingAfter = await setup.ledger.currentPricing()
-        let queriesAfterRetry = await setup.query.callCount()
-        XCTAssertEqual(counts.apply, 0)
-        XCTAssertEqual(counts.reject, 0)
-        XCTAssertEqual(counts.retry, 1)
-        XCTAssertEqual(pricingAfter, pricingBefore)
-        XCTAssertEqual(queriesAfterRetry, queriesBeforeRetry)
-        XCTAssertEqual(setup.model.settingsState.pricing.inboxStatus, .empty)
-        XCTAssertEqual(
-            setup.model.settingsState.statusMessage,
-            "Rejected candidate file finalization completed"
-        )
-        XCTAssertFalse(setup.model.settingsState.isFinalizationRetryInProgress)
-    }
-
-    func testFinalizationRetryFailureKeepsActionReachableAndPublishesSanitizedError() async throws {
-        let identity = PricingCandidateIdentity(canonicalJSON: Data("retry-failure".utf8))
-        let setup = try makeSetup(
-            candidate: nil,
-            pricingInboxStatus: .appliedFinalizing(identity),
-            finalizationRetryError: .fileOperationFailed("private candidate path")
-        )
-        defer { setup.cleanup() }
-        await setup.model.start()
-        await setup.model.refreshSettings()
-
-        await setup.model.retryPricingFinalization()
-
-        XCTAssertEqual(
-            setup.model.settingsState.statusMessage,
-            "Pricing finalization retry failed · Files remain safely pending"
-        )
-        XCTAssertFalse(setup.model.settingsState.statusMessage?.contains("private") == true)
-        XCTAssertEqual(
-            setup.model.settingsState.pricing.inboxStatus,
-            .appliedFinalizing(identity)
-        )
-        XCTAssertTrue(setup.model.settingsState.pricing.canRetryFinalization)
-        XCTAssertFalse(setup.model.settingsState.isFinalizationRetryInProgress)
-    }
-
-    func testInvalidInboxStatusIsVisibleAndApplyRemainsDisabled() async throws {
-        let setup = try makeSetup(
-            candidate: nil,
-            pricingInboxStatus: .invalid(.invalidCatalog)
-        )
-        defer { setup.cleanup() }
-        await setup.model.start()
-
-        await setup.model.refreshSettings()
-
-        XCTAssertEqual(setup.model.settingsState.pricing.inboxStatus, .invalid(.invalidCatalog))
-        XCTAssertNil(setup.model.settingsState.pricing.pendingCandidate)
-        XCTAssertFalse(setup.model.settingsState.pricing.canApply)
-        XCTAssertEqual(
-            setup.model.health.pricing,
-            .warning(message: TokenboardHealth.Issue.invalidPricingCandidate.message)
-        )
-        XCTAssertEqual(setup.model.settingsState.diagnostics.health, setup.model.health)
-    }
-
-    func testConflictBlocksApplyAndLeavesCandidatePending() async throws {
-        let current = PricingSnapshot(
-            catalogIDs: ["current"],
-            rates: [storedRate(usd: "1")],
-            aliases: [storedAlias()]
-        )
-        let setup = try makeSetup(candidate: validatedCandidate(), pricing: current)
-        defer { setup.cleanup() }
-        await setup.model.start()
-        await setup.model.refreshSettings()
-        let reviewedIdentity = try XCTUnwrap(
-            setup.model.settingsState.pricing.pendingCandidate?.identity
-        )
-
-        await setup.model.applyPendingPricing(reviewedIdentity: reviewedIdentity)
-
-        let inboxCounts = await setup.inbox.counts()
-        XCTAssertFalse(setup.model.settingsState.pricing.canApply)
-        XCTAssertEqual(inboxCounts.apply, 0)
-        XCTAssertNotNil(setup.model.settingsState.pricing.pendingCandidate)
-        XCTAssertEqual(setup.model.settingsState.statusMessage, "Pricing candidate has conflicts that block Apply")
-    }
-
-    func testReplacementInvalidatesTheIdentityCapturedByReview() async throws {
-        let setup = try makeSetup(candidate: validatedCandidate())
-        defer { setup.cleanup() }
-        await setup.model.start()
-        await setup.model.refreshSettings()
-        let reviewedIdentity = try XCTUnwrap(
-            PricingSettingsView(model: setup.model).currentReviewSelection?.identity
-        )
-
-        await setup.inbox.replaceCandidate(with: try validatedCandidate(
-            catalogID: "replacement-2026-08-06",
-            modelID: "gpt-replacement"
-        ))
-        await setup.model.refreshSettings()
-        await setup.model.applyPendingPricing(reviewedIdentity: reviewedIdentity)
-
-        let counts = await setup.inbox.counts()
-        XCTAssertEqual(counts.apply, 0)
-        XCTAssertEqual(
-            setup.model.settingsState.statusMessage,
-            "Pricing candidate changed · Review the replacement before applying"
-        )
-        XCTAssertEqual(
-            setup.model.settingsState.pricing.pendingCandidate?.catalog.catalogID,
-            "replacement-2026-08-06"
-        )
-    }
-
-    func testRejectArchivesCandidateWithoutMutatingThePricingLedger() async throws {
-        let setup = try makeSetup(candidate: validatedCandidate())
-        defer { setup.cleanup() }
-        await setup.model.start()
-        await setup.model.refreshSettings()
-        let pricingBefore = await setup.ledger.currentPricing()
-        let rejectedIdentity = try XCTUnwrap(
-            setup.model.settingsState.pricing.pendingCandidate?.identity
-        )
-
-        await setup.model.rejectPendingPricing(rejectedIdentity: rejectedIdentity)
-
-        let inboxCounts = await setup.inbox.counts()
-        let pricingAfter = await setup.ledger.currentPricing()
-        XCTAssertEqual(inboxCounts.reject, 1)
-        XCTAssertEqual(inboxCounts.apply, 0)
-        XCTAssertEqual(pricingAfter, pricingBefore)
-        XCTAssertEqual(setup.model.settingsState.statusMessage, "Pricing candidate rejected · Active pricing unchanged")
-    }
-
-    func testSettingsRejectKeepsReplacementWhenRenderedActionIdentityIsStale() async throws {
-        let setup = try makeSetup(candidate: validatedCandidate())
-        defer { setup.cleanup() }
-        await setup.model.start()
-        await setup.model.refreshSettings()
-        let actions = PricingSettingsView(model: setup.model).candidateActions
-        let renderedIdentity: PricingCandidateIdentity
-        guard case let .reject(identity)? = actions.last else {
-            return XCTFail("missing rendered Reject action")
-        }
-        renderedIdentity = identity
-
-        await setup.inbox.replaceCandidate(with: try validatedCandidate(
-            catalogID: "replacement-settings-reject",
-            modelID: "gpt-replacement-settings"
-        ))
-        await setup.model.rejectPendingPricing(rejectedIdentity: renderedIdentity)
-
-        let counts = await setup.inbox.counts()
-        XCTAssertEqual(counts.reject, 0)
-        XCTAssertEqual(
-            setup.model.settingsState.pricing.pendingCandidate?.catalog.catalogID,
-            "replacement-settings-reject"
-        )
-        XCTAssertEqual(
-            setup.model.settingsState.statusMessage,
-            "Pricing candidate changed · Review the replacement before rejecting"
-        )
-    }
-
-    func testReviewSheetRejectKeepsReplacementWhenCapturedReviewIdentityIsStale() async throws {
-        let setup = try makeSetup(candidate: validatedCandidate())
-        defer { setup.cleanup() }
-        await setup.model.start()
-        await setup.model.refreshSettings()
-        let review = try XCTUnwrap(PricingSettingsView(model: setup.model).currentReviewSelection)
-
-        await setup.inbox.replaceCandidate(with: try validatedCandidate(
-            catalogID: "replacement-review-reject",
-            modelID: "gpt-replacement-review"
-        ))
-        await setup.model.rejectPendingPricing(rejectedIdentity: review.identity)
-
-        let counts = await setup.inbox.counts()
-        XCTAssertEqual(counts.reject, 0)
-        XCTAssertEqual(
-            setup.model.settingsState.pricing.pendingCandidate?.catalog.catalogID,
-            "replacement-review-reject"
-        )
-        XCTAssertEqual(
-            setup.model.settingsState.statusMessage,
-            "Pricing candidate changed · Review the replacement before rejecting"
-        )
-    }
-
-    func testCopyPromptExportsFirstAndWritesOnePlainTextStringWithExactPaths() async throws {
-        let setup = try makeSetup(candidate: nil)
+    func testCopyPromptExportsFirstAndWritesOneAutomaticUpdatePrompt() async throws {
+        let setup = try makeSetup()
         defer { setup.cleanup() }
         await setup.model.start()
         setup.recorder.reset()
 
-        await setup.model.copyAgentPrompt(source: .officialResearch)
+        await setup.model.copyAgentPrompt()
 
         XCTAssertEqual(setup.recorder.snapshot, ["inbox.export", "pasteboard.replace"])
         XCTAssertEqual(setup.pasteboard.values.count, 1)
         let prompt = try XCTUnwrap(setup.pasteboard.values.first)
         XCTAssertTrue(prompt.contains(setup.paths.pricing.appending(path: "current-tokenboard-pricing.json").path))
-        XCTAssertTrue(prompt.contains(setup.paths.pricing.appending(path: "Inbox/tokenboard-pricing.candidate.json.tmp").path))
-        XCTAssertTrue(prompt.contains(setup.paths.pricing.appending(path: "Inbox/tokenboard-pricing.candidate.json").path))
+        XCTAssertTrue(prompt.contains(setup.paths.pricing.appending(path: "current-tokenboard-pricing.json.tmp").path))
+        XCTAssertFalse(prompt.contains("Pricing/Inbox"))
+        XCTAssertFalse(prompt.contains("review"))
         XCTAssertEqual(setup.model.settingsState.statusMessage, "Prompt copied · Tokenboard made no network request")
     }
 
@@ -1081,7 +665,6 @@ final class SettingsTests: XCTestCase {
         try FileManager.default.createDirectory(at: replacement, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: replacement) }
         let setup = try makeSetup(
-            candidate: nil,
             grantedProviders: Set(Provider.allCases),
             approved: true,
             pickerURL: replacement
@@ -1101,7 +684,6 @@ final class SettingsTests: XCTestCase {
 
     func testRevokeStopsOnlySelectedSourceAndRetainsLedgerRowsAndOtherGrant() async throws {
         let setup = try makeSetup(
-            candidate: nil,
             grantedProviders: Set(Provider.allCases),
             approved: true
         )
@@ -1130,7 +712,6 @@ final class SettingsTests: XCTestCase {
         try FileManager.default.createDirectory(at: replacement, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: replacement) }
         let setup = try makeSetup(
-            candidate: nil,
             grantedProviders: Set(Provider.allCases),
             approved: true,
             pickerURL: replacement
@@ -1152,7 +733,6 @@ final class SettingsTests: XCTestCase {
         let gate = SettingsMutationGate()
         let replacement = URL(fileURLWithPath: "/private/tmp/change-wins", isDirectory: true)
         let setup = try makeSetup(
-            candidate: nil,
             grantedProviders: Set(Provider.allCases),
             approved: true,
             pickerURL: replacement,
@@ -1186,7 +766,6 @@ final class SettingsTests: XCTestCase {
     func testRevokeThenChangeSharesOneMutationAndKeepsRevocationAtomic() async throws {
         let gate = SettingsMutationGate()
         let setup = try makeSetup(
-            candidate: nil,
             grantedProviders: Set(Provider.allCases),
             approved: true,
             pickerURL: URL(fileURLWithPath: "/private/tmp/change-loses", isDirectory: true),
@@ -1215,7 +794,6 @@ final class SettingsTests: XCTestCase {
     func testConcurrentRevokesShareOneMutationAndCloseGrantOnce() async throws {
         let gate = SettingsMutationGate()
         let setup = try makeSetup(
-            candidate: nil,
             grantedProviders: Set(Provider.allCases),
             approved: true,
             coordinatorMutationGate: gate
@@ -1239,7 +817,7 @@ final class SettingsTests: XCTestCase {
     }
 
     func testRevealLocalDataSelectsOnlyTheApplicationSupportRoot() throws {
-        let setup = try makeSetup(candidate: nil)
+        let setup = try makeSetup()
         defer { setup.cleanup() }
 
         setup.model.revealLocalData()
@@ -1248,7 +826,7 @@ final class SettingsTests: XCTestCase {
     }
 
     func testSettingsWindowCreatesAndReleasesSwiftUIViewStateOnDemand() async throws {
-        let setup = try makeSetup(candidate: nil)
+        let setup = try makeSetup()
         defer { setup.cleanup() }
         let service = SettingsLoginService()
         weak var releasedController: LaunchAtLoginController?
@@ -1306,18 +884,12 @@ final class SettingsTests: XCTestCase {
     }
 
     private func makeSetup(
-        candidate: ValidatedPricingCatalog?,
         pricing: PricingSnapshot = PricingSnapshot(catalogIDs: ["current"], rates: [], aliases: []),
         grantedProviders: Set<Provider> = [],
         approved: Bool = false,
         pickerURL: URL? = nil,
         coordinatorMutationGate: SettingsMutationGate? = nil,
-        pricingInboxStatus: PricingInboxStatus? = nil,
-        applyOutcome: PricingApplyOutcome = .finalized,
-        finalizationOutcome: PricingFinalizationOutcome = .applied,
-        finalizationRetryGate: SettingsMutationGate? = nil,
-        finalizationRetryError: PricingInboxError? = nil,
-        pricingApplyGate: SettingsMutationGate? = nil,
+        pricingCatalogStatus: PricingCatalogStatus? = nil,
         ledgerShutdownError: SettingsError? = nil,
         ledgerShutdownGate: SettingsMutationGate? = nil,
         databaseRecovery: (any AppDatabaseRecovering)? = nil
@@ -1348,15 +920,9 @@ final class SettingsTests: XCTestCase {
             shutdownGate: ledgerShutdownGate
         )
         let inbox = SettingsInbox(
-            candidate: candidate,
-            ledger: ledger,
             recorder: recorder,
-            forcedStatus: pricingInboxStatus,
-            applyOutcome: applyOutcome,
-            finalizationOutcome: finalizationOutcome,
-            finalizationRetryGate: finalizationRetryGate,
-            finalizationRetryError: finalizationRetryError,
-            applyGate: pricingApplyGate
+            catalogStatus: pricingCatalogStatus
+                ?? pricing.catalogIDs.last.map(PricingCatalogStatus.current)
         )
         let query = SettingsQuery()
         let coordinator = SettingsCoordinator(mutationGate: coordinatorMutationGate)
@@ -1435,67 +1001,6 @@ final class SettingsTests: XCTestCase {
         )
     }
 
-    private func validatedCandidate(
-        catalogID: String = "candidate-2026-08-05",
-        modelID: String = "gpt-preview"
-    ) throws -> ValidatedPricingCatalog {
-        let json = #"""
-        {
-          "schemaVersion":1,
-          "catalogID":"\#(catalogID)",
-          "generatedAt":"2026-08-05T12:00:00Z",
-          "origin":{"kind":"official_research","url":"https://openai.com/api/pricing/"},
-          "models":[{
-            "provider":"codex",
-            "canonicalModelID":"\#(modelID)",
-            "aliases":[{"observedModelID":"\#(modelID)","effectiveFrom":"2026-01-01","effectiveTo":null}],
-            "rates":[{
-              "effectiveFrom":"2026-01-01",
-              "effectiveTo":null,
-              "prices":{"input_uncached":"2","output":"30"},
-              "provenanceURL":"https://openai.com/api/pricing/",
-              "verifiedAt":"2026-08-05"
-            }]
-          }]
-        }
-        """#
-        return try PricingCatalogValidator().validate(
-            PricingCatalogLoader().load(Data(json.utf8))
-        )
-    }
-
-    private func validatedCurrencyCandidate() throws -> ValidatedPricingCatalog {
-        let json = """
-        {
-          "schemaVersion": 2,
-          "catalogID": "candidate-fx-2026-08-07",
-          "generatedAt": "2026-08-07T12:00:00Z",
-          "origin": {"kind":"official_research","url":"https://openai.com/api/pricing/"},
-          "models": [{
-            "provider":"codex",
-            "canonicalModelID":"gpt-preview",
-            "aliases":[{"observedModelID":"gpt-preview","effectiveFrom":"2026-01-01","effectiveTo":null}],
-            "rates":[{
-              "effectiveFrom":"2026-01-01",
-              "effectiveTo":null,
-              "prices":{"input_uncached":"2","output":"30"},
-              "provenanceURL":"https://openai.com/api/pricing/",
-              "verifiedAt":"2026-08-07"
-            }]
-          }],
-          "exchangeRates": {
-            "baseCurrency":"USD",
-            "effectiveDate":"2026-08-07",
-            "verifiedAt":"2026-08-07",
-            "provenanceURL":"https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml",
-            "rates":{"USD":"1","EUR":"0.9","JPY":"151","GBP":"0.71","CNY":"7.1"}
-          }
-        }
-        """
-        return try PricingCatalogValidator().validate(
-            PricingCatalogLoader().load(Data(json.utf8))
-        )
-    }
 }
 
 private struct SettingsSetup {
@@ -1631,42 +1136,6 @@ private actor SettingsLedger: AppLedgerRuntime {
     func currentPricing() -> PricingSnapshot { pricing }
     func currentRows() -> [DailyUsageRow] { rows }
 
-    func install(_ catalog: ValidatedPricingCatalog) {
-        let preview = try! PricingPreview.make(rows: [], currentPricing: pricing, candidate: catalog)
-        guard preview.diff.conflicts.isEmpty else { return }
-        var aliases = pricing.aliases
-        var rates = pricing.rates
-        for model in catalog.models {
-            aliases.append(contentsOf: model.aliases.map {
-                StoredModelAlias(
-                    provider: model.provider,
-                    observedModelID: $0.observedModelID,
-                    canonicalModelID: model.canonicalModelID,
-                    effectiveFrom: $0.effectiveFrom,
-                    effectiveTo: $0.effectiveTo
-                )
-            })
-            for rate in model.rates {
-                rates.append(contentsOf: rate.prices.map { metric, price in
-                    StoredPriceRate(
-                        provider: model.provider,
-                        canonicalModelID: model.canonicalModelID,
-                        metric: metric,
-                        usdPerMillion: price,
-                        effectiveFrom: rate.effectiveFrom,
-                        effectiveTo: rate.effectiveTo,
-                        provenanceURL: rate.provenanceURL,
-                        verifiedAt: rate.verifiedAt
-                    )
-                })
-            }
-        }
-        pricing = PricingSnapshot(
-            catalogIDs: pricing.catalogIDs + [catalog.catalogID],
-            rates: rates,
-            aliases: aliases
-        )
-    }
 }
 
 private actor SettingsQuery: AppUsageQuerying {
@@ -1795,112 +1264,26 @@ private actor SettingsCompletionFlag {
 }
 
 private actor SettingsInbox: AppPricingInboxWatching {
-    private var candidate: PendingPricingCandidate?
-    private let ledger: SettingsLedger
     private let recorder: SettingsRecorder
-    private var applyCount = 0
-    private var rejectCount = 0
-    private var retryCount = 0
     private var starts = 0
-    private var forcedStatus: PricingInboxStatus?
-    private let applyOutcome: PricingApplyOutcome
-    private let finalizationOutcome: PricingFinalizationOutcome
-    private let finalizationRetryGate: SettingsMutationGate?
-    private let finalizationRetryError: PricingInboxError?
-    private let applyGate: SettingsMutationGate?
+    private let catalogStatus: PricingCatalogStatus?
 
     init(
-        candidate: ValidatedPricingCatalog?,
-        ledger: SettingsLedger,
         recorder: SettingsRecorder,
-        forcedStatus: PricingInboxStatus? = nil,
-        applyOutcome: PricingApplyOutcome = .finalized,
-        finalizationOutcome: PricingFinalizationOutcome = .applied,
-        finalizationRetryGate: SettingsMutationGate? = nil,
-        finalizationRetryError: PricingInboxError? = nil,
-        applyGate: SettingsMutationGate? = nil
+        catalogStatus: PricingCatalogStatus?
     ) {
-        self.ledger = ledger
         self.recorder = recorder
-        self.forcedStatus = forcedStatus
-        self.applyOutcome = applyOutcome
-        self.finalizationOutcome = finalizationOutcome
-        self.finalizationRetryGate = finalizationRetryGate
-        self.finalizationRetryError = finalizationRetryError
-        self.applyGate = applyGate
-        if let candidate {
-            self.candidate = PendingPricingCandidate(
-                catalog: candidate,
-                canonicalJSON: candidate.canonicalJSON,
-                diff: CatalogDiff(modelsAdded: [], aliasesAdded: 0, ratesAdded: 0, conflicts: []),
-                sourceURL: URL(fileURLWithPath: "/private/tmp/candidate.json")
-            )
-        }
+        self.catalogStatus = catalogStatus
     }
 
     func start() { starts += 1 }
     func quiesce() { recorder.append("inbox.quiesce") }
     func stop() { recorder.append("inbox.stop") }
-    func pendingCandidate() -> PendingPricingCandidate? { candidate }
-    func status() -> PricingInboxStatus {
-        forcedStatus ?? candidate.map(PricingInboxStatus.valid) ?? .empty
+    func status() -> PricingCatalogStatus? { catalogStatus }
+    func updates() -> AsyncStream<PricingCatalogStatus> {
+        AsyncStream { $0.finish() }
     }
     func exportCurrentSnapshot() { recorder.append("inbox.export") }
-    func applyPending() async {
-        applyCount += 1
-        recorder.append("inbox.apply.start")
-        if let applyGate { await applyGate.suspend() }
-        if let candidate { await ledger.install(candidate.catalog) }
-        candidate = nil
-        recorder.append("inbox.apply.complete")
-    }
-    func applyPending(
-        matching identity: PricingCandidateIdentity
-    ) async throws -> PricingApplyOutcome {
-        guard candidate?.identity == identity else {
-            throw PricingInboxError.candidateChanged
-        }
-        await applyPending()
-        return applyOutcome
-    }
-    func rejectPending() { rejectCount += 1; candidate = nil }
-    func rejectPending(
-        matching identity: PricingCandidateIdentity
-    ) throws -> PricingRejectOutcome {
-        guard candidate?.identity == identity else {
-            throw PricingInboxError.candidateChanged
-        }
-        rejectPending()
-        return .finalized
-    }
-    func retryFinalization(
-        matching identity: PricingCandidateIdentity
-    ) async throws -> PricingFinalizationOutcome {
-        let currentIdentity: PricingCandidateIdentity?
-        switch forcedStatus {
-        case let .appliedFinalizing(value), let .rejectedFinalizing(value):
-            currentIdentity = value
-        default:
-            currentIdentity = nil
-        }
-        guard currentIdentity == identity else { throw PricingInboxError.candidateChanged }
-        retryCount += 1
-        if let finalizationRetryGate { await finalizationRetryGate.suspend() }
-        if let finalizationRetryError { throw finalizationRetryError }
-        forcedStatus = .empty
-        return finalizationOutcome
-    }
-    func counts() -> (apply: Int, reject: Int, retry: Int) {
-        (applyCount, rejectCount, retryCount)
-    }
-    func replaceCandidate(with replacement: ValidatedPricingCatalog) {
-        candidate = PendingPricingCandidate(
-            catalog: replacement,
-            canonicalJSON: replacement.canonicalJSON,
-            diff: CatalogDiff(modelsAdded: [], aliasesAdded: 0, ratesAdded: 0, conflicts: []),
-            sourceURL: URL(fileURLWithPath: "/private/tmp/replacement.json")
-        )
-    }
     func startCount() -> Int { starts }
 }
 

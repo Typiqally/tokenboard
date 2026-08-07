@@ -13,7 +13,7 @@ public enum TokenboardHealthIssue: String, Equatable, Sendable {
     case applicationFailure = "application_failure"
     case migrationFailure = "migration_failure"
     case integrityFailure = "integrity_failure"
-    case invalidPricingCandidate = "invalid_pricing_candidate"
+    case invalidPricingCatalog = "invalid_pricing_catalog"
 
     public var isDismissibleSourceWarning: Bool {
         switch self {
@@ -22,7 +22,7 @@ public enum TokenboardHealthIssue: String, Equatable, Sendable {
              .missingStableIdentity, .importFailure:
             true
         case .applicationFailure, .migrationFailure, .integrityFailure,
-             .invalidPricingCandidate:
+             .invalidPricingCatalog:
             false
         }
     }
@@ -41,7 +41,7 @@ public enum TokenboardHealthIssue: String, Equatable, Sendable {
         case .applicationFailure: "Tokenboard is unavailable"
         case .migrationFailure: "Database migration failed; recovery is required"
         case .integrityFailure: "Database integrity check failed; recovery is required"
-        case .invalidPricingCandidate: "The pricing candidate is invalid; active pricing is unchanged"
+        case .invalidPricingCatalog: "The pricing catalog update is invalid; last valid pricing remains active"
         }
     }
 }
