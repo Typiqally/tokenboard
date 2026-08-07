@@ -351,6 +351,33 @@ final class AppModelLifecycleTests: XCTestCase {
         XCTAssertNotNil(setup.model.state.lastUpdated)
     }
 
+    func testIntegrityWarningPromotesMenuStatusTitle() async throws {
+        let setup = try makeSetup(approved: false)
+        defer { setup.cleanup() }
+        await setup.model.start()
+        await setup.model.startHistoricalImport()
+        let runID = await setup.coordinator.runID()
+
+        await setup.coordinator.emit(IngestionBatchResult(
+            runID: runID,
+            sequence: 2,
+            scope: .incremental,
+            providers: [.codex: .attention(discoveredFiles: 1, scannedFiles: 1)],
+            diagnostics: [
+                .codex: ProviderIngestionDiagnostics(
+                    skippedRecordCount: 0,
+                    attention: [.truncated]
+                )
+            ]
+        ))
+        await waitUntil {
+            if case .warning = setup.model.state.sourceHealth[.codex] { return true }
+            return false
+        }
+
+        XCTAssertEqual(setup.model.presentation?.statusTitle, "⚠ 1K")
+    }
+
     func testAttentionHealthMappingIsDistinctAndUsesDeterministicPrecedence() throws {
         let setup = try makeSetup(approved: false)
         defer { setup.cleanup() }
