@@ -20,7 +20,7 @@ final class AppModelLifecycleTests: XCTestCase {
         let counts = await setup.coordinator.counts()
         XCTAssertEqual(counts, [1, 0, 0])
         for provider in Provider.allCases {
-            guard case let .warning(message) = setup.model.state.sourceHealth[provider] else {
+            guard case let .warning(_, message) = setup.model.state.sourceHealth[provider] else {
                 return XCTFail("expected warning health for \(provider)")
             }
             XCTAssertTrue(message.contains("Historical import paused"))
@@ -344,7 +344,7 @@ final class AppModelLifecycleTests: XCTestCase {
         }
         XCTAssertEqual(fileCount, 0)
         XCTAssertEqual(setup.model.state.sourceFileCounts[.claudeCode], 0)
-        guard case let .warning(message) = setup.model.state.sourceHealth[.codex] else {
+        guard case let .warning(_, message) = setup.model.state.sourceHealth[.codex] else {
             return XCTFail("attention outcome was mislabeled healthy")
         }
         XCTAssertEqual(message, TokenboardHealth.Issue.truncatedLog.message)
@@ -1099,7 +1099,7 @@ final class AppModelLifecycleTests: XCTestCase {
         XCTAssertTrue(setup.model.health.hasWarning)
         XCTAssertEqual(
             setup.model.sourceHealth[.claudeCode],
-            .warning(message: TokenboardHealth.Issue.unknownFormats.message)
+            .warning(issue: .unknownFormats, message: TokenboardHealth.Issue.unknownFormats.message)
         )
     }
 

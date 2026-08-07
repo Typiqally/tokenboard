@@ -9,7 +9,7 @@ public enum SourceHealth: Equatable, Sendable {
     case notGranted
     case indexing(fileCount: Int)
     case healthy(fileCount: Int, lastUpdated: Date)
-    case warning(message: String)
+    case warning(issue: TokenboardHealthIssue, message: String)
 }
 
 public struct MenuPresentation: Equatable, Sendable {

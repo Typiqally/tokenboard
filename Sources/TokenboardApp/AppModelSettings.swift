@@ -210,7 +210,8 @@ extension AppModel {
                         id: mutationID
                     ) else { return }
                     publishWarning(
-                        "Historical import paused: \(Self.errorDescription(error))"
+                        .importFailure,
+                        message: "Historical import paused: \(Self.errorDescription(error))"
                     )
                 }
             }

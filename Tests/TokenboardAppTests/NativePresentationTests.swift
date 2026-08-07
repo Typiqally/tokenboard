@@ -23,7 +23,7 @@ final class NativePresentationTests: XCTestCase {
         )
         state.sourceHealth = [
             .claudeCode: .healthy(fileCount: 3, lastUpdated: updated),
-            .codex: .warning(message: "Some logs need attention")
+            .codex: .warning(issue: .importFailure, message: "Some logs need attention")
         ]
         state.sourceFileCounts = [.claudeCode: 3, .codex: 2]
         state.grantedProviders = Set(Provider.allCases)

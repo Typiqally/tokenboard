@@ -1,6 +1,53 @@
 import Foundation
 
+public enum TokenboardHealthIssue: String, Equatable, Sendable {
+    case unknownFormats = "unknown_formats"
+    case staleBookmark = "stale_bookmark"
+    case missingRoot = "missing_root"
+    case truncatedLog = "truncated_log"
+    case replacedLog = "replaced_log"
+    case oversizedRecord = "oversized_record"
+    case unsafeSource = "unsafe_source"
+    case missingStableIdentity = "missing_stable_identity"
+    case importFailure = "import_failure"
+    case applicationFailure = "application_failure"
+    case migrationFailure = "migration_failure"
+    case integrityFailure = "integrity_failure"
+    case invalidPricingCandidate = "invalid_pricing_candidate"
+
+    public var isDismissibleSourceWarning: Bool {
+        switch self {
+        case .unknownFormats, .staleBookmark, .missingRoot, .truncatedLog,
+             .replacedLog, .oversizedRecord, .unsafeSource,
+             .missingStableIdentity, .importFailure:
+            true
+        case .applicationFailure, .migrationFailure, .integrityFailure,
+             .invalidPricingCandidate:
+            false
+        }
+    }
+
+    public var message: String {
+        switch self {
+        case .unknownFormats: "Unknown source formats were skipped"
+        case .staleBookmark: "Saved folder access is stale"
+        case .missingRoot: "The selected source folder is unavailable"
+        case .truncatedLog: "A previously imported log was truncated; import is paused"
+        case .replacedLog: "A previously imported log changed; import is paused"
+        case .oversizedRecord: "A source record is too large; import is paused at that record"
+        case .unsafeSource: "A source file is unsafe; import is paused"
+        case .missingStableIdentity: "A source log has no stable identity; import is paused"
+        case .importFailure: "Import failed"
+        case .applicationFailure: "Tokenboard is unavailable"
+        case .migrationFailure: "Database migration failed; recovery is required"
+        case .integrityFailure: "Database integrity check failed; recovery is required"
+        case .invalidPricingCandidate: "The pricing candidate is invalid; active pricing is unchanged"
+        }
+    }
+}
+
 public struct TokenboardHealth: Equatable, Sendable {
+    public typealias Issue = TokenboardHealthIssue
     public enum DatabaseState: Equatable, Sendable {
         case healthy
         case recoveryRequired(message: String)
@@ -9,47 +56,6 @@ public struct TokenboardHealth: Equatable, Sendable {
     public enum PricingState: Equatable, Sendable {
         case healthy
         case warning(message: String)
-    }
-
-    public enum Issue: Equatable, Sendable {
-        case unknownFormats
-        case staleBookmark
-        case missingRoot
-        case truncatedLog
-        case replacedLog
-        case oversizedRecord
-        case unsafeSource
-        case missingStableIdentity
-        case migrationFailure
-        case integrityFailure
-        case invalidPricingCandidate
-
-        public var message: String {
-            switch self {
-            case .unknownFormats:
-                "Unknown source formats were skipped"
-            case .staleBookmark:
-                "Saved folder access is stale"
-            case .missingRoot:
-                "The selected source folder is unavailable"
-            case .truncatedLog:
-                "A previously imported log was truncated; import is paused"
-            case .replacedLog:
-                "A previously imported log changed; import is paused"
-            case .oversizedRecord:
-                "A source record is too large; import is paused at that record"
-            case .unsafeSource:
-                "A source file is unsafe; import is paused"
-            case .missingStableIdentity:
-                "A source log has no stable identity; import is paused"
-            case .migrationFailure:
-                "Database migration failed; recovery is required"
-            case .integrityFailure:
-                "Database integrity check failed; recovery is required"
-            case .invalidPricingCandidate:
-                "The pricing candidate is invalid; active pricing is unchanged"
-            }
-        }
     }
 
     public let claude: SourceHealth

@@ -180,7 +180,7 @@ enum NativeMenuBuilder {
             return "\(name): Ready, \(fileCount) logs"
         case let .healthy(fileCount, _):
             return "\(name): \(fileCount) logs"
-        case let .warning(message):
+        case let .warning(_, message):
             return "\(name): ⚠ \(message)"
         }
     }

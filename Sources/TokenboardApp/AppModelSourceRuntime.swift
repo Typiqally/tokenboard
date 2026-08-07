@@ -134,7 +134,7 @@ extension AppModel {
         } catch {
             guard readyGeneration == generation, accepts(generation) else { return }
             coordinatorStatus = .inactive
-            publishWarning("Historical import paused: \(Self.errorDescription(error))")
+            publishWarning(.importFailure, message: "Historical import paused: \(Self.errorDescription(error))")
         }
     }
 
@@ -365,7 +365,7 @@ extension AppModel {
                    result.scope == .inventory
                     || !Self.isWarning(next.sourceHealth[provider] ?? .notGranted) {
                     next.sourceHealth[provider] = durableSkipped[provider, default: 0] > 0
-                        ? .warning(message: TokenboardHealth.Issue.unknownFormats.message)
+                        ? .warning(issue: .unknownFormats, message: TokenboardHealth.Issue.unknownFormats.message)
                         : .healthy(
                             fileCount: next.sourceFileCounts[provider, default: 0],
                             lastUpdated: successfulUpdate
@@ -375,13 +375,13 @@ extension AppModel {
                 if result.scope == .inventory {
                     next.sourceFileCounts[provider] = discoveredFiles
                 }
+                let issue = healthIssue(for: result.diagnostics[provider])
                 next.sourceHealth[provider] = .warning(
-                    message: healthIssue(
-                        for: result.diagnostics[provider]
-                    ).message
+                    issue: issue,
+                    message: issue.message
                 )
             case .failure:
-                next.sourceHealth[provider] = .warning(message: "Import failed")
+                next.sourceHealth[provider] = .warning(issue: .importFailure, message: "Import failed")
             }
         }
         if hasSuccessfulProvider {
@@ -399,6 +399,7 @@ extension AppModel {
         if case let .failure(error) = summaryResult, queryID == queryGeneration {
             for provider in Provider.allCases {
                 next.sourceHealth[provider] = .warning(
+                    issue: .applicationFailure,
                     message: "Summary unavailable: \(Self.errorDescription(error))"
                 )
             }
@@ -568,7 +569,7 @@ extension AppModel {
                         generation: generation,
                         id: sourceMutationID
                     ) else { return }
-                    publishWarning("Historical import paused: \(Self.errorDescription(error))")
+                    publishWarning(.importFailure, message: "Historical import paused: \(Self.errorDescription(error))")
                 }
                 return
             }
@@ -618,7 +619,7 @@ extension AppModel {
             guard readyGeneration == generation,
                   accepts(generation),
                   queryGeneration == queryID else { return }
-            publishWarning("Summary unavailable: \(Self.errorDescription(error))")
+            publishWarning(.applicationFailure, message: "Summary unavailable: \(Self.errorDescription(error))")
         }
     }
 
@@ -681,18 +682,21 @@ extension AppModel {
             && !Task.isCancelled
     }
 
-    func publishWarning(_ message: String) {
+    func publishWarning(_ issue: TokenboardHealth.Issue, message: String) {
         var next = state
-        next.sourceHealth = warningHealth(message: message)
+        next.sourceHealth = warningHealth(issue: issue, message: message)
         if let lastSummary {
             next.presentation = makePresentation(summary: lastSummary, state: next)
         }
         commitState(next)
     }
 
-    func warningHealth(message: String) -> [Provider: SourceHealth] {
+    func warningHealth(
+        issue: TokenboardHealth.Issue,
+        message: String
+    ) -> [Provider: SourceHealth] {
         Dictionary(uniqueKeysWithValues: Provider.allCases.map {
-            ($0, SourceHealth.warning(message: message))
+            ($0, SourceHealth.warning(issue: issue, message: message))
         })
     }
 

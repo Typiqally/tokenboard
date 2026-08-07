@@ -89,6 +89,7 @@ extension AppModel {
             for (provider, count) in durableSkipped where count > 0
                 && resolved.grants[provider] != nil {
                 next.sourceHealth[provider] = .warning(
+                    issue: .unknownFormats,
                     message: TokenboardHealth.Issue.unknownFormats.message
                 )
             }
@@ -112,6 +113,7 @@ extension AppModel {
             next.grantedProviders = []
             next.sourceFileCounts = [:]
             next.sourceHealth = warningHealth(
+                issue: .applicationFailure,
                 message: "Startup paused: \(Self.errorDescription(error))"
             )
             commitState(next)
@@ -193,11 +195,13 @@ extension AppModel {
                     health[provider] = .indexing(fileCount: count)
                 } catch {
                     health[provider] = .warning(
+                        issue: .missingRoot,
                         message: TokenboardHealth.Issue.missingRoot.message
                     )
                 }
             } catch {
                 health[provider] = .warning(
+                    issue: .staleBookmark,
                     message: TokenboardHealth.Issue.staleBookmark.message
                 )
             }

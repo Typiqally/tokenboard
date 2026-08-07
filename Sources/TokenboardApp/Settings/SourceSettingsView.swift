@@ -62,7 +62,7 @@ struct SourceSettingsView: View {
             "Ready to scan \(fileCount) logs"
         case let .healthy(fileCount, _):
             "Healthy · \(fileCount) logs"
-        case let .warning(message):
+        case let .warning(_, message):
             "Needs attention · \(message)"
         }
     }
