@@ -654,7 +654,7 @@ extension AppModel {
         MenuPresentation(
             summary: summary,
             displayMetric: state.selectedDisplayMetric,
-            hasHealthWarning: state.health.hasWarning
+            hasHealthWarning: state.health.hasDisplayIntegrityWarning
         )
     }
 
