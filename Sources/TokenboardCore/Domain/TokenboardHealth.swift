@@ -97,6 +97,13 @@ public struct TokenboardHealth: Equatable, Sendable {
             || unpricedTokens > 0
     }
 
+    public var hasDisplayIntegrityWarning: Bool {
+        Self.affectsDisplayIntegrity(claude)
+            || Self.affectsDisplayIntegrity(codex)
+            || database != .healthy
+            || skippedRecordCount > 0
+    }
+
     public func replacing(
         claude: SourceHealth? = nil,
         codex: SourceHealth? = nil,
@@ -125,6 +132,15 @@ public struct TokenboardHealth: Equatable, Sendable {
         case .notGranted, .warning:
             true
         case .indexing, .healthy:
+            false
+        }
+    }
+
+    private static func affectsDisplayIntegrity(_ health: SourceHealth) -> Bool {
+        switch health {
+        case .warning:
+            true
+        case .notGranted, .indexing, .healthy:
             false
         }
     }
