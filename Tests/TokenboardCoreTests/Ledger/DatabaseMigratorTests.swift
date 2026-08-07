@@ -63,6 +63,30 @@ final class DatabaseMigratorTests: XCTestCase {
         )
     }
 
+    func testLegacyCompactSchemaMigrationsDefinitionCanUpgrade() throws {
+        let directory = try temporaryDirectory()
+        let connection = try SQLiteConnection(url: directory.appending(path: "ledger.sqlite"))
+        try connection.execute(
+            "CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, name TEXT NOT NULL, checksum TEXT NOT NULL, applied_at TEXT NOT NULL);"
+        )
+        try installMigration(Migrations.v1, in: connection)
+        try installMigration(Migrations.v2, in: connection)
+
+        try DatabaseMigrator(
+            connection: connection,
+            backupDirectory: directory.appending(path: "Backups"),
+            migrations: Migrations.all
+        ).migrate()
+
+        XCTAssertEqual(try connection.userVersion, 3)
+        XCTAssertEqual(
+            try connection.queryStrings(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='fx_rates';"
+            ),
+            ["fx_rates"]
+        )
+    }
+
     func testFailedMigrationRollsBack() throws {
         let directory = try temporaryDirectory()
         let connection = try SQLiteConnection(url: directory.appending(path: "ledger.sqlite"))
@@ -83,6 +107,17 @@ final class DatabaseMigratorTests: XCTestCase {
         XCTAssertFalse(try connection.queryStrings("SELECT name FROM sqlite_master").contains("broken"))
         XCTAssertEqual(try connection.queryStrings("SELECT version FROM schema_migrations ORDER BY version"), ["1"])
         XCTAssertEqual(try connection.userVersion, 1)
+    }
+
+    private func installMigration(
+        _ migration: Migration,
+        in connection: SQLiteConnection
+    ) throws {
+        try connection.execute(migration.sql)
+        try connection.execute(
+            "INSERT INTO schema_migrations VALUES(\(migration.version), '\(migration.name)', '\(databaseMigrationChecksum(migration.sql))', '2026-08-07T00:00:00Z');"
+        )
+        try connection.setUserVersion(migration.version)
     }
 
     func testPendingUpgradeCreatesBackupAndKeepsNewestTwo() throws {
