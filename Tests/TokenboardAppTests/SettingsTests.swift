@@ -36,6 +36,46 @@ final class SettingsTests: XCTestCase {
         XCTAssertTrue(didAwaitShutdown)
         XCTAssertEqual(setup.model.state.lifecycle, .stopped)
         XCTAssertTrue(setup.model.settingsState.statusMessage?.contains("restored and verified") == true)
+        XCTAssertTrue(setup.model.settingsState.statusMessage?.contains("newest two") == true)
+    }
+
+    func testTerminationGateRejectsRestoreWhileQuiescingAndAfterStopped() async throws {
+        let recoveryFiles = try await makeRecoveryBackup()
+        defer { try? FileManager.default.removeItem(at: recoveryFiles.root) }
+        let shutdownGate = SettingsMutationGate()
+        let recovery = SettingsRecovery(backup: recoveryFiles.backup)
+        let setup = try makeSetup(
+            candidate: nil,
+            ledgerShutdownGate: shutdownGate,
+            databaseRecovery: recovery
+        )
+        defer { setup.cleanup() }
+        publishRecoveryRequired(in: setup.model)
+        await setup.model.refreshSettings()
+
+        let termination = Task { await setup.model.shutdown() }
+        await shutdownGate.waitUntilEntered()
+        let restoreDuringTermination = Task {
+            await setup.model.restoreBackup(recoveryFiles.backup)
+        }
+        await Task.yield()
+        let callsWhileQuiescing = await recovery.restoreCount()
+        let mutationsWhileQuiescing = await recovery.mutationCount()
+        await shutdownGate.release()
+        let terminated = await termination.value
+        await restoreDuringTermination.value
+
+        await setup.model.restoreBackup(recoveryFiles.backup)
+        let callsAfterStopped = await recovery.restoreCount()
+        let mutationsAfterStopped = await recovery.mutationCount()
+        guard terminated,
+              callsWhileQuiescing == 0,
+              mutationsWhileQuiescing == 0,
+              callsAfterStopped == 0,
+              mutationsAfterStopped == 0,
+              setup.model.state.lifecycle == .stopped else {
+            throw SettingsError.injected
+        }
     }
 
     func testRestoreUsesTheExactBackupCapturedByConfirmationWhenListChanges() async throws {
@@ -409,10 +449,10 @@ final class SettingsTests: XCTestCase {
         let retryMutations = await recovery.mutationCount()
         let retryShutdownCount = await setup.ledger.shutdownCount()
         let writerStarts = await setup.inbox.startCount()
-        XCTAssertEqual(retryMutations, 1)
-        XCTAssertEqual(retryShutdownCount, 2)
+        XCTAssertEqual(retryMutations, 0)
+        XCTAssertEqual(retryShutdownCount, 1)
         XCTAssertEqual(writerStarts, 0)
-        XCTAssertEqual(setup.model.state.lifecycle, .stopped)
+        XCTAssertEqual(setup.model.state.lifecycle, .shuttingDown)
     }
 
     func testTerminationRefusesStrictCloseFailureAndCanRetryWithoutRestartingWriters() async throws {
@@ -1003,6 +1043,7 @@ final class SettingsTests: XCTestCase {
         finalizationRetryError: PricingInboxError? = nil,
         pricingApplyGate: SettingsMutationGate? = nil,
         ledgerShutdownError: SettingsError? = nil,
+        ledgerShutdownGate: SettingsMutationGate? = nil,
         databaseRecovery: (any AppDatabaseRecovering)? = nil
     ) throws -> SettingsSetup {
         let suite = "SettingsTests.\(UUID().uuidString)"
@@ -1027,7 +1068,8 @@ final class SettingsTests: XCTestCase {
             pricing: pricing,
             rows: rows,
             recorder: recorder,
-            shutdownError: ledgerShutdownError
+            shutdownError: ledgerShutdownError,
+            shutdownGate: ledgerShutdownGate
         )
         let inbox = SettingsInbox(
             candidate: candidate,
@@ -1230,17 +1272,20 @@ private actor SettingsLedger: AppLedgerRuntime {
     private let rows: [DailyUsageRow]
     private let recorder: SettingsRecorder
     private var shutdownFailuresRemaining: Int
+    private let shutdownGate: SettingsMutationGate?
     private var shutdowns = 0
 
     init(
         pricing: PricingSnapshot,
         rows: [DailyUsageRow],
         recorder: SettingsRecorder,
-        shutdownError: SettingsError?
+        shutdownError: SettingsError?,
+        shutdownGate: SettingsMutationGate? = nil
     ) {
         self.pricing = pricing
         self.rows = rows
         self.recorder = recorder
+        self.shutdownGate = shutdownGate
         shutdownFailuresRemaining = shutdownError == nil ? 0 : 1
     }
 
@@ -1256,9 +1301,10 @@ private actor SettingsLedger: AppLedgerRuntime {
     func pricingSnapshot() -> PricingSnapshot { pricing }
     func usageRows(in interval: DateInterval?, calendar: Calendar) -> [DailyUsageRow] { rows }
     func skippedRecordCount() -> Int { 3 }
-    func shutdown() throws {
+    func shutdown() async throws {
         shutdowns += 1
         recorder.append("ledger.shutdown")
+        if let shutdownGate { await shutdownGate.suspend() }
         if shutdownFailuresRemaining > 0 {
             shutdownFailuresRemaining -= 1
             throw SettingsError.injected

@@ -1216,7 +1216,7 @@ final class DatabaseRecoveryServiceTests: XCTestCase {
         try await service.retryPreservation()
 
         let artifacts = try FileManager.default.contentsOfDirectory(atPath: setup.directory.path)
-            .filter { $0.hasPrefix(".tokenboard-recovery-pending-") }
+            .filter(Self.isCanonicalRecoverySnapshotName)
         guard artifacts.count == 1 else { throw RecoveryInvariantTestError.retryArtifactMissing }
         let artifact = setup.directory.appending(path: artifacts[0])
         var information = stat()
@@ -1303,8 +1303,199 @@ final class DatabaseRecoveryServiceTests: XCTestCase {
         }
 
         let residues = try FileManager.default.contentsOfDirectory(atPath: setup.directory.path)
-            .filter { $0.hasPrefix(".tokenboard-recovery-pending-") }
+            .filter {
+                $0.hasPrefix(".tokenboard-preservation-stage-")
+                    || Self.isCanonicalRecoverySnapshotName($0)
+            }
         guard residues.isEmpty else { throw RecoveryInvariantTestError.partialRetryArtifactLeftBehind }
+    }
+
+    func testPruningIgnoresStageWritableMalformedPartialAndHardLinkedLookalikes() async throws {
+        let setup = try await makePopulatedLedger(quantity: 140)
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        try await setup.ledger.shutdown()
+        let original = try Data(contentsOf: setup.database)
+        let backups = setup.directory.appending(path: "Backups", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: backups, withIntermediateDirectories: true)
+        try await databaseBytes(quantity: 142).write(to: backups.appending(path: "ledger-v2-100.sqlite"))
+
+        let olderName = Self.canonicalRecoverySnapshotName(UUID())
+        let newestValidName = Self.canonicalRecoverySnapshotName(UUID())
+        for (name, date) in [
+            (olderName, Date(timeIntervalSince1970: 100)),
+            (newestValidName, Date(timeIntervalSince1970: 200))
+        ] {
+            let url = setup.directory.appending(path: name)
+            try original.write(to: url)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: NSNumber(value: S_IRUSR), .modificationDate: date],
+                ofItemAtPath: url.path
+            )
+        }
+
+        let writableName = Self.canonicalRecoverySnapshotName(UUID())
+        let writable = setup.directory.appending(path: writableName)
+        try original.write(to: writable)
+        try setModificationDate(Date(timeIntervalSince1970: 9_000), for: writable)
+
+        let malformed = setup.directory.appending(path: ".tokenboard-pre-restore-not-a-uuid.sqlite")
+        try original.write(to: malformed)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: NSNumber(value: S_IRUSR), .modificationDate: Date(timeIntervalSince1970: 8_000)],
+            ofItemAtPath: malformed.path
+        )
+
+        let partialName = Self.canonicalRecoverySnapshotName(UUID())
+        let partial = setup.directory.appending(path: partialName)
+        try Data("partial".utf8).write(to: partial)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: NSNumber(value: S_IRUSR), .modificationDate: Date(timeIntervalSince1970: 7_000)],
+            ofItemAtPath: partial.path
+        )
+
+        let stage = setup.directory.appending(
+            path: ".tokenboard-preservation-stage-\(UUID().uuidString).sqlite"
+        )
+        try Data("crash-stage".utf8).write(to: stage)
+        let malformedStage = setup.directory.appending(
+            path: ".tokenboard-preservation-stage-not-a-uuid.sqlite"
+        )
+        try Data("malformed-stage".utf8).write(to: malformedStage)
+        let stageSymlink = setup.directory.appending(
+            path: ".tokenboard-preservation-stage-\(UUID().uuidString).sqlite"
+        )
+        try FileManager.default.createSymbolicLink(at: stageSymlink, withDestinationURL: malformedStage)
+        let stageHardLinkSource = setup.directory.appending(path: ".stage-hardlink-source")
+        try Data("hard-linked-stage".utf8).write(to: stageHardLinkSource)
+        let stageHardLink = setup.directory.appending(
+            path: ".tokenboard-preservation-stage-\(UUID().uuidString).sqlite"
+        )
+        try FileManager.default.linkItem(at: stageHardLinkSource, to: stageHardLink)
+
+        let hardLinkSource = setup.directory.appending(path: ".recovery-hardlink-source")
+        try original.write(to: hardLinkSource)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: NSNumber(value: S_IRUSR)],
+            ofItemAtPath: hardLinkSource.path
+        )
+        let hardLinkedName = Self.canonicalRecoverySnapshotName(UUID())
+        let hardLinked = setup.directory.appending(path: hardLinkedName)
+        try FileManager.default.linkItem(at: hardLinkSource, to: hardLinked)
+
+        let service = DatabaseRecoveryService(databaseURL: setup.database, backupDirectory: backups)
+        let available = try await service.availableBackups()
+        let confirmed = try XCTUnwrap(available.first)
+        _ = try await service.restore(confirmed) {}
+
+        let names = try FileManager.default.contentsOfDirectory(atPath: setup.directory.path)
+        guard !names.contains(olderName),
+              names.contains(newestValidName),
+              names.contains(writableName),
+              names.contains(malformed.lastPathComponent),
+              names.contains(partialName),
+              !names.contains(stage.lastPathComponent),
+              names.contains(malformedStage.lastPathComponent),
+              names.contains(stageSymlink.lastPathComponent),
+              names.contains(stageHardLink.lastPathComponent),
+              names.contains(hardLinkedName) else {
+            throw RecoveryInvariantTestError.invalidSnapshotPruning
+        }
+    }
+
+    func testPreservationRetryPublishesWithoutOverwriteAndCleansItsStage() async throws {
+        let setup = try await makePopulatedLedger(quantity: 144)
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        try await setup.ledger.shutdown()
+        let backups = setup.directory.appending(path: "Backups", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: backups, withIntermediateDirectories: true)
+        try await databaseBytes(quantity: 146).write(to: backups.appending(path: "ledger-v2-100.sqlite"))
+        let collision = RecoveryCollisionInstaller(directory: setup.directory)
+        let service = DatabaseRecoveryService(
+            databaseURL: setup.database,
+            backupDirectory: backups,
+            stageHandler: { stage in
+                guard stage == .afterValidation else { return }
+                let names = try FileManager.default.contentsOfDirectory(atPath: setup.directory.path)
+                guard let snapshot = names.first(where: Self.isCanonicalRecoverySnapshotName) else {
+                    throw RecoveryInvariantTestError.missingNamedSnapshot
+                }
+                try FileManager.default.removeItem(at: setup.directory.appending(path: snapshot))
+            },
+            fileOperationHandler: { operation in
+                if operation == .beforePreservationPublish {
+                    try collision.installForCurrentStage()
+                }
+            }
+        )
+        let available = try await service.availableBackups()
+        let confirmed = try XCTUnwrap(available.first)
+        await assertRecoveryError(.preservationRetryRequired) {
+            _ = try await service.restore(confirmed) {}
+        }
+
+        await assertRecoveryError(.preservationRetryRequired) {
+            try await service.retryPreservation()
+        }
+
+        guard let final = collision.finalURL,
+              try Data(contentsOf: final) == RecoveryCollisionInstaller.sentinel,
+              try FileManager.default.contentsOfDirectory(atPath: setup.directory.path)
+                .contains(where: { $0.hasPrefix(".tokenboard-preservation-stage-") }) == false else {
+            throw RecoveryInvariantTestError.preservationCollisionOverwritten
+        }
+    }
+
+    func testPreservationRetryStreamsSnapshotLargerThanMigrationCapExactly() async throws {
+        let setup = try await makePopulatedLedger(quantity: 148)
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        try await setup.ledger.shutdown()
+        let padding = try SQLiteConnection(url: setup.database)
+        try padding.execute("CREATE TABLE retention_padding(value BLOB NOT NULL);")
+        try padding.execute("INSERT INTO retention_padding VALUES(zeroblob(1048576));")
+        try padding.checkpointWAL()
+        try padding.close()
+        let original = try Data(contentsOf: setup.database)
+        let backups = setup.directory.appending(path: "Backups", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: backups, withIntermediateDirectories: true)
+        let replacement = try await databaseBytes(quantity: 150)
+        try replacement.write(to: backups.appending(path: "ledger-v2-100.sqlite"))
+        guard original.count > replacement.count else {
+            throw RecoveryInvariantTestError.largeSnapshotFixtureInvalid
+        }
+        let operations = RecoveryOperationRecorder()
+        let service = DatabaseRecoveryService(
+            databaseURL: setup.database,
+            backupDirectory: backups,
+            stageHandler: { stage in
+                guard stage == .afterValidation else { return }
+                let names = try FileManager.default.contentsOfDirectory(atPath: setup.directory.path)
+                guard let snapshot = names.first(where: Self.isCanonicalRecoverySnapshotName) else {
+                    throw RecoveryInvariantTestError.missingNamedSnapshot
+                }
+                try FileManager.default.removeItem(at: setup.directory.appending(path: snapshot))
+            },
+            fileOperationHandler: { operation in
+                if operation == .preservationCopyChunk { operations.recordChunk() }
+            },
+            maximumRecoveryImageBytes: replacement.count
+        )
+        let available = try await service.availableBackups()
+        let confirmed = try XCTUnwrap(available.first)
+        await assertRecoveryError(.preservationRetryRequired) {
+            _ = try await service.restore(confirmed) {}
+        }
+        let installedBeforeRetry = try Data(contentsOf: setup.database)
+
+        try await service.retryPreservation()
+
+        let artifacts = try FileManager.default.contentsOfDirectory(atPath: setup.directory.path)
+            .filter(Self.isCanonicalRecoverySnapshotName)
+        guard artifacts.count == 1,
+              operations.chunkCount > 1,
+              try Data(contentsOf: setup.directory.appending(path: artifacts[0])) == original,
+              try Data(contentsOf: setup.database) == installedBeforeRetry else {
+            throw RecoveryInvariantTestError.largeSnapshotStreamingFailed
+        }
     }
 
     func testSuccessfulRestoresRetainOnlyTheNewestTwoRecoverySnapshots() async throws {
@@ -1323,10 +1514,7 @@ final class DatabaseRecoveryServiceTests: XCTestCase {
         for _ in 0..<3 { _ = try await service.restore(confirmed) {} }
 
         let snapshots = try FileManager.default.contentsOfDirectory(atPath: setup.directory.path)
-            .filter {
-                $0.hasPrefix(".tokenboard-pre-restore-")
-                    || $0.hasPrefix(".tokenboard-recovery-pending-")
-            }
+            .filter(Self.isCanonicalRecoverySnapshotName)
         guard snapshots.count == 2 else {
             throw RecoveryInvariantTestError.unboundedSnapshotRetention(snapshots.count)
         }
@@ -1445,6 +1633,20 @@ final class DatabaseRecoveryServiceTests: XCTestCase {
         guard futimens(descriptor, &times) == 0 else { throw RecoveryTestError.rollbackFailed }
     }
 
+    private static func canonicalRecoverySnapshotName(_ identifier: UUID) -> String {
+        ".tokenboard-pre-restore-\(identifier.uuidString).sqlite"
+    }
+
+    private static func isCanonicalRecoverySnapshotName(_ name: String) -> Bool {
+        let prefix = ".tokenboard-pre-restore-"
+        let suffix = ".sqlite"
+        guard name.hasPrefix(prefix), name.hasSuffix(suffix) else { return false }
+        let start = name.index(name.startIndex, offsetBy: prefix.count)
+        let end = name.index(name.endIndex, offsetBy: -suffix.count)
+        let token = String(name[start..<end])
+        return UUID(uuidString: token)?.uuidString == token
+    }
+
     private func assertConnectionClosed(
         _ operation: () async throws -> Void,
         file: StaticString = #filePath,
@@ -1480,6 +1682,44 @@ private enum RecoveryInvariantTestError: Error {
     case retryInstalledDatabaseInvalid
     case partialRetryArtifactLeftBehind
     case unboundedSnapshotRetention(Int)
+    case invalidSnapshotPruning
+    case preservationCollisionOverwritten
+    case largeSnapshotFixtureInvalid
+    case largeSnapshotStreamingFailed
+}
+
+private final class RecoveryOperationRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var chunks = 0
+    var chunkCount: Int { lock.withLock { chunks } }
+    func recordChunk() { lock.withLock { chunks += 1 } }
+}
+
+private final class RecoveryCollisionInstaller: @unchecked Sendable {
+    static let sentinel = Data("existing-final".utf8)
+    private let directory: URL
+    private let lock = NSLock()
+    private(set) var finalURL: URL?
+
+    init(directory: URL) {
+        self.directory = directory
+    }
+
+    func installForCurrentStage() throws {
+        let names = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+        guard let stage = names.first(where: { $0.hasPrefix(".tokenboard-preservation-stage-") }) else {
+            throw RecoveryInvariantTestError.missingNamedSnapshot
+        }
+        let stagePrefix = ".tokenboard-preservation-stage-"
+        let token = stage.dropFirst(stagePrefix.count).dropLast(".sqlite".count)
+        let final = directory.appending(path: ".tokenboard-pre-restore-\(token).sqlite")
+        try Self.sentinel.write(to: final, options: .withoutOverwriting)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: NSNumber(value: S_IRUSR)],
+            ofItemAtPath: final.path
+        )
+        lock.withLock { finalURL = final }
+    }
 }
 
 private actor RecoveryGate {

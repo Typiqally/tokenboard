@@ -65,6 +65,7 @@ final class AppModel: ObservableObject {
     var settingsActivity: AppRuntimeActivity?
     var restoreActivity: AppRuntimeActivity?
     var preservationActivity: AppRuntimeActivity?
+    var terminationRecoveryGate = TerminationRecoveryGate.idle
     var shutdownTask: Task<Bool, Never>?
     var recoveryBarrierTask: Task<Result<Void, any Error>, Never>?
     var isWriterQuiescing = false
@@ -222,6 +223,10 @@ final class AppModel: ObservableObject {
 
     @discardableResult
     func shutdown() async -> Bool {
+        if let shutdownTask {
+            return await shutdownTask.value
+        }
+        terminationRecoveryGate = .terminating
         if let restoreActivity {
             await restoreActivity.task.value
         }
@@ -229,6 +234,9 @@ final class AppModel: ObservableObject {
             await preservationActivity.task.value
         }
         guard settingsState.databaseRecoveryDisposition != .preservationRetryRequired else {
+            if terminationRecoveryGate == .terminating {
+                terminationRecoveryGate = .idle
+            }
             return false
         }
         if let shutdownTask {
@@ -241,7 +249,11 @@ final class AppModel: ObservableObject {
             return succeeded
         }
         shutdownTask = task
-        return await task.value
+        let succeeded = await task.value
+        if !succeeded, terminationRecoveryGate == .terminating {
+            terminationRecoveryGate = .idle
+        }
+        return succeeded
     }
 
     private func performShutdown() async -> Bool {
@@ -348,4 +360,11 @@ final class AppModel: ObservableObject {
         try await ledger.shutdown()
     }
 
+}
+
+enum TerminationRecoveryGate: Equatable {
+    case idle
+    case restoring
+    case preserving
+    case terminating
 }

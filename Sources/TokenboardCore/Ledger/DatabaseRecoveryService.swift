@@ -58,6 +58,8 @@ enum DatabaseRecoveryFileOperation: Equatable, Sendable {
     case syncAfterRollback
     case retainSnapshotDescriptor
     case retainParentDescriptor
+    case preservationCopyChunk
+    case beforePreservationPublish
     case syncPreservationArtifact
     case syncSnapshotPruning
 }
@@ -68,6 +70,8 @@ public actor DatabaseRecoveryService {
     public static let maximumRecoveryImageBytes = 256 * 1_024 * 1_024
     private static let databaseFilename = "ledger.sqlite"
     private static let backupDirectoryName = "Backups"
+    private static let recoverySnapshotPrefix = ".tokenboard-pre-restore-"
+    private static let preservationStagePrefix = ".tokenboard-preservation-stage-"
     private static let backupPattern = try! NSRegularExpression(
         pattern: #"^ledger-v[0-9]+-[0-9]+\.sqlite$"#
     )
@@ -214,7 +218,7 @@ public actor DatabaseRecoveryService {
 
         let identifier = UUID().uuidString
         let restoreName = ".tokenboard-restore-\(identifier).sqlite"
-        let rollbackName = ".tokenboard-pre-restore-\(identifier).sqlite"
+        let rollbackName = "\(Self.recoverySnapshotPrefix)\(identifier).sqlite"
         let rollbackInstallName = ".tokenboard-rollback-install-\(identifier).sqlite"
         var replacementBegan = false
         var restoreDescriptor: Int32 = -1
@@ -330,7 +334,8 @@ public actor DatabaseRecoveryService {
                 )
                 try pruneRecoverySnapshots(
                     in: descriptors.parent,
-                    preserving: rollbackName
+                    preserving: rollbackName,
+                    currentIdentity: rollbackIdentity
                 )
             } catch let recovery as DatabaseRecoveryError
                 where recovery == .restoreFailed || recovery == .preservationFailed {
@@ -448,7 +453,7 @@ public actor DatabaseRecoveryService {
             guard try identity(of: pending.snapshot) == pending.identity else {
                 throw DatabaseRecoveryError.preservationFailed
             }
-            _ = try boundedByteCount(
+            _ = try stableByteCount(
                 of: pending.snapshot,
                 unsafe: .preservationFailed,
                 allowUnlinked: true
@@ -458,46 +463,66 @@ public actor DatabaseRecoveryService {
             pendingPreservation = nil
             throw DatabaseRecoveryError.preservationFailed
         }
-        let artifactName = ".tokenboard-recovery-pending-\(UUID().uuidString).sqlite"
+        let identifier = UUID().uuidString
+        let stageName = "\(Self.preservationStagePrefix)\(identifier).sqlite"
+        let artifactName = "\(Self.recoverySnapshotPrefix)\(identifier).sqlite"
         let artifact: Int32
         do {
-            artifact = try createRegular(in: pending.parent, name: artifactName)
+            artifact = try createRegular(in: pending.parent, name: stageName)
         } catch {
             throw DatabaseRecoveryError.preservationRetryRequired
         }
-        var artifactIsVerified = false
+        var published = false
+        let artifactIdentity: RecoveryFileIdentity
         do {
-            let digest = try copy(from: pending.snapshot, to: artifact)
+            let digest = try copy(
+                from: pending.snapshot,
+                to: artifact,
+                operation: .preservationCopyChunk,
+                expectedByteCount: pending.identity.size
+            )
             guard digest == pending.identity.digest,
                   try identity(of: pending.snapshot) == pending.identity,
                   fchmod(artifact, S_IRUSR) == 0,
                   fsync(artifact) == 0 else {
                 throw DatabaseRecoveryError.preservationRetryRequired
             }
-            let artifactIdentity = try identity(of: artifact)
+            artifactIdentity = try identity(of: artifact)
             guard artifactIdentity.digest == pending.identity.digest,
                   artifactIdentity.size == pending.identity.size else {
                 throw DatabaseRecoveryError.preservationRetryRequired
             }
-            try fileOperationHandler(.syncPreservationArtifact)
-            guard fsync(pending.parent) == 0 else { throw posixFailure() }
+            try verifyRecoveryArtifact(
+                artifact,
+                expected: artifactIdentity,
+                in: pending.parent,
+                name: stageName
+            )
+            try fileOperationHandler(.beforePreservationPublish)
+            guard renameatx_np(
+                pending.parent,
+                stageName,
+                pending.parent,
+                artifactName,
+                UInt32(RENAME_EXCL)
+            ) == 0 else { throw posixFailure() }
+            published = true
+            try syncDirectory(pending.parent, operation: .syncPreservationArtifact)
             try verifyRecoveryArtifact(
                 artifact,
                 expected: artifactIdentity,
                 in: pending.parent,
                 name: artifactName
             )
-            artifactIsVerified = true
         } catch {
             let sourceIsStillValid = (try? identity(of: pending.snapshot)) == pending.identity
-            if !artifactIsVerified {
-                let removed = (try? unlinkIfNameBindsToDescriptor(
-                    artifact,
-                    in: pending.parent,
-                    name: artifactName
-                )) == true
-                if removed { _ = fsync(pending.parent) }
-            }
+            let cleanupName = published ? artifactName : stageName
+            let removed = (try? unlinkIfNameBindsToDescriptor(
+                artifact,
+                in: pending.parent,
+                name: cleanupName
+            )) == true
+            if removed { _ = fsync(pending.parent) }
             Darwin.close(artifact)
             if !sourceIsStillValid {
                 pending.close()
@@ -510,7 +535,8 @@ public actor DatabaseRecoveryService {
         do {
             try pruneRecoverySnapshots(
                 in: pending.parent,
-                preserving: artifactName
+                preserving: artifactName,
+                currentIdentity: artifactIdentity
             )
         } catch {
             pending.close()
@@ -597,7 +623,11 @@ public actor DatabaseRecoveryService {
                 in: parent,
                 name: snapshotName
             )
-            try pruneRecoverySnapshots(in: parent, preserving: snapshotName)
+            try pruneRecoverySnapshots(
+                in: parent,
+                preserving: snapshotName,
+                currentIdentity: snapshotIdentity
+            )
         } catch let recovery as DatabaseRecoveryError where recovery == .preservationFailed {
             throw recovery
         } catch {
@@ -901,7 +931,7 @@ public actor DatabaseRecoveryService {
         var information = stat()
         guard fstat(descriptor, &information) == 0,
               information.st_nlink == 1,
-              information.st_mode & (S_IWUSR | S_IWGRP | S_IWOTH) == 0 else {
+              information.st_mode & (S_IRWXU | S_IRWXG | S_IRWXO) == S_IRUSR else {
             throw DatabaseRecoveryError.preservationFailed
         }
     }
@@ -941,22 +971,35 @@ public actor DatabaseRecoveryService {
         unsafe: DatabaseRecoveryError,
         allowUnlinked: Bool = false
     ) throws -> Int {
-        var before = stat()
-        guard fstat(descriptor, &before) == 0,
-              Self.isRegular(before),
-              (before.st_nlink == 1 || (allowUnlinked && before.st_nlink == 0)),
-              before.st_size >= 0,
-              let count = Int(exactly: before.st_size) else {
-            throw unsafe
-        }
-        guard count <= maximumRecoveryImageBytes else {
+        let size = try stableByteCount(
+            of: descriptor,
+            unsafe: unsafe,
+            allowUnlinked: allowUnlinked
+        )
+        guard size <= Int64(maximumRecoveryImageBytes),
+              let count = Int(exactly: size) else {
             throw DatabaseRecoveryError.backupTooLarge(
                 maximumBytes: maximumRecoveryImageBytes
             )
         }
+        return count
+    }
+
+    private func stableByteCount(
+        of descriptor: Int32,
+        unsafe: DatabaseRecoveryError,
+        allowUnlinked: Bool = false
+    ) throws -> Int64 {
+        var before = stat()
+        guard fstat(descriptor, &before) == 0,
+              Self.isRegular(before),
+              (before.st_nlink == 1 || (allowUnlinked && before.st_nlink == 0)),
+              before.st_size >= 0 else {
+            throw unsafe
+        }
         let (allocatedBytes, overflowed) = Int64(before.st_blocks).multipliedReportingOverflow(by: 512)
         guard !overflowed,
-              count == 0 || allocatedBytes >= before.st_size else {
+              before.st_size == 0 || allocatedBytes >= before.st_size else {
             throw unsafe
         }
         var after = stat()
@@ -965,7 +1008,7 @@ public actor DatabaseRecoveryService {
               (after.st_nlink == 1 || (allowUnlinked && after.st_nlink == 0)) else {
             throw unsafe
         }
-        return count
+        return before.st_size
     }
 
     private func unlinkRegularIfPresent(
@@ -1002,6 +1045,8 @@ public actor DatabaseRecoveryService {
         guard fstat(descriptor, &descriptorInformation) == 0,
               Self.isRegular(descriptorInformation),
               Self.isRegular(nameInformation),
+              descriptorInformation.st_nlink == 1,
+              nameInformation.st_nlink == 1,
               descriptorInformation.st_dev == nameInformation.st_dev,
               descriptorInformation.st_ino == nameInformation.st_ino else {
             return false
@@ -1012,11 +1057,12 @@ public actor DatabaseRecoveryService {
 
     private func pruneRecoverySnapshots(
         in parent: Int32,
-        preserving currentName: String
+        preserving currentName: String,
+        currentIdentity: RecoveryFileIdentity
     ) throws {
-        let names = try listNames(in: parent).filter(Self.isRecoverySnapshotName)
-        var candidates: [RecoverySnapshotCandidate] = []
-        for name in names {
+        let directoryNames = try listNames(in: parent)
+        var removedAny = false
+        for name in directoryNames where Self.isPreservationStageName(name) {
             guard let descriptor = try? openRegular(
                 in: parent,
                 name: name,
@@ -1024,8 +1070,25 @@ public actor DatabaseRecoveryService {
                 unsafe: .cleanupPending
             ) else { continue }
             defer { Darwin.close(descriptor) }
-            guard let identity = try? identity(of: descriptor) else { continue }
-            candidates.append(RecoverySnapshotCandidate(name: name, identity: identity))
+            removedAny = try unlinkIfNameBindsToDescriptor(
+                descriptor,
+                in: parent,
+                name: name
+            ) || removedAny
+        }
+        let names = directoryNames.filter(Self.isRecoverySnapshotName)
+        var candidates: [RecoverySnapshotCandidate] = []
+        for name in names {
+            if name == currentName {
+                candidates.append(RecoverySnapshotCandidate(
+                    name: currentName,
+                    identity: currentIdentity
+                ))
+                continue
+            }
+            if let candidate = try? recoverySnapshotCandidate(in: parent, name: name) {
+                candidates.append(candidate)
+            }
         }
         let newestOther = candidates
             .filter { $0.name != currentName }
@@ -1041,7 +1104,6 @@ public actor DatabaseRecoveryService {
             .first
         var preserved = Set([currentName])
         if let newestOther { preserved.insert(newestOther.name) }
-        var removedAny = false
         for candidate in candidates where !preserved.contains(candidate.name) {
             let descriptor = try openRegular(
                 in: parent,
@@ -1050,13 +1112,16 @@ public actor DatabaseRecoveryService {
                 unsafe: .cleanupPending
             )
             defer { Darwin.close(descriptor) }
-            try ensureNameBindsToDescriptor(
-                descriptor,
-                expected: candidate.identity,
-                in: parent,
-                name: candidate.name,
-                unsafe: .cleanupPending
-            )
+            do {
+                try verifyRetainedRecoveryArtifact(
+                    descriptor,
+                    expected: candidate.identity,
+                    in: parent,
+                    name: candidate.name
+                )
+            } catch {
+                throw DatabaseRecoveryError.cleanupPending
+            }
             removedAny = try unlinkIfNameBindsToDescriptor(
                 descriptor,
                 in: parent,
@@ -1066,6 +1131,44 @@ public actor DatabaseRecoveryService {
         if removedAny {
             try syncDirectory(parent, operation: .syncSnapshotPruning)
         }
+    }
+
+    private func recoverySnapshotCandidate(
+        in parent: Int32,
+        name: String
+    ) throws -> RecoverySnapshotCandidate {
+        guard Self.isRecoverySnapshotName(name) else {
+            throw DatabaseRecoveryError.cleanupPending
+        }
+        let descriptor = try openRegular(
+            in: parent,
+            name: name,
+            missing: .cleanupPending,
+            unsafe: .cleanupPending
+        )
+        defer { Darwin.close(descriptor) }
+        var before = stat()
+        guard fstat(descriptor, &before) == 0,
+              before.st_mode & (S_IRWXU | S_IRWXG | S_IRWXO) == S_IRUSR else {
+            throw DatabaseRecoveryError.cleanupPending
+        }
+        let connection = try SQLiteConnection.immutableDescriptor(descriptor)
+        do {
+            guard try connection.queryStrings("PRAGMA quick_check;") == ["ok"] else {
+                throw DatabaseRecoveryError.cleanupPending
+            }
+            try connection.close()
+        } catch {
+            try? connection.close()
+            throw DatabaseRecoveryError.cleanupPending
+        }
+        let verified = try identity(of: descriptor)
+        var after = stat()
+        guard fstat(descriptor, &after) == 0,
+              RecoveryFileIdentity.sameMetadata(before, after) else {
+            throw DatabaseRecoveryError.cleanupPending
+        }
+        return RecoverySnapshotCandidate(name: name, identity: verified)
     }
 
     private func listNames(in directory: Int32) throws -> [String] {
@@ -1122,11 +1225,13 @@ public actor DatabaseRecoveryService {
         from source: Int32,
         to destination: Int32,
         operation: DatabaseRecoveryFileOperation? = nil,
-        syncOperation: DatabaseRecoveryFileOperation? = nil
+        syncOperation: DatabaseRecoveryFileOperation? = nil,
+        expectedByteCount: Int64? = nil
     ) throws -> String {
         guard lseek(source, 0, SEEK_SET) >= 0 else { throw posixFailure() }
         var hasher = SHA256()
         var buffer = [UInt8](repeating: 0, count: 64 * 1024)
+        var copiedByteCount: Int64 = 0
         while true {
             let count = Darwin.read(source, &buffer, buffer.count)
             if count == 0 { break }
@@ -1134,6 +1239,12 @@ public actor DatabaseRecoveryService {
                 if errno == EINTR { continue }
                 throw posixFailure()
             }
+            let (nextCount, overflowed) = copiedByteCount.addingReportingOverflow(Int64(count))
+            guard !overflowed,
+                  expectedByteCount.map({ nextCount <= $0 }) ?? true else {
+                throw DatabaseRecoveryError.preservationFailed
+            }
+            copiedByteCount = nextCount
             hasher.update(data: Data(buffer[0..<count]))
             var written = 0
             while written < count {
@@ -1151,6 +1262,9 @@ public actor DatabaseRecoveryService {
                 written += result
                 if let operation { try fileOperationHandler(operation) }
             }
+        }
+        guard expectedByteCount.map({ copiedByteCount == $0 }) ?? true else {
+            throw DatabaseRecoveryError.preservationFailed
         }
         if let syncOperation { try fileOperationHandler(syncOperation) }
         guard fsync(destination) == 0 else { throw posixFailure() }
@@ -1211,10 +1325,22 @@ public actor DatabaseRecoveryService {
     }
 
     private static func isRecoverySnapshotName(_ name: String) -> Bool {
-        (name.hasPrefix(".tokenboard-pre-restore-")
-            || name.hasPrefix(".tokenboard-recovery-pending-"))
-            && name.hasSuffix(".sqlite")
-            && isSinglePathComponent(name)
+        isCanonicalUUIDFilename(name, prefix: recoverySnapshotPrefix)
+    }
+
+    private static func isPreservationStageName(_ name: String) -> Bool {
+        isCanonicalUUIDFilename(name, prefix: preservationStagePrefix)
+    }
+
+    private static func isCanonicalUUIDFilename(_ name: String, prefix: String) -> Bool {
+        let suffix = ".sqlite"
+        guard isSinglePathComponent(name),
+              name.hasPrefix(prefix),
+              name.hasSuffix(suffix) else { return false }
+        let start = name.index(name.startIndex, offsetBy: prefix.count)
+        let end = name.index(name.endIndex, offsetBy: -suffix.count)
+        let token = String(name[start..<end])
+        return UUID(uuidString: token)?.uuidString == token
     }
 
     private static func isRegular(_ information: stat) -> Bool {

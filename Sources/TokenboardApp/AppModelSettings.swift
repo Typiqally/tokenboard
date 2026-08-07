@@ -263,8 +263,13 @@ extension AppModel {
             return
         }
         guard case .recoveryRequired = state.health.database,
+              terminationRecoveryGate == .idle,
+              !isWriterQuiescing,
+              state.lifecycle != .shuttingDown,
+              state.lifecycle != .stopped,
               !isDatabaseRecoveryActionLocked,
               !settingsState.isRestoringDatabase else { return }
+        terminationRecoveryGate = .restoring
         restoreActivityGeneration &+= 1
         let id = restoreActivityGeneration
         let task = Task { @MainActor [weak self] in
@@ -276,6 +281,9 @@ extension AppModel {
         if restoreActivity?.id == id {
             restoreActivity = nil
         }
+        if terminationRecoveryGate == .restoring {
+            terminationRecoveryGate = .idle
+        }
     }
 
     func retryDatabasePreservation() async {
@@ -284,7 +292,9 @@ extension AppModel {
             return
         }
         guard settingsState.databaseRecoveryDisposition == .preservationRetryRequired,
+              terminationRecoveryGate == .idle,
               !settingsState.isRestoringDatabase else { return }
+        terminationRecoveryGate = .preserving
         preservationActivityGeneration &+= 1
         let id = preservationActivityGeneration
         let task = Task { @MainActor [weak self] in
@@ -295,6 +305,9 @@ extension AppModel {
         await task.value
         if preservationActivity?.id == id {
             preservationActivity = nil
+        }
+        if terminationRecoveryGate == .preserving {
+            terminationRecoveryGate = .idle
         }
     }
 
@@ -308,14 +321,14 @@ extension AppModel {
             next = settingsState
             next.isRestoringDatabase = false
             next.databaseRecoveryDisposition = .requiresRelaunch
-            next.statusMessage = "Recovery artifact preserved and verified · Quit and reopen Tokenboard"
+            next.statusMessage = "Recovery artifact preserved and verified · Tokenboard retains at most the newest two local pre-restore snapshots · Quit and reopen Tokenboard"
             commitSettingsState(next)
         } catch let recoveryError as DatabaseRecoveryError
             where recoveryError == .cleanupPending {
             next = settingsState
             next.isRestoringDatabase = false
             next.databaseRecoveryDisposition = .requiresRelaunch
-            next.statusMessage = "Recovery artifact preserved and verified · Cleanup will resume after reopening Tokenboard"
+            next.statusMessage = "Recovery artifact preserved and verified · After cleanup, Tokenboard retains at most the newest two local pre-restore snapshots · Reopen Tokenboard"
             commitSettingsState(next)
         } catch let recoveryError as DatabaseRecoveryError
             where recoveryError == .preservationFailed {
@@ -346,7 +359,7 @@ extension AppModel {
             nextSettings = settingsState
             nextSettings.isRestoringDatabase = false
             nextSettings.databaseRecoveryDisposition = .requiresRelaunch
-            nextSettings.statusMessage = "Backup from \(backup.modificationDate.formatted(date: .abbreviated, time: .shortened)) restored and verified · Quit and reopen Tokenboard"
+            nextSettings.statusMessage = "Backup from \(backup.modificationDate.formatted(date: .abbreviated, time: .shortened)) restored and verified · Tokenboard retains at most the newest two local pre-restore snapshots · Quit and reopen Tokenboard"
             commitSettingsState(nextSettings)
             publishStoppedState()
         } catch let recoveryError as DatabaseRecoveryError
@@ -357,8 +370,8 @@ extension AppModel {
             nextSettings.isRestoringDatabase = false
             nextSettings.databaseRecoveryDisposition = .requiresRelaunch
             nextSettings.statusMessage = recoveryError == .cleanupPending
-                ? "Restore completed and verified · A recovery artifact was preserved for cleanup · Quit and reopen Tokenboard"
-                : "Original database rollback completed · A recovery artifact was preserved for cleanup · Quit or Reveal Data"
+                ? "Restore completed and verified · A recovery artifact was preserved for cleanup; afterward Tokenboard retains at most the newest two local pre-restore snapshots · Quit and reopen Tokenboard"
+                : "Original database rollback completed · A recovery artifact was preserved for cleanup; afterward Tokenboard retains at most the newest two local pre-restore snapshots · Quit or Reveal Data"
             commitSettingsState(nextSettings)
             publishStoppedState()
         } catch let recoveryError as DatabaseRecoveryError
