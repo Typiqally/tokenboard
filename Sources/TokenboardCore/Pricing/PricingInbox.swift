@@ -457,11 +457,16 @@ public actor PricingInbox {
         }
 
         do {
+            guard let validationSummary = PricingImportMetadata.validationSummary(
+                for: isolated.preview.catalog.schemaVersion
+            ) else {
+                throw PricingLedgerError.invalidImportMetadata
+            }
             try await ledger.applyPricingCatalog(
                 isolated.preview.catalog,
                 canonicalJSON: isolated.preview.canonicalJSON,
                 origin: PricingImportMetadata.agentCandidateOrigin,
-                validationSummary: PricingImportMetadata.schemaV1ValidSummary
+                validationSummary: validationSummary
             )
         } catch {
             restorePreCommitCandidate(isolated)
@@ -720,7 +725,15 @@ public actor PricingInbox {
                 })
             }
         }
-        return PricingSnapshot(catalogIDs: [catalog.catalogID], rates: rates, aliases: aliases)
+        let exchangeRateSnapshots = catalog.exchangeRates.map {
+            [ExchangeRateSnapshot(catalogID: catalog.catalogID, validated: $0)]
+        } ?? []
+        return PricingSnapshot(
+            catalogIDs: [catalog.catalogID],
+            rates: rates,
+            aliases: aliases,
+            exchangeRateSnapshots: exchangeRateSnapshots
+        )
     }
 
     private func validate(_ data: Data) throws -> ValidatedPricingCatalog {

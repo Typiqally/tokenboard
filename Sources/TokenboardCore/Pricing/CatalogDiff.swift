@@ -53,28 +53,77 @@ public struct StoredModelAlias: Equatable, Sendable {
     }
 }
 
+public struct ExchangeRateSnapshot: Equatable, Sendable {
+    public let catalogID: String
+    public let effectiveDate: String
+    public let verifiedAt: String
+    public let provenanceURL: URL
+    public let rates: [DisplayCurrency: Decimal]
+
+    public init(
+        catalogID: String,
+        effectiveDate: String,
+        verifiedAt: String,
+        provenanceURL: URL,
+        rates: [DisplayCurrency: Decimal]
+    ) {
+        self.catalogID = catalogID
+        self.effectiveDate = effectiveDate
+        self.verifiedAt = verifiedAt
+        self.provenanceURL = provenanceURL
+        self.rates = rates
+    }
+
+    public init(catalogID: String, validated: ValidatedExchangeRateSnapshot) {
+        self.init(
+            catalogID: catalogID,
+            effectiveDate: validated.effectiveDate,
+            verifiedAt: validated.verifiedAt,
+            provenanceURL: validated.provenanceURL,
+            rates: validated.rates
+        )
+    }
+}
+
 public struct PricingSnapshot: Equatable, Sendable {
     public let catalogIDs: [String]
     public let rates: [StoredPriceRate]
     public let aliases: [StoredModelAlias]
+    public let exchangeRateSnapshots: [ExchangeRateSnapshot]
 
-    public init(catalogIDs: [String], rates: [StoredPriceRate], aliases: [StoredModelAlias]) {
+    public init(
+        catalogIDs: [String],
+        rates: [StoredPriceRate],
+        aliases: [StoredModelAlias],
+        exchangeRateSnapshots: [ExchangeRateSnapshot] = []
+    ) {
         self.catalogIDs = catalogIDs
         self.rates = rates
         self.aliases = aliases
+        self.exchangeRateSnapshots = exchangeRateSnapshots
     }
+
+    public var latestExchangeRates: ExchangeRateSnapshot? { exchangeRateSnapshots.last }
 }
 
 public struct CatalogDiff: Equatable, Sendable {
     public let modelsAdded: [String]
     public let aliasesAdded: Int
     public let ratesAdded: Int
+    public let exchangeRatesChanged: [DisplayCurrency]
     public let conflicts: [String]
 
-    public init(modelsAdded: [String], aliasesAdded: Int, ratesAdded: Int, conflicts: [String]) {
+    public init(
+        modelsAdded: [String],
+        aliasesAdded: Int,
+        ratesAdded: Int,
+        exchangeRatesChanged: [DisplayCurrency] = [],
+        conflicts: [String]
+    ) {
         self.modelsAdded = modelsAdded
         self.aliasesAdded = aliasesAdded
         self.ratesAdded = ratesAdded
+        self.exchangeRatesChanged = exchangeRatesChanged
         self.conflicts = conflicts
     }
 
@@ -133,10 +182,23 @@ public struct CatalogDiff: Equatable, Sendable {
                 }
             }
         }
+        let exchangeRatesChanged: [DisplayCurrency]
+        if let candidateRates = candidate.exchangeRates {
+            let existing = snapshot.latestExchangeRates
+            let metadataChanged = existing?.effectiveDate != candidateRates.effectiveDate
+                || existing?.verifiedAt != candidateRates.verifiedAt
+                || existing?.provenanceURL != candidateRates.provenanceURL
+            exchangeRatesChanged = DisplayCurrency.allCases.filter {
+                metadataChanged || existing?.rates[$0] != candidateRates.rates[$0]
+            }
+        } else {
+            exchangeRatesChanged = []
+        }
         return CatalogDiff(
             modelsAdded: modelsAdded.sorted(),
             aliasesAdded: aliasesAdded,
             ratesAdded: ratesAdded,
+            exchangeRatesChanged: exchangeRatesChanged,
             conflicts: conflicts.sorted()
         )
     }

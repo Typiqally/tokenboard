@@ -98,5 +98,22 @@ public enum Migrations {
         """
     )
 
-    public static let all = [v1, v2]
+    public static let v3 = Migration(
+        version: 3,
+        name: "store approved exchange rate snapshots",
+        sql: """
+        CREATE TABLE fx_rates(
+          catalog_id TEXT NOT NULL,
+          currency_code TEXT NOT NULL,
+          units_per_usd TEXT NOT NULL,
+          effective_date TEXT NOT NULL,
+          provenance_url TEXT NOT NULL,
+          verified_at TEXT NOT NULL,
+          PRIMARY KEY(catalog_id, currency_code)
+        );
+        CREATE INDEX fx_rate_catalog_idx ON fx_rates(catalog_id, currency_code);
+        """
+    )
+
+    public static let all = [v1, v2, v3]
 }

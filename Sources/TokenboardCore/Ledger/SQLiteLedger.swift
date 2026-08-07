@@ -251,7 +251,13 @@ public actor SQLiteLedger: LedgerStore {
         let catalogIDs = try readCatalogIDs(using: connection)
         let rates = try readPriceRates(using: connection)
         let aliases = try readModelAliases(using: connection)
-        return PricingSnapshot(catalogIDs: catalogIDs, rates: rates, aliases: aliases)
+        let exchangeRateSnapshots = try readExchangeRateSnapshots(using: connection)
+        return PricingSnapshot(
+            catalogIDs: catalogIDs,
+            rates: rates,
+            aliases: aliases,
+            exchangeRateSnapshots: exchangeRateSnapshots
+        )
     }
 
     public func latestAppliedPricingCatalogJSON() throws -> Data? {
@@ -318,6 +324,13 @@ public actor SQLiteLedger: LedgerStore {
                         )
                     }
                 }
+            }
+            if let exchangeRates = catalog.exchangeRates {
+                try insertExchangeRates(
+                    exchangeRates,
+                    catalogID: catalog.catalogID,
+                    using: connection
+                )
             }
             try insertCatalogImport(
                 catalog,
@@ -434,6 +447,87 @@ public actor SQLiteLedger: LedgerStore {
                 ))
             case SQLITE_DONE:
                 return values
+            default:
+                throw failure(sqlite3_errcode(connection.handle), using: connection)
+            }
+        }
+    }
+
+    private func readExchangeRateSnapshots(
+        using connection: SQLiteConnection
+    ) throws -> [ExchangeRateSnapshot] {
+        let statement = try prepare(
+            """
+            SELECT fx.catalog_id, fx.currency_code, fx.units_per_usd, fx.effective_date,
+                   fx.provenance_url, fx.verified_at
+            FROM fx_rates AS fx
+            JOIN catalog_imports AS imports ON imports.catalog_id = fx.catalog_id
+            WHERE imports.applied = 1
+            ORDER BY imports.imported_at, imports.rowid, fx.currency_code;
+            """,
+            using: connection
+        )
+        defer { sqlite3_finalize(statement) }
+        var order: [String] = []
+        var records: [String: StoredExchangeRateAccumulator] = [:]
+        while true {
+            switch sqlite3_step(statement) {
+            case SQLITE_ROW:
+                let catalogID = try requiredText(statement, at: 0)
+                guard let currency = DisplayCurrency(rawValue: try requiredText(statement, at: 1)) else {
+                    throw LedgerError.corruptData("stored exchange-rate currency is invalid")
+                }
+                let rawRate = try requiredText(statement, at: 2)
+                guard let rate = Decimal(
+                    string: rawRate,
+                    locale: Locale(identifier: "en_US_POSIX")
+                ), !rate.isNaN, rate > 0, rate <= 100_000,
+                DecimalString(decimal: rate).rawValue == rawRate else {
+                    throw LedgerError.corruptData("stored exchange rate is invalid")
+                }
+                let effectiveDate = try requiredText(statement, at: 3)
+                let rawProvenance = try requiredText(statement, at: 4)
+                let verifiedAt = try requiredText(statement, at: 5)
+                guard Self.isGregorianDay(effectiveDate), Self.isGregorianDay(verifiedAt),
+                      let components = URLComponents(string: rawProvenance),
+                      components.scheme?.lowercased() == "https",
+                      components.host?.lowercased() == "www.ecb.europa.eu",
+                      let provenanceURL = components.url else {
+                    throw LedgerError.corruptData("stored exchange-rate metadata is invalid")
+                }
+                if records[catalogID] == nil {
+                    order.append(catalogID)
+                    records[catalogID] = StoredExchangeRateAccumulator(
+                        effectiveDate: effectiveDate,
+                        verifiedAt: verifiedAt,
+                        provenanceURL: provenanceURL,
+                        rates: [:]
+                    )
+                }
+                guard var record = records[catalogID],
+                      record.effectiveDate == effectiveDate,
+                      record.verifiedAt == verifiedAt,
+                      record.provenanceURL == provenanceURL,
+                      record.rates[currency] == nil else {
+                    throw LedgerError.corruptData("stored exchange-rate snapshot is inconsistent")
+                }
+                record.rates[currency] = rate
+                records[catalogID] = record
+            case SQLITE_DONE:
+                return try order.map { catalogID in
+                    guard let record = records[catalogID],
+                          Set(record.rates.keys) == Set(DisplayCurrency.allCases),
+                          record.rates[.usd] == 1 else {
+                        throw LedgerError.corruptData("stored exchange-rate snapshot is incomplete")
+                    }
+                    return ExchangeRateSnapshot(
+                        catalogID: catalogID,
+                        effectiveDate: record.effectiveDate,
+                        verifiedAt: record.verifiedAt,
+                        provenanceURL: record.provenanceURL,
+                        rates: record.rates
+                    )
+                }
             default:
                 throw failure(sqlite3_errcode(connection.handle), using: connection)
             }
@@ -683,6 +777,39 @@ public actor SQLiteLedger: LedgerStore {
         try stepDone(insert, using: connection)
     }
 
+    private func insertExchangeRates(
+        _ snapshot: ValidatedExchangeRateSnapshot,
+        catalogID: String,
+        using connection: SQLiteConnection
+    ) throws {
+        let statement = try prepare(
+            """
+            INSERT INTO fx_rates(
+              catalog_id, currency_code, units_per_usd, effective_date,
+              provenance_url, verified_at
+            ) VALUES(?, ?, ?, ?, ?, ?);
+            """,
+            using: connection
+        )
+        defer { sqlite3_finalize(statement) }
+        for currency in DisplayCurrency.allCases {
+            guard let rate = snapshot.rates[currency] else {
+                throw PricingLedgerError.semanticConflict(
+                    "exchange rates \(catalogID)/\(currency.rawValue)"
+                )
+            }
+            sqlite3_reset(statement)
+            sqlite3_clear_bindings(statement)
+            try bind(catalogID, to: statement, at: 1, using: connection)
+            try bind(currency.rawValue, to: statement, at: 2, using: connection)
+            try bind(DecimalString(decimal: rate).rawValue, to: statement, at: 3, using: connection)
+            try bind(snapshot.effectiveDate, to: statement, at: 4, using: connection)
+            try bind(snapshot.provenanceURL.absoluteString, to: statement, at: 5, using: connection)
+            try bind(snapshot.verifiedAt, to: statement, at: 6, using: connection)
+            try stepDone(statement, using: connection)
+        }
+    }
+
     private func insertCatalogImport(
         _ catalog: ValidatedPricingCatalog,
         canonicalJSON: String,
@@ -712,6 +839,30 @@ public actor SQLiteLedger: LedgerStore {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter.string(from: Date())
+    }
+
+    private static func isGregorianDay(_ value: String) -> Bool {
+        let bytes = Array(value.utf8)
+        guard bytes.count == 10,
+              bytes[4] == 0x2D,
+              bytes[7] == 0x2D,
+              bytes.enumerated().allSatisfy({ index, byte in
+                  index == 4 || index == 7 || (0x30...0x39).contains(byte)
+              }) else { return false }
+        let year = bytes[0...3].reduce(0) { $0 * 10 + Int($1 - 0x30) }
+        let month = bytes[5...6].reduce(0) { $0 * 10 + Int($1 - 0x30) }
+        let day = bytes[8...9].reduce(0) { $0 * 10 + Int($1 - 0x30) }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        guard let date = calendar.date(from: DateComponents(
+            calendar: calendar,
+            timeZone: calendar.timeZone,
+            year: year,
+            month: month,
+            day: day
+        )) else { return false }
+        let roundTrip = calendar.dateComponents([.year, .month, .day], from: date)
+        return roundTrip.year == year && roundTrip.month == month && roundTrip.day == day
     }
 
     private func loadOrCreatePrivacyHasher(using connection: SQLiteConnection) throws -> PrivacyHasher {
@@ -1044,6 +1195,13 @@ public actor SQLiteLedger: LedgerStore {
     private func failure(_ code: Int32, using connection: SQLiteConnection) -> SQLiteFailure {
         SQLiteFailure(code: code, message: String(cString: sqlite3_errmsg(connection.handle)))
     }
+}
+
+private struct StoredExchangeRateAccumulator {
+    let effectiveDate: String
+    let verifiedAt: String
+    let provenanceURL: URL
+    var rates: [DisplayCurrency: Decimal]
 }
 
 private struct UsageKey: Hashable {
