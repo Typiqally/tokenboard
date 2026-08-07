@@ -98,6 +98,7 @@ extension AppModel {
             next.grantedProviders = Set(resolved.grants.keys)
             next.onboardingRequired = !preferences.historicalImportApproved
                 || resolved.grants.count != Provider.allCases.count
+            clearDismissalIfWarningsResolved(next.health)
             commitState(next)
         } catch {
             guard accepts(generation) else { return }

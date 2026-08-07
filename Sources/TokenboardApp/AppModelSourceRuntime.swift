@@ -407,6 +407,7 @@ extension AppModel {
                 next.presentation = makePresentation(summary: lastSummary, state: next)
             }
         }
+        clearDismissalIfWarningsResolved(next.health)
         commitState(next)
     }
 
@@ -582,6 +583,7 @@ extension AppModel {
         next.sourceFileCounts[provider] = fileCount
         next.sourceHealth[provider] = .indexing(fileCount: fileCount)
         next.onboardingRequired = !preferences.historicalImportApproved || !hasEveryGrant
+        clearDismissalIfWarningsResolved(next.health)
         commitState(next)
     }
 
@@ -652,10 +654,12 @@ extension AppModel {
         summary: UsageSummary,
         state: AppPublishedState
     ) -> MenuPresentation {
-        MenuPresentation(
+        let promotesWarning = state.health.hasNonDismissibleDisplayIntegrityWarning
+            || hasUndismissedDismissibleWarning(state.health)
+        return MenuPresentation(
             summary: summary,
             displayMetric: state.selectedDisplayMetric,
-            hasHealthWarning: state.health.hasDisplayIntegrityWarning
+            hasHealthWarning: promotesWarning
         )
     }
 

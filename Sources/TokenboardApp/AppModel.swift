@@ -19,6 +19,15 @@ final class AppModel: ObservableObject {
     var selectedDisplayMetric: DisplayMetric { state.selectedDisplayMetric }
     var lastUpdated: Date? { state.lastUpdated }
     var canStartHistoricalImport: Bool { state.canStartHistoricalImport }
+    var activeDismissibleWarningSignature: DismissibleWarningSignature? {
+        state.health.dismissibleWarningSignature
+    }
+    var canDismissCurrentWarnings: Bool {
+        guard state.presentation != nil,
+              !state.health.hasNonDismissibleDisplayIntegrityWarning,
+              let active = activeDismissibleWarningSignature else { return false }
+        return preferences.dismissedWarningSignature != active.digest
+    }
     var isSourceMutationInProgress: Bool { sourceMutation != nil }
     var isDatabaseRestoreInProgress: Bool {
         restoreActivity != nil || preservationActivity != nil || settingsState.isRestoringDatabase
@@ -132,6 +141,26 @@ final class AppModel: ObservableObject {
 
     func commitSettingsState(_ next: AppSettingsState) {
         settingsState = next
+    }
+
+    func hasUndismissedDismissibleWarning(_ health: TokenboardHealth) -> Bool {
+        guard let active = health.dismissibleWarningSignature else { return false }
+        return preferences.dismissedWarningSignature != active.digest
+    }
+
+    func dismissCurrentWarnings() {
+        guard canDismissCurrentWarnings,
+              let active = activeDismissibleWarningSignature,
+              let lastSummary else { return }
+        preferences.dismissedWarningSignature = active.digest
+        var next = state
+        next.presentation = makePresentation(summary: lastSummary, state: next)
+        commitState(next)
+    }
+
+    func clearDismissalIfWarningsResolved(_ health: TokenboardHealth) {
+        guard health.dismissibleWarningSignature == nil else { return }
+        preferences.dismissedWarningSignature = nil
     }
 
     func start() async {
