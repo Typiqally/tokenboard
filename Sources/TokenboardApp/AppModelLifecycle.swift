@@ -164,11 +164,16 @@ extension AppModel {
         guard try await ledger.latestAppliedPricingCatalogJSON() == nil else { return }
         let loaded = try PricingCatalogLoader().load(bundledCatalogData)
         let validated = try PricingCatalogValidator().validate(loaded)
+        guard let validationSummary = PricingImportMetadata.validationSummary(
+            for: validated.schemaVersion
+        ) else {
+            throw PricingLedgerError.invalidImportMetadata
+        }
         try await ledger.applyPricingCatalog(
             validated,
             canonicalJSON: validated.canonicalJSON,
             origin: PricingImportMetadata.bundledRepositoryOrigin,
-            validationSummary: PricingImportMetadata.schemaV1ValidSummary
+            validationSummary: validationSummary
         )
     }
 
