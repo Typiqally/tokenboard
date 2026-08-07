@@ -13,10 +13,12 @@ final class AppPreferencesTests: XCTestCase {
 
         XCTAssertEqual(preferences.selectedPeriod, .today)
         XCTAssertEqual(preferences.selectedDisplayMetric, .tokens)
+        XCTAssertEqual(preferences.selectedDisplayCurrency, .usd)
         XCTAssertFalse(preferences.historicalImportApproved)
 
         preferences.selectedPeriod = .thisYear
         preferences.selectedDisplayMetric = .apiValue
+        preferences.selectedDisplayCurrency = .gbp
         preferences.historicalImportApproved = true
 
         let digest = String(repeating: "a", count: 64)
@@ -25,15 +27,25 @@ final class AppPreferencesTests: XCTestCase {
         let persisted = defaults.persistentDomain(forName: suiteName) ?? [:]
         XCTAssertEqual(
             Set(persisted.keys),
-            ["selectedPeriod", "selectedDisplayMetric", "historicalImportApproved", "dismissedWarningSignature"]
+            ["selectedPeriod", "selectedDisplayMetric", "selectedDisplayCurrency", "historicalImportApproved", "dismissedWarningSignature"]
         )
         XCTAssertEqual(persisted["selectedPeriod"] as? String, "this_year")
         XCTAssertEqual(persisted["selectedDisplayMetric"] as? String, "api_value")
+        XCTAssertEqual(persisted["selectedDisplayCurrency"] as? String, "GBP")
         XCTAssertEqual(persisted["historicalImportApproved"] as? Bool, true)
         XCTAssertEqual(persisted["dismissedWarningSignature"] as? String, digest)
         XCTAssertFalse(persisted.values.compactMap { $0 as? String }.contains { value in
             value.contains("/Users/") || value.contains("warning") || value.contains("project")
         })
+    }
+
+    func testUnknownPersistedCurrencyFallsBackToUSD() {
+        let suiteName = "AppPreferencesTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set("BTC", forKey: "selectedDisplayCurrency")
+
+        XCTAssertEqual(AppPreferences(defaults: defaults).selectedDisplayCurrency, .usd)
     }
 
     func testDismissedWarningSignaturePersistsOnlyValidatedDigest() {

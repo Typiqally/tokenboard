@@ -66,6 +66,18 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(counts, [1, 0])
         XCTAssertEqual(setup.model.presentation?.statusTitle, "◉ $1.25")
 
+        let queriesBeforeCurrencySelection = setup.recorder.snapshot.filter {
+            $0.hasPrefix("query.")
+        }.count
+        setup.model.select(displayCurrency: .eur)
+        XCTAssertEqual(setup.preferences.selectedDisplayCurrency, .eur)
+        XCTAssertEqual(setup.model.state.selectedDisplayCurrency, .eur)
+        XCTAssertEqual(setup.model.presentation?.statusTitle, "◉ €1.00")
+        XCTAssertEqual(
+            setup.recorder.snapshot.filter { $0.hasPrefix("query.") }.count,
+            queriesBeforeCurrencySelection
+        )
+
         await setup.model.refresh()
         counts = await setup.coordinator.counts()
         XCTAssertEqual(counts, [1, 1])
@@ -183,7 +195,14 @@ private actor RuntimeQuery: AppUsageQuerying {
             period: period,
             tokenTotal: 321,
             knownAPIEquivalentUSD: Decimal(string: "1.25")!,
-            unpricedTokens: 0
+            unpricedTokens: 0,
+            exchangeRates: ExchangeRateSnapshot(
+                catalogID: "test",
+                effectiveDate: "2026-08-07",
+                verifiedAt: "2026-08-07",
+                provenanceURL: URL(string: "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml")!,
+                rates: [.usd: 1, .eur: Decimal(string: "0.8")!]
+            )
         )
     }
 }
