@@ -24,9 +24,43 @@ final class DatabaseMigratorTests: XCTestCase {
         let names = try connection.queryStrings(
             "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
         )
-        for required in ["app_metadata", "daily_usage", "source_checkpoints", "skipped_records", "price_rates", "model_aliases", "catalog_imports", "schema_migrations"] {
+        for required in ["app_metadata", "daily_usage", "source_checkpoints", "skipped_records", "price_rates", "model_aliases", "catalog_imports", "fx_rates", "schema_migrations"] {
             XCTAssertTrue(names.contains(required), "missing \(required)")
         }
+    }
+
+    func testV3AddsExchangeRatesWithoutChangingV2PricingData() throws {
+        let directory = try temporaryDirectory()
+        let database = directory.appending(path: "ledger.sqlite")
+        let backups = directory.appending(path: "Backups")
+        let connection = try SQLiteConnection(url: database)
+        try DatabaseMigrator(
+            connection: connection,
+            backupDirectory: backups,
+            migrations: [Migrations.v1, Migrations.v2]
+        ).migrate()
+        try connection.execute("INSERT INTO app_metadata(key, value) VALUES('sentinel', X'01');")
+
+        try DatabaseMigrator(
+            connection: connection,
+            backupDirectory: backups,
+            migrations: Migrations.all
+        ).migrate()
+
+        XCTAssertEqual(try connection.userVersion, 3)
+        XCTAssertEqual(
+            try connection.queryStrings("SELECT name FROM sqlite_master WHERE type='table' AND name='fx_rates';"),
+            ["fx_rates"]
+        )
+        XCTAssertEqual(
+            try connection.queryStrings("SELECT hex(value) FROM app_metadata WHERE key='sentinel';"),
+            ["01"]
+        )
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(atPath: backups.path)
+                .filter { $0.hasSuffix(".sqlite") }.count,
+            1
+        )
     }
 
     func testFailedMigrationRollsBack() throws {

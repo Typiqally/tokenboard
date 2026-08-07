@@ -3,6 +3,61 @@ import XCTest
 @testable import TokenboardCore
 
 final class PricingLedgerTests: XCTestCase {
+    func testSchemaV2PersistsCompleteExchangeSnapshotAndRetainsHistory() async throws {
+        let ledger = try makeLedger()
+        try await ledger.migrate()
+        let first = try catalogV2(id: "catalog-fx-a", eur: "0.86")
+        let second = try catalogV2(id: "catalog-fx-b", eur: "0.87")
+
+        try await apply(first, to: ledger)
+        try await apply(second, to: ledger)
+
+        let snapshot = try await ledger.pricingSnapshot()
+        XCTAssertEqual(snapshot.exchangeRateSnapshots.count, 2)
+        XCTAssertEqual(snapshot.exchangeRateSnapshots.map(\.catalogID), ["catalog-fx-a", "catalog-fx-b"])
+        XCTAssertEqual(snapshot.exchangeRateSnapshots[0].rates[.eur], Decimal(string: "0.86"))
+        XCTAssertEqual(snapshot.latestExchangeRates?.rates[.eur], Decimal(string: "0.87"))
+        XCTAssertEqual(snapshot.latestExchangeRates?.rates[.usd], Decimal(string: "1"))
+    }
+
+    func testSchemaV1AppliesWithoutCreatingExchangeSnapshot() async throws {
+        let ledger = try makeLedger()
+        try await ledger.migrate()
+
+        try await apply(try catalog(id: "catalog-v1", models: [model()]), to: ledger)
+
+        let snapshot = try await ledger.pricingSnapshot()
+        XCTAssertTrue(snapshot.exchangeRateSnapshots.isEmpty)
+        XCTAssertNil(snapshot.latestExchangeRates)
+    }
+
+    func testExchangeRateInsertFailureRollsBackModelAndFXRowsTogether() async throws {
+        let setup = try makeLedgerWithDatabase()
+        try await setup.ledger.migrate()
+        let before = try await setup.ledger.pricingSnapshot()
+        let database = try SQLiteConnection(url: setup.databaseURL)
+        try database.execute("""
+        CREATE TRIGGER reject_jpy_fx
+        BEFORE INSERT ON fx_rates
+        FOR EACH ROW WHEN NEW.currency_code = 'JPY'
+        BEGIN
+          SELECT RAISE(ABORT, 'injected FX failure');
+        END;
+        """)
+
+        await assertSQLiteConstraint(containing: "injected FX failure") {
+            try await self.apply(try self.catalogV2(id: "catalog-fx-failure"), to: setup.ledger)
+        }
+
+        XCTAssertEqual(try await setup.ledger.pricingSnapshot(), before)
+        XCTAssertEqual(
+            try database.queryStrings("SELECT catalog_id FROM catalog_imports ORDER BY catalog_id;"),
+            []
+        )
+        XCTAssertEqual(try database.queryStrings("SELECT catalog_id FROM fx_rates;"), [])
+        XCTAssertEqual(try database.queryStrings("SELECT canonical_model_id FROM price_rates;"), [])
+    }
+
     func testLatestAppliedCatalogReturnsNewestCanonicalJSONAndNilBeforeImport() async throws {
         let ledger = try makeLedger()
         try await ledger.migrate()
@@ -416,6 +471,32 @@ final class PricingLedgerTests: XCTestCase {
         ))
     }
 
+    private func catalogV2(
+        id: String,
+        eur: String = "0.866926745"
+    ) throws -> ValidatedPricingCatalog {
+        try PricingCatalogValidator().validate(PricingCatalog(
+            schemaVersion: 2,
+            catalogID: id,
+            generatedAt: "2026-08-07T12:00:00Z",
+            origin: CatalogOrigin(kind: .officialResearch, url: "https://openai.com/api/pricing/"),
+            models: [model()],
+            exchangeRates: CatalogExchangeRateSnapshot(
+                baseCurrency: "USD",
+                effectiveDate: "2026-08-07",
+                verifiedAt: "2026-08-07",
+                provenanceURL: "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml",
+                rates: [
+                    "USD": DecimalString(decimal: 1),
+                    "EUR": DecimalString(decimal: Decimal(string: eur)!),
+                    "JPY": DecimalString(decimal: Decimal(string: "158.33550065")!),
+                    "GBP": DecimalString(decimal: Decimal(string: "0.743519723")!),
+                    "CNY": DecimalString(decimal: Decimal(string: "6.747637625")!)
+                ]
+            )
+        ))
+    }
+
     private func apply(
         _ catalog: ValidatedPricingCatalog,
         to ledger: SQLiteLedger,
@@ -425,7 +506,9 @@ final class PricingLedgerTests: XCTestCase {
             catalog,
             canonicalJSON: catalog.canonicalJSON,
             origin: origin,
-            validationSummary: PricingImportMetadata.schemaV1ValidSummary
+            validationSummary: catalog.schemaVersion == 1
+                ? PricingImportMetadata.schemaV1ValidSummary
+                : PricingImportMetadata.schemaV2ValidSummary
         )
     }
 
