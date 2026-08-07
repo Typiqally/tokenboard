@@ -1,5 +1,7 @@
 .worktrees/
-.superpowers/sdd/
+.superpowers/
+docs/
+**/superpowers/
 .build/
 .build-strict/
 .DS_Store
