@@ -450,6 +450,53 @@ final class AppModelLifecycleTests: XCTestCase {
         )
     }
 
+    func testUnrelatedProviderRevocationPreservesCompleteWarningIdentity() async throws {
+        let setup = try makeSetup(approved: false)
+        defer { setup.cleanup() }
+        await setup.model.start()
+        await setup.model.startHistoricalImport()
+        let initialRunID = await setup.coordinator.runID()
+
+        await setup.coordinator.emit(attentionResult(
+            runID: initialRunID,
+            sequence: 2,
+            provider: .codex,
+            attentions: [.unsafeSource, .truncated]
+        ))
+        await waitUntil { setup.model.presentation?.statusTitle == "⚠ 1K" }
+        let completeDigest = try XCTUnwrap(
+            setup.model.activeDismissibleWarningSignature?.digest
+        )
+        setup.model.dismissCurrentWarnings()
+        XCTAssertEqual(setup.model.presentation?.statusTitle, "◉ 1K")
+
+        await setup.model.revokeSource(.claudeCode)
+
+        XCTAssertEqual(
+            setup.model.activeDismissibleWarningSignature?.digest,
+            completeDigest
+        )
+        XCTAssertEqual(setup.preferences.dismissedWarningSignature, completeDigest)
+        XCTAssertEqual(setup.model.presentation?.statusTitle, "◉ 1K")
+        XCTAssertFalse(setup.model.canDismissCurrentWarnings)
+
+        let remainingRunID = await setup.coordinator.runID()
+        await setup.coordinator.emit(attentionResult(
+            runID: remainingRunID,
+            sequence: 1,
+            provider: .codex,
+            attentions: [.unsafeSource, .replaced]
+        ))
+        await waitUntil { setup.model.presentation?.statusTitle == "⚠ 1K" }
+
+        XCTAssertNotEqual(
+            setup.model.activeDismissibleWarningSignature?.digest,
+            completeDigest
+        )
+        XCTAssertTrue(setup.model.canDismissCurrentWarnings)
+        XCTAssertNil(setup.preferences.dismissedWarningSignature)
+    }
+
     func testChangedWarningPermanentlyInvalidatesOldDismissal() async throws {
         let setup = try makeSetup(approved: false)
         defer { setup.cleanup() }
