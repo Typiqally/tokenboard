@@ -10,6 +10,8 @@ public enum PricingCatalogValidationError: Error, Equatable, Sendable {
     case invalidURL(String)
     case invalidOrigin
     case invalidProvenance(provider: Provider)
+    case invalidExchangeRateProvenance
+    case invalidExchangeRateSnapshot(String)
     case duplicateModel(String)
     case duplicateEffectiveStart(String)
     case overlappingInterval(String)
@@ -22,7 +24,7 @@ public struct PricingCatalogValidator: Sendable {
     public init() {}
 
     public func validate(_ catalog: PricingCatalog) throws -> ValidatedPricingCatalog {
-        guard catalog.schemaVersion == 1 else {
+        guard catalog.schemaVersion == 1 || catalog.schemaVersion == 2 else {
             throw PricingCatalogValidationError.unsupportedSchemaVersion(catalog.schemaVersion)
         }
         try validateIdentifier(catalog.catalogID, label: "catalog ID")
@@ -35,6 +37,25 @@ public struct PricingCatalogValidator: Sendable {
             throw PricingCatalogValidationError.invalidGeneratedAt
         }
         try validateOrigin(catalog.origin)
+        let validatedExchangeRates: ValidatedExchangeRateSnapshot?
+        switch catalog.schemaVersion {
+        case 1:
+            guard catalog.exchangeRates == nil else {
+                throw PricingCatalogValidationError.invalidExchangeRateSnapshot(
+                    "schema version 1 cannot contain exchange rates"
+                )
+            }
+            validatedExchangeRates = nil
+        case 2:
+            guard let exchangeRates = catalog.exchangeRates else {
+                throw PricingCatalogValidationError.invalidExchangeRateSnapshot(
+                    "schema version 2 requires exchange rates"
+                )
+            }
+            validatedExchangeRates = try validate(exchangeRates: exchangeRates)
+        default:
+            throw PricingCatalogValidationError.unsupportedSchemaVersion(catalog.schemaVersion)
+        }
 
         var modelKeys = Set<ModelKey>()
         var aliasIntervals: [AliasKey: [Interval]] = [:]
@@ -124,7 +145,8 @@ public struct PricingCatalogValidator: Sendable {
             catalogID: catalog.catalogID,
             generatedAt: catalog.generatedAt,
             origin: catalog.origin,
-            models: validatedModels
+            models: validatedModels,
+            exchangeRates: validatedExchangeRates
         )
         return ValidatedPricingCatalog(
             schemaVersion: catalog.schemaVersion,
@@ -132,7 +154,58 @@ public struct PricingCatalogValidator: Sendable {
             generatedAt: catalog.generatedAt,
             origin: catalog.origin,
             models: validatedModels,
+            exchangeRates: validatedExchangeRates,
             canonicalJSON: canonicalJSON
+        )
+    }
+
+    private func validate(
+        exchangeRates snapshot: CatalogExchangeRateSnapshot
+    ) throws -> ValidatedExchangeRateSnapshot {
+        guard snapshot.baseCurrency == DisplayCurrency.usd.rawValue else {
+            throw PricingCatalogValidationError.invalidExchangeRateSnapshot(
+                "base currency must be USD"
+            )
+        }
+        try validateDate(snapshot.effectiveDate)
+        try validateDate(snapshot.verifiedAt)
+        let provenanceURL = try validatedURL(snapshot.provenanceURL)
+        guard Self.ecbHosts.contains(provenanceURL.host?.lowercased() ?? "") else {
+            throw PricingCatalogValidationError.invalidExchangeRateProvenance
+        }
+
+        let expectedCodes = Set(DisplayCurrency.allCases.map(\.rawValue))
+        guard Set(snapshot.rates.keys) == expectedCodes else {
+            throw PricingCatalogValidationError.invalidExchangeRateSnapshot(
+                "rates must contain exactly USD, EUR, JPY, GBP, CNY"
+            )
+        }
+
+        var rates: [DisplayCurrency: Decimal] = [:]
+        for currency in DisplayCurrency.allCases {
+            guard let rate = snapshot.rates[currency.rawValue]?.decimal else {
+                throw PricingCatalogValidationError.invalidExchangeRateSnapshot(
+                    "rates must contain exactly USD, EUR, JPY, GBP, CNY"
+                )
+            }
+            guard rate > 0 else {
+                throw PricingCatalogValidationError.invalidExchangeRateSnapshot(
+                    "\(currency.rawValue) rate must be greater than zero"
+                )
+            }
+            rates[currency] = rate
+        }
+        guard rates[.usd] == 1 else {
+            throw PricingCatalogValidationError.invalidExchangeRateSnapshot(
+                "USD rate must equal 1"
+            )
+        }
+        return ValidatedExchangeRateSnapshot(
+            baseCurrency: .usd,
+            effectiveDate: snapshot.effectiveDate,
+            verifiedAt: snapshot.verifiedAt,
+            provenanceURL: provenanceURL,
+            rates: rates
         )
     }
 
@@ -259,7 +332,8 @@ public struct PricingCatalogValidator: Sendable {
         catalogID: String,
         generatedAt: String,
         origin: CatalogOrigin,
-        models: [ValidatedCatalogModel]
+        models: [ValidatedCatalogModel],
+        exchangeRates: ValidatedExchangeRateSnapshot?
     ) throws -> Data {
         let encodedModels = models.map { model in
             CatalogModel(
@@ -284,7 +358,21 @@ public struct PricingCatalogValidator: Sendable {
             catalogID: catalogID,
             generatedAt: generatedAt,
             origin: origin,
-            models: encodedModels
+            models: encodedModels,
+            exchangeRates: exchangeRates.map { snapshot in
+                CatalogExchangeRateSnapshot(
+                    baseCurrency: snapshot.baseCurrency.rawValue,
+                    effectiveDate: snapshot.effectiveDate,
+                    verifiedAt: snapshot.verifiedAt,
+                    provenanceURL: snapshot.provenanceURL.absoluteString,
+                    rates: Dictionary(uniqueKeysWithValues: DisplayCurrency.allCases.compactMap {
+                        currency in
+                        snapshot.rates[currency].map {
+                            (currency.rawValue, DecimalString(decimal: $0))
+                        }
+                    })
+                )
+            }
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
@@ -356,7 +444,8 @@ public struct PricingCatalogValidator: Sendable {
     private static let openAIHosts: Set<String> = [
         "openai.com", "www.openai.com", "platform.openai.com", "help.openai.com"
     ]
-    private static let allOfficialHosts = anthropicHosts.union(openAIHosts)
+    private static let ecbHosts: Set<String> = ["www.ecb.europa.eu"]
+    private static let allOfficialHosts = anthropicHosts.union(openAIHosts).union(ecbHosts)
     private static let allowedIdentifierBytes = Set(
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._:-".utf8
     )

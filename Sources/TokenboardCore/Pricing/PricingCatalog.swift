@@ -6,19 +6,44 @@ public struct PricingCatalog: Codable, Equatable, Sendable {
     public let generatedAt: String
     public let origin: CatalogOrigin
     public var models: [CatalogModel]
+    public let exchangeRates: CatalogExchangeRateSnapshot?
 
     public init(
         schemaVersion: Int,
         catalogID: String,
         generatedAt: String,
         origin: CatalogOrigin,
-        models: [CatalogModel]
+        models: [CatalogModel],
+        exchangeRates: CatalogExchangeRateSnapshot? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.catalogID = catalogID
         self.generatedAt = generatedAt
         self.origin = origin
         self.models = models
+        self.exchangeRates = exchangeRates
+    }
+}
+
+public struct CatalogExchangeRateSnapshot: Codable, Equatable, Sendable {
+    public let baseCurrency: String
+    public let effectiveDate: String
+    public let verifiedAt: String
+    public let provenanceURL: String
+    public let rates: [String: DecimalString]
+
+    public init(
+        baseCurrency: String,
+        effectiveDate: String,
+        verifiedAt: String,
+        provenanceURL: String,
+        rates: [String: DecimalString]
+    ) {
+        self.baseCurrency = baseCurrency
+        self.effectiveDate = effectiveDate
+        self.verifiedAt = verifiedAt
+        self.provenanceURL = provenanceURL
+        self.rates = rates
     }
 }
 
@@ -134,6 +159,7 @@ public struct ValidatedPricingCatalog: Equatable, Sendable {
     public let generatedAt: String
     public let origin: CatalogOrigin
     public let models: [ValidatedCatalogModel]
+    public let exchangeRates: ValidatedExchangeRateSnapshot?
     public let canonicalJSON: Data
 
     init(
@@ -142,6 +168,7 @@ public struct ValidatedPricingCatalog: Equatable, Sendable {
         generatedAt: String,
         origin: CatalogOrigin,
         models: [ValidatedCatalogModel],
+        exchangeRates: ValidatedExchangeRateSnapshot?,
         canonicalJSON: Data
     ) {
         self.schemaVersion = schemaVersion
@@ -149,7 +176,30 @@ public struct ValidatedPricingCatalog: Equatable, Sendable {
         self.generatedAt = generatedAt
         self.origin = origin
         self.models = models
+        self.exchangeRates = exchangeRates
         self.canonicalJSON = canonicalJSON
+    }
+}
+
+public struct ValidatedExchangeRateSnapshot: Equatable, Sendable {
+    public let baseCurrency: DisplayCurrency
+    public let effectiveDate: String
+    public let verifiedAt: String
+    public let provenanceURL: URL
+    public let rates: [DisplayCurrency: Decimal]
+
+    public init(
+        baseCurrency: DisplayCurrency,
+        effectiveDate: String,
+        verifiedAt: String,
+        provenanceURL: URL,
+        rates: [DisplayCurrency: Decimal]
+    ) {
+        self.baseCurrency = baseCurrency
+        self.effectiveDate = effectiveDate
+        self.verifiedAt = verifiedAt
+        self.provenanceURL = provenanceURL
+        self.rates = rates
     }
 }
 

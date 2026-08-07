@@ -35,11 +35,31 @@ public struct PricingCatalogLoader: Sendable {
 
     private func validateKeys(in root: Any) throws {
         let top = try object(root, named: "catalog")
-        try requireExactKeys(
-            top,
-            expected: ["schemaVersion", "catalogID", "generatedAt", "origin", "models"],
-            named: "catalog"
-        )
+        guard let schemaVersion = top["schemaVersion"] as? Int else {
+            throw PricingCatalogLoadingError.invalidStructure("schemaVersion must be an integer")
+        }
+        if schemaVersion == 1 {
+            try requireExactKeys(
+                top,
+                expected: ["schemaVersion", "catalogID", "generatedAt", "origin", "models"],
+                named: "catalog"
+            )
+        } else {
+            try requireExactKeys(
+                top,
+                expected: [
+                    "schemaVersion", "catalogID", "generatedAt", "origin", "models", "exchangeRates"
+                ],
+                named: "catalog"
+            )
+            let exchangeRates = try object(top["exchangeRates"], named: "exchangeRates")
+            try requireExactKeys(
+                exchangeRates,
+                expected: ["baseCurrency", "effectiveDate", "verifiedAt", "provenanceURL", "rates"],
+                named: "exchangeRates"
+            )
+            _ = try object(exchangeRates["rates"], named: "exchangeRates.rates")
+        }
 
         let origin = try object(top["origin"], named: "origin")
         try requireExactKeys(origin, expected: ["kind", "url"], named: "origin")
