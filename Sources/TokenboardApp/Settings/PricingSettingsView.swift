@@ -20,33 +20,28 @@ enum PricingOverviewCopy {
     static let visibleLabels = [activeCatalogIDs, verified]
 }
 
+struct PricingPromptOption: Equatable, Identifiable {
+    let source: AgentPricingSource
+    let buttonTitle: String
+    let description: String
+
+    var id: AgentPricingSource { source }
+}
+
 enum PricingUpdateCopy {
-    static let explanation = "Tokenboard never connects to the internet. It creates a prompt for Claude Code or Codex, which saves a local pricing candidate for your review."
-    static let methodQuestion = "What should the copied prompt tell the agent to do?"
-    static let selectionEffect = "This choice changes the instructions copied to your clipboard. Tokenboard itself still has no network access."
-
-    static func methodTitle(_ source: AgentPricingSource) -> String {
-        switch source {
-        case .tokenboardRepository: "Use Tokenboard Catalog"
-        case .officialResearch: "Research Official Sites"
-        }
-    }
-
-    static func methodDescription(_ source: AgentPricingSource) -> String {
-        switch source {
-        case .tokenboardRepository:
-            "Use only Tokenboard’s published pricing catalog from GitHub."
-        case .officialResearch:
-            "Research only official OpenAI and Anthropic websites."
-        }
-    }
-
-    static func copyButtonTitle(_ source: AgentPricingSource) -> String {
-        switch source {
-        case .tokenboardRepository: "Copy Catalog-Only Prompt"
-        case .officialResearch: "Copy Official-Research Prompt"
-        }
-    }
+    static let explanation = "Tokenboard never connects to the internet. Copy one of the prompts below into Claude Code or Codex. The agent saves a local pricing candidate for your review."
+    static let promptOptions = [
+        PricingPromptOption(
+            source: .tokenboardRepository,
+            buttonTitle: "Copy Catalog-Only Prompt",
+            description: "Uses only Tokenboard’s published pricing catalog on GitHub."
+        ),
+        PricingPromptOption(
+            source: .officialResearch,
+            buttonTitle: "Copy Official-Sites Prompt",
+            description: "Researches only official OpenAI and Anthropic websites."
+        )
+    ]
 
     static func inboxStatus(_ status: PricingInboxStatus) -> String {
         switch status {
@@ -132,7 +127,6 @@ struct PricingReviewSelection: Equatable, Identifiable {
 
 struct PricingSettingsView: View {
     @ObservedObject var model: AppModel
-    @State private var promptSource = AgentPricingSource.tokenboardRepository
     @State private var reviewSelection: PricingReviewSelection?
 
     var candidateActions: [PricingSettingsCandidateAction] {
@@ -175,24 +169,15 @@ struct PricingSettingsView: View {
             Text(PricingUpdateCopy.explanation)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            Text(PricingUpdateCopy.methodQuestion)
-                .font(.subheadline.weight(.medium))
-            Picker(PricingUpdateCopy.methodQuestion, selection: $promptSource) {
-                Text(PricingUpdateCopy.methodTitle(.tokenboardRepository))
-                    .tag(AgentPricingSource.tokenboardRepository)
-                Text(PricingUpdateCopy.methodTitle(.officialResearch))
-                    .tag(AgentPricingSource.officialResearch)
-            }
-            .pickerStyle(.radioGroup)
-            .labelsHidden()
-            Text(PricingUpdateCopy.selectionEffect)
-                .font(.callout.weight(.medium))
-                .fixedSize(horizontal: false, vertical: true)
-            Text(PricingUpdateCopy.methodDescription(promptSource))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            Button(PricingUpdateCopy.copyButtonTitle(promptSource)) {
-                Task { await model.copyAgentPrompt(source: promptSource) }
+            ForEach(PricingUpdateCopy.promptOptions) { option in
+                VStack(alignment: .leading, spacing: 4) {
+                    Button(option.buttonTitle) {
+                        Task { await model.copyAgentPrompt(source: option.source) }
+                    }
+                    Text(option.description)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             LabeledContent("Candidate ready") {
