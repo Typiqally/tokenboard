@@ -378,6 +378,122 @@ final class AppModelLifecycleTests: XCTestCase {
         XCTAssertEqual(setup.model.presentation?.statusTitle, "⚠ 1K")
     }
 
+    func testDismissalPersistsForIdenticalWarningAndChangedIssueReappears() async throws {
+        let setup = try makeSetup(approved: false)
+        defer { setup.cleanup() }
+        await setup.model.start()
+        await setup.model.startHistoricalImport()
+        let runID = await setup.coordinator.runID()
+
+        await setup.coordinator.emit(attentionResult(
+            runID: runID,
+            sequence: 2,
+            provider: .codex,
+            attention: .truncated
+        ))
+        await waitUntil { setup.model.presentation?.statusTitle == "⚠ 1K" }
+
+        setup.model.dismissCurrentWarnings()
+        XCTAssertEqual(setup.model.presentation?.statusTitle, "◉ 1K")
+        XCTAssertFalse(setup.model.canDismissCurrentWarnings)
+        XCTAssertNotNil(setup.preferences.dismissedWarningSignature)
+
+        await setup.coordinator.emit(attentionResult(
+            runID: runID,
+            sequence: 3,
+            provider: .codex,
+            attention: .truncated
+        ))
+        await waitUntil { setup.model.presentation?.statusTitle == "◉ 1K" }
+
+        await setup.coordinator.emit(attentionResult(
+            runID: runID,
+            sequence: 4,
+            provider: .codex,
+            attention: .replaced
+        ))
+        await waitUntil { setup.model.presentation?.statusTitle == "⚠ 1K" }
+        XCTAssertTrue(setup.model.canDismissCurrentWarnings)
+    }
+
+    func testPreloadedMatchingDismissalIsHonoredByNewModel() throws {
+        let warningHealth = TokenboardHealth(
+            claude: .warning(issue: .truncatedLog, message: TokenboardHealth.Issue.truncatedLog.message),
+            codex: .healthy(fileCount: 1, lastUpdated: .distantPast),
+            database: .healthy,
+            lastSuccessfulScan: .distantPast,
+            skippedRecordCount: 0,
+            unpricedTokens: 0
+        )
+        let digest = try XCTUnwrap(warningHealth.dismissibleWarningSignature?.digest)
+        let setup = try makeSetup(approved: false, dismissedWarningSignature: digest)
+        defer { setup.cleanup() }
+        let summary = UsageSummary(period: .today, tokenTotal: 1_000, knownAPIEquivalentUSD: 0, unpricedTokens: 0)
+        setup.model.lastSummary = summary
+        var state = setup.model.state
+        state.lifecycle = .ready
+        state.health = warningHealth
+        state.presentation = setup.model.makePresentation(summary: summary, state: state)
+        setup.model.commitState(state)
+
+        XCTAssertEqual(setup.model.presentation?.statusTitle, "◉ 1K")
+        XCTAssertFalse(setup.model.canDismissCurrentWarnings)
+    }
+
+    func testApplicationFailureCannotBeDismissed() throws {
+        let setup = try makeSetup(approved: false)
+        defer { setup.cleanup() }
+        let summary = UsageSummary(period: .today, tokenTotal: 1_000, knownAPIEquivalentUSD: 0, unpricedTokens: 0)
+        setup.model.lastSummary = summary
+        var state = setup.model.state
+        state.lifecycle = .ready
+        state.sourceHealth = [
+            .claudeCode: .warning(issue: .applicationFailure, message: "Summary unavailable"),
+            .codex: .notGranted
+        ]
+        state.presentation = setup.model.makePresentation(summary: summary, state: state)
+        setup.model.commitState(state)
+
+        XCTAssertEqual(setup.model.presentation?.statusTitle, "⚠ 1K")
+        XCTAssertFalse(setup.model.canDismissCurrentWarnings)
+        setup.model.dismissCurrentWarnings()
+        XCTAssertNil(setup.preferences.dismissedWarningSignature)
+        XCTAssertEqual(setup.model.presentation?.statusTitle, "⚠ 1K")
+    }
+
+    func testDatabaseRecoveryCannotBeDismissed() throws {
+        let setup = try makeSetup(approved: false)
+        defer { setup.cleanup() }
+        let summary = UsageSummary(period: .today, tokenTotal: 1_000, knownAPIEquivalentUSD: 0, unpricedTokens: 0)
+        setup.model.lastSummary = summary
+        var state = setup.model.state
+        state.lifecycle = .failed(message: "Recovery required")
+        state.health = state.health.replacing(
+            claude: .warning(issue: .truncatedLog, message: TokenboardHealth.Issue.truncatedLog.message),
+            database: .recoveryRequired(message: "Recovery required")
+        )
+        state.presentation = setup.model.makePresentation(summary: summary, state: state)
+        setup.model.commitState(state)
+
+        XCTAssertEqual(setup.model.presentation?.statusTitle, "⚠ 1K")
+        XCTAssertFalse(setup.model.canDismissCurrentWarnings)
+        setup.model.dismissCurrentWarnings()
+        XCTAssertNil(setup.preferences.dismissedWarningSignature)
+        XCTAssertEqual(setup.model.presentation?.statusTitle, "⚠ 1K")
+    }
+
+    func testAuthoritativeHealthyStartupClearsObsoleteDismissal() async throws {
+        let setup = try makeSetup(
+            approved: false,
+            dismissedWarningSignature: String(repeating: "a", count: 64)
+        )
+        defer { setup.cleanup() }
+
+        await setup.model.start()
+
+        XCTAssertNil(setup.preferences.dismissedWarningSignature)
+    }
+
     func testAttentionHealthMappingIsDistinctAndUsesDeterministicPrecedence() throws {
         let setup = try makeSetup(approved: false)
         defer { setup.cleanup() }
@@ -1199,6 +1315,7 @@ final class AppModelLifecycleTests: XCTestCase {
 
     private func makeSetup(
         approved: Bool,
+        dismissedWarningSignature: String? = nil,
         grantedProviders: Set<Provider> = Set(Provider.allCases),
         failure: StartupFailurePoint? = nil,
         failureIsOneShot: Bool = false,
@@ -1227,6 +1344,7 @@ final class AppModelLifecycleTests: XCTestCase {
         let defaults = UserDefaults(suiteName: suite)!
         let preferences = AppPreferences(defaults: defaults)
         preferences.historicalImportApproved = approved
+        preferences.dismissedWarningSignature = dismissedWarningSignature
         let access = LifecycleBookmarkAccess(recorder: replacementRecorder)
         for provider in grantedProviders {
             let marker = provider == .claudeCode ? Data([1]) : Data([2])
@@ -1311,6 +1429,28 @@ final class AppModelLifecycleTests: XCTestCase {
         }
         XCTFail("condition was not met")
     }
+}
+
+private func attentionResult(
+    runID: UInt64,
+    sequence: UInt64,
+    provider: Provider,
+    attention: ScanOutcome.Attention
+) -> IngestionBatchResult {
+    IngestionBatchResult(
+        runID: runID,
+        sequence: sequence,
+        scope: .incremental,
+        providers: [
+            provider: .attention(discoveredFiles: 1, scannedFiles: 1)
+        ],
+        diagnostics: [
+            provider: ProviderIngestionDiagnostics(
+                skippedRecordCount: 0,
+                attention: [attention]
+            )
+        ]
+    )
 }
 
 private enum StartupFailurePoint: CaseIterable, Sendable {
