@@ -29,9 +29,6 @@ enum NativeMenuBuilder {
             statusTitle = presentation.statusTitle
             menu.addDisabledItem(presentation.tokenTitle)
             menu.addDisabledItem(presentation.apiValueTitle)
-            if let unpricedTitle = presentation.unpricedTitle {
-                menu.addDisabledItem(unpricedTitle)
-            }
         } else {
             let warning = startupError != nil || state?.health.hasWarning == true
             statusTitle = warning ? "⚠ Unavailable" : "◉ …"
@@ -56,24 +53,16 @@ enum NativeMenuBuilder {
         ))
         menu.addItem(.separator())
 
-        if let state {
-            menu.addDisabledItem(healthTitle(
-                state.health.claude,
-                name: "Claude Code"
-            ))
-            menu.addDisabledItem(healthTitle(state.health.codex, name: "Codex"))
-        } else {
-            menu.addDisabledItem("Claude Code: \(startupError ?? "Unavailable")")
-            menu.addDisabledItem("Codex: \(startupError ?? "Unavailable")")
+        if let warningItem = warningMenuItem(
+            state: state,
+            target: target,
+            canDismissCurrentWarnings: canDismissCurrentWarnings && regularActionsEnabled
+        ) {
+            menu.addItem(warningItem)
+        } else if state == nil {
+            menu.addDisabledItem(startupError ?? "Sources unavailable")
         }
-        if canDismissCurrentWarnings && regularActionsEnabled {
-            menu.addItem(actionItem(
-                "Dismiss Current Warnings",
-                action: NSSelectorFromString("dismissCurrentWarnings"),
-                target: target
-            ))
-        }
-        let updatedItem = menu.addDisabledItem("Updated never · Local only")
+        let updatedItem = menu.addDisabledItem("Updated never")
 
         menu.addItem(.separator())
         menu.addItem(actionItem(
@@ -85,7 +74,7 @@ enum NativeMenuBuilder {
         ))
         var pricingTitle = "Pricing"
         if let unpriced = state?.presentation?.unpricedTitle {
-            pricingTitle += " ⚠ \(unpriced)"
+            pricingTitle += " (\(unpriced))"
         }
         menu.addItem(actionItem(
             pricingTitle,
@@ -116,7 +105,12 @@ enum NativeMenuBuilder {
         target: AnyObject?,
         isEnabled: Bool
     ) -> NSMenuItem {
-        let parent = NSMenuItem(title: "Period", action: nil, keyEquivalent: "")
+        let selectedTitle = state.map { periodTitle($0.selectedPeriod) }
+        let parent = NSMenuItem(
+            title: selectedTitle.map { "Period: \($0)" } ?? "Period",
+            action: nil,
+            keyEquivalent: ""
+        )
         let submenu = NSMenu(title: "Period")
         submenu.autoenablesItems = false
         let choices: [(CalendarPeriod, String)] = [
@@ -147,8 +141,13 @@ enum NativeMenuBuilder {
         target: AnyObject?,
         isEnabled: Bool
     ) -> NSMenuItem {
-        let parent = NSMenuItem(title: "Menu Bar Shows", action: nil, keyEquivalent: "")
-        let submenu = NSMenu(title: "Menu Bar Shows")
+        let selectedTitle = state.map { displayMetricTitle($0.selectedDisplayMetric) }
+        let parent = NSMenuItem(
+            title: selectedTitle.map { "Menu Bar: \($0)" } ?? "Menu Bar",
+            action: nil,
+            keyEquivalent: ""
+        )
+        let submenu = NSMenu(title: "Menu Bar")
         submenu.autoenablesItems = false
         for (metric, title) in [(DisplayMetric.tokens, "Tokens"), (.apiValue, "API Value")] {
             let item = actionItem(
@@ -179,17 +178,64 @@ enum NativeMenuBuilder {
         return item
     }
 
-    private static func healthTitle(_ health: SourceHealth?, name: String) -> String {
-        guard let health else { return "\(name): Unavailable" }
+    private static func warningMenuItem(
+        state: AppPublishedState?,
+        target: AnyObject?,
+        canDismissCurrentWarnings: Bool
+    ) -> NSMenuItem? {
+        guard let state else { return nil }
+        let warnings = [
+            warningTitle(state.health.claude, name: "Claude Code"),
+            warningTitle(state.health.codex, name: "Codex")
+        ].compactMap { $0 }
+        guard !warnings.isEmpty else { return nil }
+
+        let parent = NSMenuItem(
+            title: "Warnings (\(warnings.count))",
+            action: nil,
+            keyEquivalent: ""
+        )
+        let submenu = NSMenu(title: "Warnings")
+        submenu.autoenablesItems = false
+        warnings.forEach { submenu.addDisabledItem($0) }
+        if canDismissCurrentWarnings {
+            submenu.addItem(.separator())
+            submenu.addItem(actionItem(
+                "Dismiss Current Warnings",
+                action: NSSelectorFromString("dismissCurrentWarnings"),
+                target: target
+            ))
+        }
+        parent.submenu = submenu
+        parent.isEnabled = true
+        return parent
+    }
+
+    private static func warningTitle(_ health: SourceHealth, name: String) -> String? {
         switch health {
         case .notGranted:
-            return "\(name): Access required"
-        case let .indexing(fileCount):
-            return "\(name): Ready, \(fileCount) logs"
-        case let .healthy(fileCount, _):
-            return "\(name): \(fileCount) logs"
+            "\(name): Access required"
+        case .indexing, .healthy:
+            nil
         case let .warning(_, message):
-            return "\(name): ⚠ \(message)"
+            "\(name): \(message)"
+        }
+    }
+
+    private static func periodTitle(_ period: CalendarPeriod) -> String {
+        switch period {
+        case .today: "Today"
+        case .thisWeek: "This Week"
+        case .thisMonth: "This Month"
+        case .thisYear: "This Year"
+        case .allTime: "All Time"
+        }
+    }
+
+    private static func displayMetricTitle(_ metric: DisplayMetric) -> String {
+        switch metric {
+        case .tokens: "Tokens"
+        case .apiValue: "API Value"
         }
     }
 }
@@ -240,7 +286,7 @@ final class MenuController: NSObject, NSMenuDelegate {
         } else {
             relative = "never"
         }
-        updatedItem.title = "Updated \(relative) · Local only"
+        updatedItem.title = "Updated \(relative)"
     }
 
     var renderedMenu: NSMenu? { statusItem.menu }
