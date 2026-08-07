@@ -15,6 +15,7 @@ enum NativeMenuBuilder {
         state: AppPublishedState?,
         startupError: String?,
         target: AnyObject?,
+        canDismissCurrentWarnings: Bool = false,
         isRestoringDatabase: Bool = false,
         requiresRelaunch: Bool = false,
         preservationRetryRequired: Bool = false,
@@ -64,6 +65,13 @@ enum NativeMenuBuilder {
         } else {
             menu.addDisabledItem("Claude Code: \(startupError ?? "Unavailable")")
             menu.addDisabledItem("Codex: \(startupError ?? "Unavailable")")
+        }
+        if canDismissCurrentWarnings && regularActionsEnabled {
+            menu.addItem(actionItem(
+                "Dismiss Current Warnings",
+                action: NSSelectorFromString("dismissCurrentWarnings"),
+                target: target
+            ))
         }
         let updatedItem = menu.addDisabledItem("Updated never · Local only")
 
@@ -247,6 +255,7 @@ final class MenuController: NSObject, NSMenuDelegate {
             state: state,
             startupError: startupError,
             target: self,
+            canDismissCurrentWarnings: model?.canDismissCurrentWarnings == true,
             isRestoringDatabase: isRestoringDatabase,
             requiresRelaunch: disposition == .requiresRelaunch,
             preservationRetryRequired: disposition == .preservationRetryRequired,
@@ -261,6 +270,10 @@ final class MenuController: NSObject, NSMenuDelegate {
     @objc func refresh() {
         guard let model else { return }
         Task { await model.refresh() }
+    }
+
+    @objc func dismissCurrentWarnings() {
+        model?.dismissCurrentWarnings()
     }
 
     @objc func selectPeriod(_ sender: NSMenuItem) {
