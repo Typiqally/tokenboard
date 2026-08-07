@@ -14,6 +14,12 @@ enum PricingSettingsCandidateAction: Equatable, Identifiable {
     }
 }
 
+enum PricingOverviewCopy {
+    static let activeCatalogIDs = "Active catalog IDs"
+    static let verified = "Verified"
+    static let visibleLabels = [activeCatalogIDs, verified]
+}
+
 enum PricingUpdateCopy {
     static let explanation = "Tokenboard never connects to the internet. It creates a prompt for Claude Code or Codex, which saves a local pricing candidate for your review."
     static let methodQuestion = "What should the copied prompt tell the agent to do?"
@@ -150,37 +156,16 @@ struct PricingSettingsView: View {
     var body: some View {
         let pricing = model.settingsState.pricing
         VStack(alignment: .leading, spacing: 10) {
-            LabeledContent("Active catalog IDs") {
+            LabeledContent(PricingOverviewCopy.activeCatalogIDs) {
                 Text(pricing.activeCatalogIDs.isEmpty
                     ? "Unavailable"
                     : pricing.activeCatalogIDs.joined(separator: ", "))
                     .textSelection(.enabled)
             }
-            LabeledContent("Verified") {
+            LabeledContent(PricingOverviewCopy.verified) {
                 Text(pricing.verificationDates.isEmpty
                     ? "Unavailable"
                     : pricing.verificationDates.joined(separator: ", "))
-            }
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Official provenance")
-                    .font(.subheadline.weight(.medium))
-                if pricing.provenanceURLs.isEmpty {
-                    Text("Unavailable")
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(pricing.provenanceURLs, id: \.absoluteString) { url in
-                        Text(url.absoluteString)
-                            .textSelection(.enabled)
-                    }
-                }
-            }
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Unpriced models")
-                    .font(.subheadline.weight(.medium))
-                Text(pricing.unpricedModels.isEmpty
-                    ? "None in the selected period"
-                    : pricing.unpricedModels.joined(separator: ", "))
-                    .textSelection(.enabled)
             }
 
             Divider()
