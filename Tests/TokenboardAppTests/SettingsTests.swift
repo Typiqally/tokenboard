@@ -17,6 +17,22 @@ final class SettingsTests: XCTestCase {
         )
     }
 
+    func testDiagnosticsCollectsCurrentSourceWarnings() {
+        let health = TokenboardHealth(
+            claude: .warning(issue: .truncatedLog, message: "Imported log was truncated"),
+            codex: .notGranted,
+            database: .healthy,
+            lastSuccessfulScan: nil,
+            skippedRecordCount: 0,
+            unpricedTokens: 0
+        )
+
+        XCTAssertEqual(SettingsWarningRow.current(in: health), [
+            SettingsWarningRow(provider: .claudeCode, message: "Imported log was truncated"),
+            SettingsWarningRow(provider: .codex, message: "Access required")
+        ])
+    }
+
     func testRecoveryLoadsBackupWithoutRestoringUntilExplicitActionAndUsesShutdownBarrier() async throws {
         let recoveryFiles = try await makeRecoveryBackup()
         defer { try? FileManager.default.removeItem(at: recoveryFiles.root) }
