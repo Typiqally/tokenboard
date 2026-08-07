@@ -15,8 +15,9 @@ enum PricingSettingsCandidateAction: Equatable, Identifiable {
 }
 
 enum PricingUpdateCopy {
-    static let explanation = "Tokenboard never connects to the internet. Copy an update prompt and run it in Claude Code or Codex. The prompt tells the agent to use only the source you choose and save a candidate in Tokenboard’s local inbox for your review."
-    static let methodQuestion = "How should the agent update pricing?"
+    static let explanation = "Tokenboard never connects to the internet. It creates a prompt for Claude Code or Codex, which saves a local pricing candidate for your review."
+    static let methodQuestion = "What should the copied prompt tell the agent to do?"
+    static let selectionEffect = "This choice changes the instructions copied to your clipboard. Tokenboard itself still has no network access."
 
     static func methodTitle(_ source: AgentPricingSource) -> String {
         switch source {
@@ -31,6 +32,13 @@ enum PricingUpdateCopy {
             "Use only Tokenboard’s published pricing catalog from GitHub."
         case .officialResearch:
             "Research only official OpenAI and Anthropic websites."
+        }
+    }
+
+    static func copyButtonTitle(_ source: AgentPricingSource) -> String {
+        switch source {
+        case .tokenboardRepository: "Copy Catalog-Only Prompt"
+        case .officialResearch: "Copy Official-Research Prompt"
         }
     }
 
@@ -192,10 +200,13 @@ struct PricingSettingsView: View {
             }
             .pickerStyle(.radioGroup)
             .labelsHidden()
+            Text(PricingUpdateCopy.selectionEffect)
+                .font(.callout.weight(.medium))
+                .fixedSize(horizontal: false, vertical: true)
             Text(PricingUpdateCopy.methodDescription(promptSource))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            Button("Copy Update Prompt") {
+            Button(PricingUpdateCopy.copyButtonTitle(promptSource)) {
                 Task { await model.copyAgentPrompt(source: promptSource) }
             }
 
