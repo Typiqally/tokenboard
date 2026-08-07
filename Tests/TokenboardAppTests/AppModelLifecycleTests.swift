@@ -5,6 +5,29 @@ import TokenboardCore
 
 @MainActor
 final class AppModelLifecycleTests: XCTestCase {
+    func testWatcherStartupFailurePublishesWarningAndLeavesCoordinatorInactive() async throws {
+        let setup = try makeSetup(
+            approved: true,
+            coordinatorFailsInitialStart: true
+        )
+        defer { setup.cleanup() }
+
+        await setup.model.start()
+
+        XCTAssertEqual(setup.model.state.lifecycle, .ready)
+        XCTAssertFalse(setup.model.state.isImporting)
+        XCTAssertEqual(setup.model.coordinatorStatus, .inactive)
+        let counts = await setup.coordinator.counts()
+        XCTAssertEqual(counts, [1, 0, 0])
+        for provider in Provider.allCases {
+            guard case let .warning(message) = setup.model.state.sourceHealth[provider] else {
+                return XCTFail("expected warning health for \(provider)")
+            }
+            XCTAssertTrue(message.contains("Historical import paused"))
+            XCTAssertTrue(message.contains("injected"))
+        }
+    }
+
     func testDatabaseStartupFailuresPublishRecoveryHealthWithoutOpeningWriters() async throws {
         let cases: [(StartupFailurePoint, TokenboardHealth.Issue)] = [
             (.migrate, .migrationFailure),
@@ -746,6 +769,7 @@ final class AppModelLifecycleTests: XCTestCase {
             stopGate: nil,
             stopGateCall: 1,
             failingStartRoot: nil,
+            failsInitialStart: false,
             recorder: nil,
             restoredInventoryCount: nil,
             refreshInventoryCount: 0
@@ -1130,6 +1154,7 @@ final class AppModelLifecycleTests: XCTestCase {
         discoveryGate: BlockingDiscoveryGate? = nil,
         replacementRecorder: ReplacementRecorder? = nil,
         coordinatorFailingStartRoot: URL? = nil,
+        coordinatorFailsInitialStart: Bool = false,
         restoredInventoryCount: Int? = nil,
         refreshInventoryCount: Int = 0,
         durableSkipped: [Provider: Int] = [:],
@@ -1170,6 +1195,7 @@ final class AppModelLifecycleTests: XCTestCase {
             stopGate: coordinatorStopGate,
             stopGateCall: coordinatorStopGateCall,
             failingStartRoot: coordinatorFailingStartRoot,
+            failsInitialStart: coordinatorFailsInitialStart,
             recorder: replacementRecorder,
             restoredInventoryCount: restoredInventoryCount,
             refreshInventoryCount: refreshInventoryCount
@@ -1398,7 +1424,11 @@ private actor LifecycleInbox: AppPricingInboxWatching {
     func stop() { stops += 1 }
     func pendingCandidate() -> PendingPricingCandidate? { nil }
     func exportCurrentSnapshot() {}
-    func applyPending() {}
+    func applyPending(
+        matching identity: PricingCandidateIdentity
+    ) throws -> PricingApplyOutcome {
+        throw PricingInboxError.noPendingCandidate
+    }
     func rejectPending() {}
     func counts() -> [Int] { [starts, stops] }
 }
@@ -1410,6 +1440,7 @@ private actor LifecycleCoordinator: AppIngestionCoordinating {
     private let stopGate: AsyncTestGate?
     private let stopGateCall: Int
     private let failingStartRoot: URL?
+    private let failsInitialStart: Bool
     private let recorder: ReplacementRecorder?
     private let restoredInventoryCount: Int?
     private let refreshInventoryCount: Int
@@ -1433,6 +1464,7 @@ private actor LifecycleCoordinator: AppIngestionCoordinating {
         stopGate: AsyncTestGate?,
         stopGateCall: Int,
         failingStartRoot: URL?,
+        failsInitialStart: Bool,
         recorder: ReplacementRecorder?,
         restoredInventoryCount: Int?,
         refreshInventoryCount: Int
@@ -1443,6 +1475,7 @@ private actor LifecycleCoordinator: AppIngestionCoordinating {
         self.stopGate = stopGate
         self.stopGateCall = stopGateCall
         self.failingStartRoot = failingStartRoot
+        self.failsInitialStart = failsInitialStart
         self.recorder = recorder
         self.restoredInventoryCount = restoredInventoryCount
         self.refreshInventoryCount = refreshInventoryCount
@@ -1457,6 +1490,10 @@ private actor LifecycleCoordinator: AppIngestionCoordinating {
         currentRunID += 1
         currentSequence = 0
         self.roots = roots
+        if failsInitialStart, starts == 1 {
+            self.roots = [:]
+            throw LifecycleFailure.injected
+        }
         if shouldFailReplacementStart,
            let failingStartRoot,
            roots.values.contains(where: {

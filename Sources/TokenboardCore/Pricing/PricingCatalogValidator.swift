@@ -3,6 +3,7 @@ import Foundation
 public enum PricingCatalogValidationError: Error, Equatable, Sendable {
     case unsupportedSchemaVersion(Int)
     case invalidIdentifier(String)
+    case opaqueObservedModelID(String)
     case invalidGeneratedAt
     case invalidDate(String)
     case invalidInterval(String)
@@ -50,6 +51,9 @@ public struct PricingCatalogValidator: Sendable {
             var aliases: [CatalogAlias] = []
             for alias in model.aliases {
                 try validateIdentifier(alias.observedModelID, label: "observed model ID")
+                guard !ModelIdentifierPolicy.isOpaqueUnknown(alias.observedModelID) else {
+                    throw PricingCatalogValidationError.opaqueObservedModelID(alias.observedModelID)
+                }
                 try validateInterval(from: alias.effectiveFrom, to: alias.effectiveTo)
                 aliasIntervals[
                     AliasKey(provider: model.provider, observedModelID: alias.observedModelID),

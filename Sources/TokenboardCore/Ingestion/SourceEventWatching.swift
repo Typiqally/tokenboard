@@ -29,7 +29,7 @@ public struct SourceEventBatch: Equatable, Sendable {
 }
 
 public protocol SourceEventWatching: Sendable {
-    func events(for roots: [URL]) -> AsyncStream<SourceEventBatch>
+    func start(roots: [URL]) throws -> AsyncStream<SourceEventBatch>
     func acknowledge(_ checkpoint: SourceEventCheckpoint?)
     func stop()
 }

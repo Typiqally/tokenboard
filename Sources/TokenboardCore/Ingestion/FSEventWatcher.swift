@@ -264,6 +264,12 @@ private struct NativeFSEventStreamDriver: FSEventStreamDriving {
     }
 }
 
+public enum FSEventWatcherError: Error, Equatable, Sendable {
+    case emptyRoots
+    case couldNotCreateStream
+    case couldNotStartStream
+}
+
 public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
     static let maximumChangedPaths = 64
 
@@ -292,99 +298,97 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
         stop()
     }
 
-    public func events(for roots: [URL]) -> AsyncStream<SourceEventBatch> {
+    public func start(roots: [URL]) throws -> AsyncStream<SourceEventBatch> {
         stop()
         let resolvedRoots = roots.map(\.standardizedFileURL)
-        return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
-            guard !resolvedRoots.isEmpty else {
-                continuation.finish()
-                return
-            }
-
-            let createFlags = UInt32(
-                kFSEventStreamCreateFlagFileEvents
-                    | kFSEventStreamCreateFlagUseCFTypes
-                    | kFSEventStreamCreateFlagWatchRoot
-                    | kFSEventStreamCreateFlagNoDefer
-            )
-            let sinceWhen = lock.withLock { () -> UInt64 in
-                if checkpointResetPending {
-                    let current = driver.currentEventID()
-                    return current > 0
-                        ? current
-                        : UInt64(kFSEventStreamEventIdSinceNow)
-                }
-                if let lastAcknowledgedEventID { return lastAcknowledgedEventID }
-                if let baselineEventID { return baselineEventID }
+        guard !resolvedRoots.isEmpty else { throw FSEventWatcherError.emptyRoots }
+        let (stream, continuation) = AsyncStream<SourceEventBatch>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        let createFlags = UInt32(
+            kFSEventStreamCreateFlagFileEvents
+                | kFSEventStreamCreateFlagUseCFTypes
+                | kFSEventStreamCreateFlagWatchRoot
+                | kFSEventStreamCreateFlagNoDefer
+        )
+        let sinceWhen = lock.withLock { () -> UInt64 in
+            if checkpointResetPending {
                 let current = driver.currentEventID()
-                baselineEventID = current
-                return current
+                return current > 0
+                    ? current
+                    : UInt64(kFSEventStreamEventIdSinceNow)
             }
-            let configuration = FSEventStreamConfiguration(
-                roots: resolvedRoots.map(\.path),
-                sinceWhen: sinceWhen,
-                latency: 0.5,
-                flags: createFlags
-            )
-            guard let handle = driver.create(configuration: configuration, callback: { [weak self] batch in
-                guard let self else { return }
-                let eventIDsWrapped = batch.events.contains { event in
-                    event.flags & UInt32(kFSEventStreamEventFlagEventIdsWrapped) != 0
-                }
-                let requiresRootRecovery = batch.overflowed || batch.events.contains { event in
-                    event.flags & UInt32(
-                        kFSEventStreamEventFlagMustScanSubDirs
-                            | kFSEventStreamEventFlagUserDropped
-                            | kFSEventStreamEventFlagKernelDropped
-                            | kFSEventStreamEventFlagEventIdsWrapped
-                    ) != 0
-                }
-                let changed = requiresRootRecovery
-                    ? Set(resolvedRoots)
-                    : Self.changedURLs(from: batch.events, roots: resolvedRoots)
-                if !changed.isEmpty {
-                    let terminalEventID = eventIDsWrapped
-                        ? driver.currentEventID()
-                        : batch.terminalEventID
-                    let checkpoint = terminalEventID.flatMap {
-                        self.checkpoint(
-                            eventID: $0,
-                            eventIDsWrapped: eventIDsWrapped
-                        )
-                    }
-                    let delivery = SourceEventBatch(
-                        paths: changed,
-                        checkpoint: checkpoint
-                    )
-                    if case .dropped = continuation.yield(delivery) {
-                        continuation.yield(SourceEventBatch(
-                            paths: Set(resolvedRoots),
-                            checkpoint: checkpoint
-                        ))
-                    }
-                }
-            }) else {
-                continuation.finish()
-                return
-            }
-
-            let started = lock.withLock {
-                driver.schedule(handle, on: queue)
-                guard driver.start(handle) else { return false }
-                state = StreamState(handle: handle, continuation: continuation)
-                return true
-            }
-            guard started else {
-                driver.invalidate(handle)
-                driver.release(handle)
-                handle.releaseCallbackContext()
-                continuation.finish()
-                return
-            }
-            continuation.onTermination = { [weak self] _ in
-                self?.stop()
-            }
+            if let lastAcknowledgedEventID { return lastAcknowledgedEventID }
+            if let baselineEventID { return baselineEventID }
+            let current = driver.currentEventID()
+            baselineEventID = current
+            return current
         }
+        let configuration = FSEventStreamConfiguration(
+            roots: resolvedRoots.map(\.path),
+            sinceWhen: sinceWhen,
+            latency: 0.5,
+            flags: createFlags
+        )
+        guard let handle = driver.create(configuration: configuration, callback: { [weak self] batch in
+            guard let self else { return }
+            let eventIDsWrapped = batch.events.contains { event in
+                event.flags & UInt32(kFSEventStreamEventFlagEventIdsWrapped) != 0
+            }
+            let requiresRootRecovery = batch.overflowed || batch.events.contains { event in
+                event.flags & UInt32(
+                    kFSEventStreamEventFlagMustScanSubDirs
+                        | kFSEventStreamEventFlagUserDropped
+                        | kFSEventStreamEventFlagKernelDropped
+                        | kFSEventStreamEventFlagEventIdsWrapped
+                ) != 0
+            }
+            let changed = requiresRootRecovery
+                ? Set(resolvedRoots)
+                : Self.changedURLs(from: batch.events, roots: resolvedRoots)
+            if !changed.isEmpty {
+                let terminalEventID = eventIDsWrapped
+                    ? driver.currentEventID()
+                    : batch.terminalEventID
+                let checkpoint = terminalEventID.flatMap {
+                    self.checkpoint(
+                        eventID: $0,
+                        eventIDsWrapped: eventIDsWrapped
+                    )
+                }
+                let delivery = SourceEventBatch(
+                    paths: changed,
+                    checkpoint: checkpoint
+                )
+                if case .dropped = continuation.yield(delivery) {
+                    continuation.yield(SourceEventBatch(
+                        paths: Set(resolvedRoots),
+                        checkpoint: checkpoint
+                    ))
+                }
+            }
+        }) else {
+            continuation.finish()
+            throw FSEventWatcherError.couldNotCreateStream
+        }
+
+        let started = lock.withLock {
+            driver.schedule(handle, on: queue)
+            guard driver.start(handle) else { return false }
+            state = StreamState(handle: handle, continuation: continuation)
+            return true
+        }
+        guard started else {
+            driver.invalidate(handle)
+            driver.release(handle)
+            handle.releaseCallbackContext()
+            continuation.finish()
+            throw FSEventWatcherError.couldNotStartStream
+        }
+        continuation.onTermination = { [weak self] _ in
+            self?.stop()
+        }
+        return stream
     }
 
     public func acknowledge(_ checkpoint: SourceEventCheckpoint?) {

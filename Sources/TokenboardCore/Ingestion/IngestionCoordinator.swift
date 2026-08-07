@@ -370,13 +370,17 @@ public actor IngestionCoordinator {
         await stopWithBarrier()
         guard startGeneration == startID else { throw CancellationError() }
         stopBarrier = nil
+        let orderedRoots = Provider.allCases.compactMap { canonicalRoots[$0] }
+        let events = try watcher.start(roots: orderedRoots)
+        guard startGeneration == startID else {
+            watcher.stop()
+            throw CancellationError()
+        }
         runGeneration &+= 1
         let runID = runGeneration
         nextSequence = 0
         activeRunID = runID
         roots = canonicalRoots
-        let orderedRoots = Provider.allCases.compactMap { roots[$0] }
-        let events = watcher.events(for: orderedRoots)
         eventTask = Task { [weak self] in
             for await batch in events {
                 guard !Task.isCancelled else { break }

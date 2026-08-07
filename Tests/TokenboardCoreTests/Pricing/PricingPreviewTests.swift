@@ -27,6 +27,46 @@ final class PricingPreviewTests: XCTestCase {
         )
     }
 
+    func testPreviewContainsDeterministicCompleteReviewRows() throws {
+        let preview = try PricingPreview.make(
+            rows: [],
+            currentPricing: PricingSnapshot(catalogIDs: [], rates: [], aliases: []),
+            candidate: validatedCandidate()
+        )
+
+        XCTAssertEqual(preview.reviewAliases, [
+            PricingAliasReview(
+                provider: .codex,
+                observedModelID: "gpt-preview",
+                canonicalModelID: "gpt-preview",
+                effectiveFrom: "2026-01-01",
+                effectiveTo: nil
+            )
+        ])
+        XCTAssertEqual(preview.reviewRates, [
+            PricingRateReview(
+                provider: .codex,
+                canonicalModelID: "gpt-preview",
+                metric: .inputUncached,
+                usdPerMillion: Decimal(string: "2")!,
+                effectiveFrom: "2026-01-01",
+                effectiveTo: nil,
+                provenanceURL: URL(string: "https://openai.com/api/pricing/")!,
+                verifiedAt: "2026-08-05"
+            ),
+            PricingRateReview(
+                provider: .codex,
+                canonicalModelID: "gpt-preview",
+                metric: .output,
+                usdPerMillion: Decimal(string: "30")!,
+                effectiveFrom: "2026-01-01",
+                effectiveTo: nil,
+                provenanceURL: URL(string: "https://openai.com/api/pricing/")!,
+                verifiedAt: "2026-08-05"
+            )
+        ])
+    }
+
     func testPreviewDoesNotMutateCurrentSnapshotOrCandidate() throws {
         let current = PricingSnapshot(catalogIDs: ["current"], rates: [], aliases: [])
         let candidate = try validatedCandidate()

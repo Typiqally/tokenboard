@@ -769,7 +769,7 @@ public actor SQLiteLedger: LedgerStore {
         skipped: [SkippedRecord],
         checkpoint: SourceCheckpoint
     ) throws {
-        for entry in usage where !isContentSafeModelID(entry.observedModelID) {
+        for entry in usage where !ModelIdentifierPolicy.isContentSafe(entry.observedModelID) {
             throw LedgerValidationError.invalidObservedModelID
         }
         guard isOpaqueDigest(checkpoint.fingerprint) else {
@@ -796,7 +796,7 @@ public actor SQLiteLedger: LedgerStore {
             guard key == "current_model" else {
                 throw LedgerValidationError.invalidAdapterStateKey
             }
-            guard isContentSafeModelID(value) else {
+            guard ModelIdentifierPolicy.isContentSafe(value) else {
                 throw LedgerValidationError.invalidAdapterStateModelID
             }
         }
@@ -806,17 +806,6 @@ public actor SQLiteLedger: LedgerStore {
         value.utf8.count == 64 && value.utf8.allSatisfy { byte in
             (48...57).contains(byte) || (97...102).contains(byte)
         }
-    }
-
-    private func isContentSafeModelID(_ value: String) -> Bool {
-        if value == "<synthetic>" {
-            return true
-        }
-        guard (1...256).contains(value.utf8.count), let first = value.utf8.first else {
-            return false
-        }
-        return Self.alphanumericModelIDBytes.contains(first)
-            && value.utf8.allSatisfy { Self.allowedModelIDBytes.contains($0) }
     }
 
     private func grouped(_ usage: [NormalizedUsage], calendar: Calendar) throws -> [DailyUsageRow] {
@@ -1093,13 +1082,4 @@ private extension SQLiteLedger {
         "inconsistent_total"
     ]
 
-    static let allowedModelIDBytes: Set<UInt8> = {
-        let allowed = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-"
-        return Set(allowed.utf8)
-    }()
-
-    static let alphanumericModelIDBytes: Set<UInt8> = {
-        let allowed = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
-        return Set(allowed.utf8)
-    }()
 }

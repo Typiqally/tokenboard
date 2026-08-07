@@ -35,6 +35,28 @@ final class PricingCatalogValidatorTests: XCTestCase {
         XCTAssertEqual(revalidated.canonicalJSON, catalog.canonicalJSON)
     }
 
+    func testRejectsExactOpaqueUnknownIdentifierAsAnObservedAlias() {
+        let opaqueIdentifier = "unknown-" + String(repeating: "a", count: 64)
+        let catalog = valid.replacingOccurrences(
+            of: #""observedModelID":"gpt-test""#,
+            with: #""observedModelID":"\#(opaqueIdentifier)""#
+        )
+
+        assertValidationError(.opaqueObservedModelID(opaqueIdentifier)) {
+            _ = try validate(catalog)
+        }
+    }
+
+    func testOpaqueUnknownPolicyRequiresExactLowercaseSHA256Form() throws {
+        let lowercase = "unknown-" + String(repeating: "a", count: 64)
+        let uppercase = "unknown-" + String(repeating: "A", count: 64)
+
+        XCTAssertTrue(ModelIdentifierPolicy.isOpaqueUnknown(lowercase))
+        XCTAssertFalse(ModelIdentifierPolicy.isOpaqueUnknown("unknown-hash"))
+        XCTAssertFalse(ModelIdentifierPolicy.isOpaqueUnknown(uppercase))
+        XCTAssertFalse(ModelIdentifierPolicy.isOpaqueUnknown(lowercase + "a"))
+    }
+
     func testDocumentByteBoundaryUsesValidCatalog() throws {
         var exact = Data(valid.utf8)
         exact.append(Data(repeating: 0x20, count: 1_048_576 - exact.count))

@@ -270,7 +270,7 @@ public actor PricingInbox {
         )
     }
 
-    public func applyPending() async throws {
+    func applyPending() async throws {
         try beginOperation()
         defer { finishOperation() }
         switch state {

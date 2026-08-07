@@ -1,11 +1,16 @@
 import Foundation
 
+enum SourceScanFileOperation: Equatable {
+    case didOpenSource
+}
+
 public actor IncrementalScanner {
     private static let maximumBatchLines = 500
 
     private let ledger: any LedgerStore
     private let reader: JSONLReader
     private let sourceProbe: SourceProbe
+    private let sourceOperation: @Sendable (SourceScanFileOperation) throws -> Void
 
     public init(
         ledger: any LedgerStore,
@@ -15,19 +20,39 @@ public actor IncrementalScanner {
         self.ledger = ledger
         self.reader = reader
         self.sourceProbe = sourceProbe
+        sourceOperation = { _ in }
+    }
+
+    init(
+        ledger: any LedgerStore,
+        reader: JSONLReader = JSONLReader(),
+        sourceProbe: SourceProbe = SourceProbe(),
+        sourceOperation: @escaping @Sendable (SourceScanFileOperation) throws -> Void
+    ) {
+        self.ledger = ledger
+        self.reader = reader
+        self.sourceProbe = sourceProbe
+        self.sourceOperation = sourceOperation
     }
 
     public func scan(file: URL, provider: Provider, calendar: Calendar) async throws -> ScanOutcome {
+        let source: RetainedSourceFile
+        do {
+            source = try RetainedSourceFile(url: file)
+        } catch RetainedSourceFileError.unsafeSource {
+            return attention(.unsafeSource, offset: 0)
+        }
+        try sourceOperation(.didOpenSource)
         let stableSourceID: String
         do {
-            stableSourceID = try sourceProbe.stableID(at: file, provider: provider)
+            stableSourceID = try sourceProbe.stableID(in: source, provider: provider)
         } catch SourceProbeError.missingStableIdentity {
             return attention(.missingStableIdentity, offset: 0)
         }
 
         let fingerprint = try await ledger.sourceFingerprint(provider: provider, stableID: stableSourceID)
         let storedCheckpoint = try await ledger.checkpoint(for: fingerprint)
-        let metadata = try fileMetadata(at: file)
+        let metadata = FileMetadata(size: source.size, modificationTime: source.modificationTime)
         var checkpoint = storedCheckpoint
             ?? emptyCheckpoint(fingerprint: fingerprint, provider: provider, metadata: metadata)
 
@@ -35,7 +60,7 @@ public actor IncrementalScanner {
             return attention(.truncated, offset: checkpoint.byteOffset)
         }
         if checkpoint.byteOffset > 0 {
-            guard let previousLine = try reader.lineEnding(at: checkpoint.byteOffset, in: file),
+            guard let previousLine = try reader.lineEnding(at: checkpoint.byteOffset, in: source),
                   let expectedHash = checkpoint.lastCommittedLineHash else {
                 return attention(.replaced, offset: checkpoint.byteOffset)
             }
@@ -56,12 +81,22 @@ public actor IncrementalScanner {
 
         while !reachedEndOfFile {
             let result = try reader.batch(
-                from: file,
+                from: source,
                 startingAt: checkpoint.byteOffset,
                 maxLines: Self.maximumBatchLines
             )
             reachedEndOfFile = result.reachedEndOfFile
-            guard !result.lines.isEmpty else { break }
+            guard !result.lines.isEmpty else {
+                if result.oversizedRecordOffset != nil {
+                    return ScanOutcome(
+                        committedUsageRecords: usageCount,
+                        skippedRecords: skippedCount,
+                        finalOffset: checkpoint.byteOffset,
+                        attention: .oversizedRecord
+                    )
+                }
+                break
+            }
 
             var usageBatch: [NormalizedUsage] = []
             var skippedBatch: [SkippedRecord] = []
@@ -117,6 +152,14 @@ public actor IncrementalScanner {
             try await ledger.commit(usageBatch, skipped: skippedBatch, checkpoint: checkpoint, calendar: calendar)
             usageCount += usageBatch.count
             skippedCount += skippedBatch.count
+            if result.oversizedRecordOffset != nil {
+                return ScanOutcome(
+                    committedUsageRecords: usageCount,
+                    skippedRecords: skippedCount,
+                    finalOffset: checkpoint.byteOffset,
+                    attention: .oversizedRecord
+                )
+            }
         }
 
         return ScanOutcome(
@@ -179,34 +222,10 @@ public actor IncrementalScanner {
     }
 
     private func storageSafeModelID(_ rawModelID: String) async throws -> String {
-        guard !Self.isContentSafeModelID(rawModelID) else { return rawModelID }
+        guard !ModelIdentifierPolicy.isContentSafe(rawModelID) else { return rawModelID }
         return "unknown-\(try await ledger.recordIdentityHash(rawModelID))"
     }
 
-    private static func isContentSafeModelID(_ value: String) -> Bool {
-        if value == "<synthetic>" { return true }
-        guard (1...256).contains(value.utf8.count), let first = value.utf8.first else {
-            return false
-        }
-        return isASCIIAlphaNumeric(first) && value.utf8.allSatisfy {
-            isASCIIAlphaNumeric($0) || $0 == 0x2E || $0 == 0x5F || $0 == 0x2D
-        }
-    }
-
-    private static func isASCIIAlphaNumeric(_ byte: UInt8) -> Bool {
-        (0x30...0x39).contains(byte) || (0x41...0x5A).contains(byte) || (0x61...0x7A).contains(byte)
-    }
-
-    private func fileMetadata(at file: URL) throws -> FileMetadata {
-        let attributes = try FileManager.default.attributesOfItem(atPath: file.path)
-        guard let size = attributes[.size] as? NSNumber else {
-            throw CocoaError(.fileReadUnknown)
-        }
-        return FileMetadata(
-            size: size.int64Value,
-            modificationTime: attributes[.modificationDate] as? Date
-        )
-    }
 }
 
 private struct FileMetadata {

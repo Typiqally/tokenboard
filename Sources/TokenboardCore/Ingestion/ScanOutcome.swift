@@ -3,6 +3,8 @@ public struct ScanOutcome: Equatable, Sendable {
         case truncated
         case replaced
         case missingStableIdentity
+        case oversizedRecord
+        case unsafeSource
     }
 
     public let committedUsageRecords: Int

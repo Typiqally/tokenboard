@@ -66,6 +66,15 @@ public struct PriceResolver: Sendable {
                 overflow: .tokenTotalOverflow
             )
 
+            guard !ModelIdentifierPolicy.isOpaqueUnknown(row.observedModelID) else {
+                unpricedTokens = try checkedAdd(
+                    unpricedTokens,
+                    row.quantity,
+                    overflow: .unpricedTokensOverflow
+                )
+                continue
+            }
+
             let aliasKey = AliasKey(provider: row.provider, observedModelID: row.observedModelID)
             guard let alias = effectiveRecord(in: aliases[aliasKey] ?? [], on: row.localDay.value),
                   let rate = effectiveRecord(

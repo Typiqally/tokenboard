@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 import XCTest
 @testable import TokenboardCore
 
@@ -387,6 +388,118 @@ final class IncrementalScannerTests: XCTestCase {
         XCTAssertEqual(committedSourceLineCounts, [500, 3])
         XCTAssertLessThanOrEqual(firstCommit.usage.count + firstCommit.skipped.count, 500)
         XCTAssertLessThanOrEqual(secondCommit.usage.count + secondCommit.skipped.count, 500)
+    }
+
+    func testOversizedRecordCommitsPriorLinesThenPinsCheckpointAcrossRestart() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: "source.jsonl")
+        let valid = claudeLine(
+            sessionID: "oversized-source",
+            requestID: "request-a",
+            messageID: "message-a"
+        )
+        let prefix = Data("\(valid)\n".utf8)
+        var bytes = prefix
+        bytes.append(Data(repeating: 0x78, count: 1_025))
+        bytes.append(0x0A)
+        bytes.append(contentsOf: "later\n".utf8)
+        try bytes.write(to: file)
+        let ledger = ScannerTestLedger()
+        let scanner = IncrementalScanner(
+            ledger: ledger,
+            reader: JSONLReader(maximumRecordBytes: 1_024)
+        )
+
+        let first = try await scanner.scan(file: file, provider: .claudeCode, calendar: calendar)
+        let restarted = try await scanner.scan(file: file, provider: .claudeCode, calendar: calendar)
+        let checkpoint = await ledger.capturedCheckpoint()
+
+        XCTAssertEqual(first.committedUsageRecords, 1)
+        XCTAssertEqual(first.attention, .oversizedRecord)
+        XCTAssertEqual(first.finalOffset, Int64(prefix.count))
+        XCTAssertEqual(restarted.committedUsageRecords, 0)
+        XCTAssertEqual(restarted.attention, .oversizedRecord)
+        XCTAssertEqual(restarted.finalOffset, Int64(prefix.count))
+        XCTAssertEqual(checkpoint?.byteOffset, Int64(prefix.count))
+    }
+
+    func testSpecialSourceLeavesAreRejectedPromptlyWithoutFollowing() async throws {
+        for kind in ["symlink", "hardlink", "fifo"] {
+            let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let outside = directory.appending(path: "outside.jsonl")
+            let source = directory.appending(path: "source.jsonl")
+            try Data("{\"type\":\"user\",\"sessionId\":\"outside\"}\n".utf8).write(to: outside)
+            switch kind {
+            case "symlink":
+                try FileManager.default.createSymbolicLink(at: source, withDestinationURL: outside)
+            case "hardlink":
+                try FileManager.default.linkItem(at: outside, to: source)
+            default:
+                XCTAssertEqual(mkfifo(source.path, S_IRUSR | S_IWUSR), 0)
+            }
+
+            let outcome = try await IncrementalScanner(ledger: ScannerTestLedger()).scan(
+                file: source,
+                provider: .claudeCode,
+                calendar: calendar
+            )
+
+            XCTAssertEqual(outcome.attention, .unsafeSource, "accepted \(kind)")
+            XCTAssertEqual(outcome.finalOffset, 0)
+        }
+    }
+
+    func testPathSwapAndAppendAfterOpenCannotRedirectOrExtendScan() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = directory.appending(path: "source.jsonl")
+        let retained = directory.appending(path: "retained.jsonl")
+        let original = claudeLine(
+            sessionID: "original-source",
+            requestID: "request-a",
+            messageID: "message-a"
+        )
+        let appended = claudeLine(
+            sessionID: "original-source",
+            requestID: "request-b",
+            messageID: "message-b"
+        )
+        let replacement = claudeLine(
+            sessionID: "replacement-source",
+            requestID: "request-z",
+            messageID: "message-z"
+        )
+        try Data("\(original)\n".utf8).write(to: source)
+        let ledger = ScannerTestLedger()
+        let scanner = IncrementalScanner(
+            ledger: ledger,
+            sourceOperation: { operation in
+                guard operation == .didOpenSource else { return }
+                try FileManager.default.moveItem(at: source, to: retained)
+                let handle = try FileHandle(forWritingTo: retained)
+                try handle.seekToEnd()
+                try handle.write(contentsOf: Data("\(appended)\n".utf8))
+                try handle.close()
+                try Data("\(replacement)\n".utf8).write(to: source)
+            }
+        )
+
+        let outcome = try await scanner.scan(file: source, provider: .claudeCode, calendar: calendar)
+        let commits = await ledger.capturedSuccessfulCommits()
+        let expectedFingerprint = await ledger.sourceFingerprint(
+            provider: .claudeCode,
+            stableID: "original-source"
+        )
+
+        XCTAssertEqual(outcome.committedUsageRecords, 1)
+        XCTAssertEqual(outcome.finalOffset, Int64(Data("\(original)\n".utf8).count))
+        XCTAssertEqual(commits.flatMap(\.usage).count, 1)
+        XCTAssertEqual(commits.first?.usage.first?.stableSourceID, expectedFingerprint)
     }
 
     private func claudeLine(

@@ -43,18 +43,18 @@ extension AppModel {
         }
     }
 
-    func applyPendingPricing() async {
+    func applyPendingPricing(reviewedIdentity identity: PricingCandidateIdentity) async {
         await runSettingsOperation { [weak self] in
-            await self?.performApplyPendingPricing()
+            await self?.performApplyPendingPricing(reviewedIdentity: identity)
         }
     }
 
-    private func performApplyPendingPricing() async {
-        if settingsState.pricing.pendingCandidate == nil {
-            await performRefreshSettings(statusMessage: nil)
+    private func performApplyPendingPricing(reviewedIdentity identity: PricingCandidateIdentity) async {
+        guard settingsState.pricing.pendingCandidate?.identity == identity else {
+            setSettingsStatus("Pricing candidate changed · Review the replacement before applying")
+            return
         }
-        guard settingsState.pricing.canApply,
-              let identity = settingsState.pricing.pendingCandidate?.identity else {
+        guard settingsState.pricing.canApply else {
             setSettingsStatus("Pricing candidate has conflicts that block Apply")
             return
         }

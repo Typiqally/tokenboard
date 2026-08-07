@@ -254,7 +254,11 @@ private actor RuntimePricingInbox: AppPricingInboxWatching {
     func stop() { recorder.append("inbox.stop") }
     func pendingCandidate() -> PendingPricingCandidate? { nil }
     func exportCurrentSnapshot() {}
-    func applyPending() {}
+    func applyPending(
+        matching identity: PricingCandidateIdentity
+    ) throws -> PricingApplyOutcome {
+        throw PricingInboxError.noPendingCandidate
+    }
     func rejectPending() {}
 }
 

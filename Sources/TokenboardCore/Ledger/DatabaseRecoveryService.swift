@@ -72,9 +72,6 @@ public actor DatabaseRecoveryService {
     private static let backupDirectoryName = "Backups"
     private static let recoverySnapshotPrefix = ".tokenboard-pre-restore-"
     private static let preservationStagePrefix = ".tokenboard-preservation-stage-"
-    private static let backupPattern = try! NSRegularExpression(
-        pattern: #"^ledger-v[0-9]+-[0-9]+\.sqlite$"#
-    )
     private static let sidecarNames = ["ledger.sqlite-wal", "ledger.sqlite-shm"]
 
     private let databaseURL: URL
@@ -1307,8 +1304,7 @@ public actor DatabaseRecoveryService {
     }
 
     private static func isBackupFilename(_ filename: String) -> Bool {
-        let range = NSRange(filename.startIndex..<filename.endIndex, in: filename)
-        return backupPattern.firstMatch(in: filename, range: range)?.range == range
+        DatabaseBackupNaming.isBackupFilename(filename)
     }
 
     private static func canonicalSystemURL(_ url: URL) -> URL {

@@ -22,6 +22,59 @@ public struct PricingGap: Equatable, Hashable, Sendable {
     }
 }
 
+public struct PricingAliasReview: Equatable, Sendable {
+    public let provider: Provider
+    public let observedModelID: String
+    public let canonicalModelID: String
+    public let effectiveFrom: String
+    public let effectiveTo: String?
+
+    public init(
+        provider: Provider,
+        observedModelID: String,
+        canonicalModelID: String,
+        effectiveFrom: String,
+        effectiveTo: String?
+    ) {
+        self.provider = provider
+        self.observedModelID = observedModelID
+        self.canonicalModelID = canonicalModelID
+        self.effectiveFrom = effectiveFrom
+        self.effectiveTo = effectiveTo
+    }
+}
+
+public struct PricingRateReview: Equatable, Sendable {
+    public let provider: Provider
+    public let canonicalModelID: String
+    public let metric: UsageMetric
+    public let usdPerMillion: Decimal
+    public let effectiveFrom: String
+    public let effectiveTo: String?
+    public let provenanceURL: URL
+    public let verifiedAt: String
+
+    public init(
+        provider: Provider,
+        canonicalModelID: String,
+        metric: UsageMetric,
+        usdPerMillion: Decimal,
+        effectiveFrom: String,
+        effectiveTo: String?,
+        provenanceURL: URL,
+        verifiedAt: String
+    ) {
+        self.provider = provider
+        self.canonicalModelID = canonicalModelID
+        self.metric = metric
+        self.usdPerMillion = usdPerMillion
+        self.effectiveFrom = effectiveFrom
+        self.effectiveTo = effectiveTo
+        self.provenanceURL = provenanceURL
+        self.verifiedAt = verifiedAt
+    }
+}
+
 public struct PricingPreview: Equatable, Sendable {
     public let diff: CatalogDiff
     public let currentKnownUSD: Decimal
@@ -30,6 +83,8 @@ public struct PricingPreview: Equatable, Sendable {
     public let remainingUnpricedTokens: Int64
     public let provenanceURLs: [URL]
     public let unresolvedGaps: [PricingGap]
+    public let reviewAliases: [PricingAliasReview]
+    public let reviewRates: [PricingRateReview]
 
     public init(
         diff: CatalogDiff,
@@ -38,7 +93,9 @@ public struct PricingPreview: Equatable, Sendable {
         newlyPricedTokens: Int64,
         remainingUnpricedTokens: Int64,
         provenanceURLs: [URL],
-        unresolvedGaps: [PricingGap]
+        unresolvedGaps: [PricingGap],
+        reviewAliases: [PricingAliasReview],
+        reviewRates: [PricingRateReview]
     ) {
         self.diff = diff
         self.currentKnownUSD = currentKnownUSD
@@ -47,6 +104,8 @@ public struct PricingPreview: Equatable, Sendable {
         self.remainingUnpricedTokens = remainingUnpricedTokens
         self.provenanceURLs = provenanceURLs
         self.unresolvedGaps = unresolvedGaps
+        self.reviewAliases = reviewAliases
+        self.reviewRates = reviewRates
     }
 
     public static func make(
@@ -121,7 +180,40 @@ public struct PricingPreview: Equatable, Sendable {
             provenanceURLs: Array(Set(candidate.models.flatMap { model in
                 model.rates.map(\.provenanceURL)
             })).sorted { $0.absoluteString < $1.absoluteString },
-            unresolvedGaps: unresolvedGaps
+            unresolvedGaps: unresolvedGaps,
+            reviewAliases: candidate.models.flatMap { model in
+                model.aliases.map { alias in
+                    PricingAliasReview(
+                        provider: model.provider,
+                        observedModelID: alias.observedModelID,
+                        canonicalModelID: model.canonicalModelID,
+                        effectiveFrom: alias.effectiveFrom,
+                        effectiveTo: alias.effectiveTo
+                    )
+                }
+            }.sorted {
+                ($0.provider.rawValue, $0.observedModelID, $0.effectiveFrom, $0.canonicalModelID)
+                    < ($1.provider.rawValue, $1.observedModelID, $1.effectiveFrom, $1.canonicalModelID)
+            },
+            reviewRates: candidate.models.flatMap { model in
+                model.rates.flatMap { rate in
+                    rate.prices.map { metric, price in
+                        PricingRateReview(
+                            provider: model.provider,
+                            canonicalModelID: model.canonicalModelID,
+                            metric: metric,
+                            usdPerMillion: price,
+                            effectiveFrom: rate.effectiveFrom,
+                            effectiveTo: rate.effectiveTo,
+                            provenanceURL: rate.provenanceURL,
+                            verifiedAt: rate.verifiedAt
+                        )
+                    }
+                }
+            }.sorted {
+                ($0.provider.rawValue, $0.canonicalModelID, $0.metric.rawValue, $0.effectiveFrom)
+                    < ($1.provider.rawValue, $1.canonicalModelID, $1.metric.rawValue, $1.effectiveFrom)
+            }
         )
     }
 

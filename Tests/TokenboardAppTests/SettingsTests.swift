@@ -521,8 +521,13 @@ final class SettingsTests: XCTestCase {
         await setup.model.start()
         await setup.model.refreshSettings()
         setup.recorder.reset()
+        let reviewedIdentity = try XCTUnwrap(
+            setup.model.settingsState.pricing.pendingCandidate?.identity
+        )
 
-        let apply = Task { await setup.model.applyPendingPricing() }
+        let apply = Task {
+            await setup.model.applyPendingPricing(reviewedIdentity: reviewedIdentity)
+        }
         await applyGate.waitUntilEntered()
         let shutdown = Task { await setup.model.shutdown() }
         try? await Task.sleep(for: .milliseconds(20))
@@ -588,14 +593,50 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(inboxCounts.reject, 0)
     }
 
+    func testSettingsCandidateActionsRequireReviewAndExposeNoDirectApply() async throws {
+        let setup = try makeSetup(candidate: validatedCandidate())
+        defer { setup.cleanup() }
+        await setup.model.start()
+        await setup.model.refreshSettings()
+        let identity = try XCTUnwrap(
+            setup.model.settingsState.pricing.pendingCandidate?.identity
+        )
+
+        XCTAssertEqual(
+            PricingSettingsView(model: setup.model).candidateActions,
+            [.review(identity), .reject(identity)]
+        )
+    }
+
+    func testReviewContentDisplaysEveryAliasMappingAndRateField() async throws {
+        let setup = try makeSetup(candidate: validatedCandidate())
+        defer { setup.cleanup() }
+        await setup.model.start()
+        await setup.model.refreshSettings()
+        let selection = try XCTUnwrap(
+            PricingSettingsView(model: setup.model).currentReviewSelection
+        )
+
+        XCTAssertEqual(selection.content.aliases, [
+            "codex · gpt-preview → gpt-preview · 2026-01-01 → open"
+        ])
+        XCTAssertEqual(selection.content.rates, [
+            "codex · gpt-preview · input_uncached · $2 / 1M · 2026-01-01 → open · https://openai.com/api/pricing/ · verified 2026-08-05",
+            "codex · gpt-preview · output · $30 / 1M · 2026-01-01 → open · https://openai.com/api/pricing/ · verified 2026-08-05"
+        ])
+    }
+
     func testApplyRequiresConflictFreePreviewThenRefreshesTheSelectedSummary() async throws {
         let setup = try makeSetup(candidate: validatedCandidate())
         defer { setup.cleanup() }
         await setup.model.start()
         await setup.model.refreshSettings()
         let queryCountBeforeApply = await setup.query.callCount()
+        let reviewedIdentity = try XCTUnwrap(
+            setup.model.settingsState.pricing.pendingCandidate?.identity
+        )
 
-        await setup.model.applyPendingPricing()
+        await setup.model.applyPendingPricing(reviewedIdentity: reviewedIdentity)
 
         let inboxCounts = await setup.inbox.counts()
         let queryCountAfterApply = await setup.query.callCount()
@@ -615,8 +656,11 @@ final class SettingsTests: XCTestCase {
         await setup.model.start()
         await setup.model.refreshSettings()
         let callsBefore = await setup.query.callCount()
+        let reviewedIdentity = try XCTUnwrap(
+            setup.model.settingsState.pricing.pendingCandidate?.identity
+        )
 
-        await setup.model.applyPendingPricing()
+        await setup.model.applyPendingPricing(reviewedIdentity: reviewedIdentity)
 
         let callsAfter = await setup.query.callCount()
         XCTAssertEqual(callsAfter, callsBefore + 1)
@@ -755,14 +799,45 @@ final class SettingsTests: XCTestCase {
         defer { setup.cleanup() }
         await setup.model.start()
         await setup.model.refreshSettings()
+        let reviewedIdentity = try XCTUnwrap(
+            setup.model.settingsState.pricing.pendingCandidate?.identity
+        )
 
-        await setup.model.applyPendingPricing()
+        await setup.model.applyPendingPricing(reviewedIdentity: reviewedIdentity)
 
         let inboxCounts = await setup.inbox.counts()
         XCTAssertFalse(setup.model.settingsState.pricing.canApply)
         XCTAssertEqual(inboxCounts.apply, 0)
         XCTAssertNotNil(setup.model.settingsState.pricing.pendingCandidate)
         XCTAssertEqual(setup.model.settingsState.statusMessage, "Pricing candidate has conflicts that block Apply")
+    }
+
+    func testReplacementInvalidatesTheIdentityCapturedByReview() async throws {
+        let setup = try makeSetup(candidate: validatedCandidate())
+        defer { setup.cleanup() }
+        await setup.model.start()
+        await setup.model.refreshSettings()
+        let reviewedIdentity = try XCTUnwrap(
+            PricingSettingsView(model: setup.model).currentReviewSelection?.identity
+        )
+
+        await setup.inbox.replaceCandidate(with: try validatedCandidate(
+            catalogID: "replacement-2026-08-06",
+            modelID: "gpt-replacement"
+        ))
+        await setup.model.refreshSettings()
+        await setup.model.applyPendingPricing(reviewedIdentity: reviewedIdentity)
+
+        let counts = await setup.inbox.counts()
+        XCTAssertEqual(counts.apply, 0)
+        XCTAssertEqual(
+            setup.model.settingsState.statusMessage,
+            "Pricing candidate changed · Review the replacement before applying"
+        )
+        XCTAssertEqual(
+            setup.model.settingsState.pricing.pendingCandidate?.catalog.catalogID,
+            "replacement-2026-08-06"
+        )
     }
 
     func testRejectArchivesCandidateWithoutMutatingThePricingLedger() async throws {
@@ -1156,17 +1231,20 @@ final class SettingsTests: XCTestCase {
         )
     }
 
-    private func validatedCandidate() throws -> ValidatedPricingCatalog {
+    private func validatedCandidate(
+        catalogID: String = "candidate-2026-08-05",
+        modelID: String = "gpt-preview"
+    ) throws -> ValidatedPricingCatalog {
         let json = #"""
         {
           "schemaVersion":1,
-          "catalogID":"candidate-2026-08-05",
+          "catalogID":"\#(catalogID)",
           "generatedAt":"2026-08-05T12:00:00Z",
           "origin":{"kind":"official_research","url":"https://openai.com/api/pricing/"},
           "models":[{
             "provider":"codex",
-            "canonicalModelID":"gpt-preview",
-            "aliases":[{"observedModelID":"gpt-preview","effectiveFrom":"2026-01-01","effectiveTo":null}],
+            "canonicalModelID":"\#(modelID)",
+            "aliases":[{"observedModelID":"\#(modelID)","effectiveFrom":"2026-01-01","effectiveTo":null}],
             "rates":[{
               "effectiveFrom":"2026-01-01",
               "effectiveTo":null,
@@ -1575,6 +1653,14 @@ private actor SettingsInbox: AppPricingInboxWatching {
     }
     func counts() -> (apply: Int, reject: Int, retry: Int) {
         (applyCount, rejectCount, retryCount)
+    }
+    func replaceCandidate(with replacement: ValidatedPricingCatalog) {
+        candidate = PendingPricingCandidate(
+            catalog: replacement,
+            canonicalJSON: replacement.canonicalJSON,
+            diff: CatalogDiff(modelsAdded: [], aliasesAdded: 0, ratesAdded: 0, conflicts: []),
+            sourceURL: URL(fileURLWithPath: "/private/tmp/replacement.json")
+        )
     }
     func startCount() -> Int { starts }
 }

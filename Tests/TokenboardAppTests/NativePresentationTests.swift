@@ -262,7 +262,11 @@ private actor PresentationInbox: AppPricingInboxWatching {
     func stop() {}
     func pendingCandidate() -> PendingPricingCandidate? { nil }
     func exportCurrentSnapshot() {}
-    func applyPending() {}
+    func applyPending(
+        matching identity: PricingCandidateIdentity
+    ) throws -> PricingApplyOutcome {
+        throw PricingInboxError.noPendingCandidate
+    }
     func rejectPending() {}
 }
 

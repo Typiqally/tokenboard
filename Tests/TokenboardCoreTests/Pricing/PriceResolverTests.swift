@@ -31,6 +31,28 @@ final class PriceResolverTests: XCTestCase {
         XCTAssertEqual(result.unpricedTokens, 300_000)
     }
 
+    func testOpaqueUnknownRowRemainsUnpricedDespiteLegacyAliasAndRate() throws {
+        let opaqueIdentifier = "unknown-" + String(repeating: "b", count: 64)
+        let snapshot = pricing(
+            aliases: [alias(model: opaqueIdentifier)],
+            rates: [rate(metric: .inputUncached, usd: "9", from: "2026-01-01")]
+        )
+
+        let result = try PriceResolver().resolve(
+            rows: [row(
+                day: "2026-08-05",
+                model: opaqueIdentifier,
+                metric: .inputUncached,
+                quantity: 1_000_000
+            )],
+            pricing: snapshot
+        )
+
+        XCTAssertEqual(result.tokenTotal, 1_000_000)
+        XCTAssertEqual(result.knownUSD, .zero)
+        XCTAssertEqual(result.unpricedTokens, 1_000_000)
+    }
+
     func testAliasGapLeavesTokensUnpricedAtExclusiveEnd() throws {
         let snapshot = pricing(
             aliases: [alias(model: "gpt-observed", from: "2026-01-01", to: "2026-02-01")],

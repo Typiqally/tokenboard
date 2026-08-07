@@ -77,6 +77,52 @@ final class JSONLReaderTests: XCTestCase {
         XCTAssertEqual(result.lines, [JSONLLine(data: Data(), startOffset: 0, endOffset: 1)])
         XCTAssertEqual(result.committedOffset, 1)
     }
+
+    func testStopsBeforeOversizedRecordWithoutReadingLaterLines() throws {
+        let url = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: url) }
+        try Data("ok\n12345\nlater\n".utf8).write(to: url)
+
+        let result = try JSONLReader(maximumRecordBytes: 4).batch(
+            from: url,
+            startingAt: 0,
+            maxLines: 500
+        )
+
+        XCTAssertEqual(result.lines.map { String(decoding: $0.data, as: UTF8.self) }, ["ok"])
+        XCTAssertEqual(result.committedOffset, 3)
+        XCTAssertEqual(result.oversizedRecordOffset, 3)
+        XCTAssertFalse(result.reachedEndOfFile)
+    }
+
+    func testExactRecordLimitIsAcceptedAndOversizedPartialIsBounded() throws {
+        let exact = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let partial = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer {
+            try? FileManager.default.removeItem(at: exact)
+            try? FileManager.default.removeItem(at: partial)
+        }
+        try Data("1234\n".utf8).write(to: exact)
+        try Data("12345".utf8).write(to: partial)
+        let reader = JSONLReader(maximumRecordBytes: 4)
+
+        XCTAssertEqual(
+            try reader.batch(from: exact, startingAt: 0, maxLines: 1).lines.first?.data,
+            Data("1234".utf8)
+        )
+        let oversized = try reader.batch(from: partial, startingAt: 0, maxLines: 1)
+        XCTAssertEqual(oversized.lines, [])
+        XCTAssertEqual(oversized.committedOffset, 0)
+        XCTAssertEqual(oversized.oversizedRecordOffset, 0)
+    }
+
+    func testLineEndingRefusesToAllocateBeyondRecordLimit() throws {
+        let url = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: url) }
+        try Data("12345\n".utf8).write(to: url)
+
+        XCTAssertNil(try JSONLReader(maximumRecordBytes: 4).lineEnding(at: 6, in: url))
+    }
 }
 
 private extension FileHandle {

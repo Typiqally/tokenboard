@@ -11,14 +11,19 @@ public struct SourceProbe: Sendable {
     public init() {}
 
     public func stableID(at file: URL, provider: Provider) throws -> String {
-        let handle = try FileHandle(forReadingFrom: file)
-        defer { try? handle.close() }
+        try stableID(in: RetainedSourceFile(url: file), provider: provider)
+    }
 
+    func stableID(in source: RetainedSourceFile, provider: Provider) throws -> String {
         var bytesRead = 0
         var partialLine = Data()
-        while bytesRead < Self.maximumBytes {
-            let requested = min(Self.chunkSize, Self.maximumBytes - bytesRead)
-            let chunk = try handle.read(upToCount: requested) ?? Data()
+        let capturedLimit = min(source.size, Int64(Self.maximumBytes))
+        while Int64(bytesRead) < capturedLimit {
+            let requested = min(
+                Self.chunkSize,
+                Int(capturedLimit - Int64(bytesRead))
+            )
+            let chunk = try source.read(at: Int64(bytesRead), count: requested)
             if chunk.isEmpty { break }
             bytesRead += chunk.count
 

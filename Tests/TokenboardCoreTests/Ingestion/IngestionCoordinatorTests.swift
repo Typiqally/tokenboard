@@ -9,6 +9,47 @@ final class IngestionCoordinatorTests: XCTestCase {
         return calendar
     }
 
+    func testWatcherStartupFailureLeavesCoordinatorInactiveWithoutInventoryWork() async throws {
+        let setup = try makeSetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let watcher = FakeSourceEventWatcher(startError: .injected)
+        let scanner = RecordingScanner()
+        let coordinator = IngestionCoordinator(
+            scanner: scanner,
+            watcher: watcher,
+            clock: ManualIngestionClock(),
+            calendar: calendar
+        )
+
+        do {
+            _ = try await coordinator.start(roots: setup.roots)
+            XCTFail("expected watcher startup to fail")
+        } catch {
+            XCTAssertEqual(error as? FakeSourceEventWatcher.StartError, .injected)
+        }
+
+        XCTAssertEqual(watcher.eventsRequestCount, 1)
+        XCTAssertEqual(
+            watcher.requestedRoots.map(\.path),
+            [setup.claudeRoot.path, setup.codexRoot.path]
+        )
+        XCTAssertFalse(watcher.isActive)
+        let scannedURLs = await scanner.scannedURLs
+        XCTAssertEqual(scannedURLs, [])
+        let refresh = await coordinator.refreshAll()
+        XCTAssertEqual(refresh.runID, 1)
+        XCTAssertEqual(refresh.sequence, 0)
+        XCTAssertEqual(
+            refresh.providers,
+            Dictionary(uniqueKeysWithValues: Provider.allCases.map {
+                ($0, .failure(discoveredFiles: 0, scannedFiles: 0))
+            })
+        )
+        let diagnostics = await coordinator.diagnostics()
+        XCTAssertEqual(diagnostics.pendingBatchCount, 0)
+        XCTAssertFalse(diagnostics.isDraining)
+    }
+
     func testRapidEventsAreDebouncedDeduplicatedAndScannedSerially() async throws {
         let setup = try makeSetup()
         defer { try? FileManager.default.removeItem(at: setup.directory) }
@@ -1838,7 +1879,12 @@ private final class SynchronousCountRecorder: @unchecked Sendable {
 }
 
 private final class FakeSourceEventWatcher: SourceEventWatching, @unchecked Sendable {
+    enum StartError: Error, Equatable {
+        case injected
+    }
+
     private let lock = NSLock()
+    private let startError: StartError?
     private var continuation: AsyncStream<SourceEventBatch>.Continuation?
     private(set) var requestedRoots: [URL] = []
     private(set) var eventsRequestCount = 0
@@ -1846,15 +1892,22 @@ private final class FakeSourceEventWatcher: SourceEventWatching, @unchecked Send
     private var nextEventID: UInt64 = 0
     private var recordedAcknowledgements: [SourceEventCheckpoint] = []
 
+    init(startError: StartError? = nil) {
+        self.startError = startError
+    }
+
     var acknowledgements: [SourceEventCheckpoint] {
         lock.withLock { recordedAcknowledgements }
     }
 
-    func events(for roots: [URL]) -> AsyncStream<SourceEventBatch> {
+    var isActive: Bool { lock.withLock { continuation != nil } }
+
+    func start(roots: [URL]) throws -> AsyncStream<SourceEventBatch> {
         lock.withLock {
             requestedRoots = roots
             eventsRequestCount += 1
         }
+        if let startError { throw startError }
         return AsyncStream { continuation in
             lock.withLock { self.continuation = continuation }
         }
