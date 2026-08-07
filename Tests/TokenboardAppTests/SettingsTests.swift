@@ -80,6 +80,15 @@ final class SettingsTests: XCTestCase {
         )
     }
 
+    func testPricingOverviewKeepsOnlyEssentialCatalogMetadata() {
+        XCTAssertEqual(
+            PricingOverviewCopy.visibleLabels,
+            ["Active catalog IDs", "Verified"]
+        )
+        XCTAssertFalse(PricingOverviewCopy.visibleLabels.contains("Official provenance"))
+        XCTAssertFalse(PricingOverviewCopy.visibleLabels.contains("Unpriced models"))
+    }
+
     func testRecoveryLoadsBackupWithoutRestoringUntilExplicitActionAndUsesShutdownBarrier() async throws {
         let recoveryFiles = try await makeRecoveryBackup()
         defer { try? FileManager.default.removeItem(at: recoveryFiles.root) }
