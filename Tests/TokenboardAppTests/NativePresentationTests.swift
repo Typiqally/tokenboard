@@ -93,7 +93,10 @@ final class NativePresentationTests: XCTestCase {
         let controller = MenuController(model: setup.model)
 
         XCTAssertEqual(controller.renderedStatusTitle, "⚠ $3.00+")
-        XCTAssertNotNil(controller.renderedMenu?.item(withTitle: "Dismiss Current Warnings"))
+        let dismiss = controller.renderedMenu?.item(withTitle: "Dismiss Current Warnings")
+        XCTAssertNotNil(dismiss)
+        XCTAssertTrue(dismiss?.target === controller)
+        XCTAssertEqual(dismiss?.action, NSSelectorFromString("dismissCurrentWarnings"))
         XCTAssertTrue(controller.responds(to: NSSelectorFromString("dismissCurrentWarnings")))
 
         _ = controller.perform(NSSelectorFromString("dismissCurrentWarnings"))
