@@ -21,16 +21,29 @@ public struct MenuPresentation: Equatable, Sendable {
     public init(
         summary: UsageSummary,
         displayMetric: DisplayMetric,
+        displayCurrency: DisplayCurrency = .usd,
         hasHealthWarning: Bool
     ) {
         let symbol = hasHealthWarning ? "⚠" : "◉"
         let compactTokens = ValueFormatter.compactTokens(summary.tokenTotal)
-        let usd = ValueFormatter.usd(summary.knownAPIEquivalentUSD)
-        statusTitle = displayMetric == .tokens
-            ? "\(symbol) \(compactTokens)"
-            : "\(symbol) \(usd)\(summary.unpricedTokens > 0 ? "+" : "")"
         tokenTitle = "\(ValueFormatter.exactTokens(summary.tokenTotal)) tokens"
-        apiValueTitle = "≈ \(usd) API equivalent"
+        let converted = CurrencyConverter.convert(
+            usd: summary.knownAPIEquivalentUSD,
+            to: displayCurrency,
+            rates: summary.exchangeRates?.rates
+        )
+        if let converted {
+            let formatted = ValueFormatter.currency(converted, currency: displayCurrency)
+            statusTitle = displayMetric == .tokens
+                ? "\(symbol) \(compactTokens)"
+                : "\(symbol) \(formatted)\(summary.unpricedTokens > 0 ? "+" : "")"
+            apiValueTitle = "≈ \(formatted) API equivalent"
+        } else {
+            statusTitle = displayMetric == .tokens
+                ? "\(symbol) \(compactTokens)"
+                : "\(symbol) —"
+            apiValueTitle = "\(displayCurrency.rawValue) API equivalent unavailable"
+        }
         unpricedTitle = summary.unpricedTokens > 0
             ? "\(ValueFormatter.compactTokens(summary.unpricedTokens)) unpriced"
             : nil

@@ -18,18 +18,29 @@ public enum ValueFormatter {
     }
 
     public static func usd(_ value: Decimal) -> String {
+        currency(value, currency: .usd)
+    }
+
+    public static func currency(_ value: Decimal, currency: DisplayCurrency) -> String {
         let formatter = NumberFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.numberStyle = .currency
-        formatter.currencyCode = "USD"
-        formatter.currencySymbol = "$"
-        formatter.positivePrefix = "$"
-        formatter.negativePrefix = "-$"
+        formatter.currencyCode = currency.rawValue
+        let symbol = switch currency {
+        case .usd: "$"
+        case .eur: "€"
+        case .jpy: "¥"
+        case .gbp: "£"
+        case .cny: "CN¥"
+        }
+        formatter.currencySymbol = symbol
+        formatter.positivePrefix = symbol
+        formatter.negativePrefix = "-\(symbol)"
         formatter.usesGroupingSeparator = true
         formatter.groupingSeparator = ","
         formatter.decimalSeparator = "."
-        formatter.minimumFractionDigits = 2
-        formatter.maximumFractionDigits = 2
+        formatter.minimumFractionDigits = currency.fractionDigits
+        formatter.maximumFractionDigits = currency.fractionDigits
         return formatter.string(from: value as NSDecimalNumber)!
     }
 

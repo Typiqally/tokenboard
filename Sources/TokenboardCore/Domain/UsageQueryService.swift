@@ -20,7 +20,8 @@ public struct UsageQueryService: Sendable {
             period: period,
             tokenTotal: resolution.tokenTotal,
             knownAPIEquivalentUSD: resolution.knownUSD,
-            unpricedTokens: resolution.unpricedTokens
+            unpricedTokens: resolution.unpricedTokens,
+            exchangeRates: pricing.latestExchangeRates
         )
     }
 }
