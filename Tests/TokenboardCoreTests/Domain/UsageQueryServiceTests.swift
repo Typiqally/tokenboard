@@ -22,6 +22,7 @@ final class UsageQueryServiceTests: XCTestCase {
         XCTAssertEqual(result.tokenTotal, 500)
         XCTAssertEqual(result.knownAPIEquivalentUSD, Decimal(string: "0.001"))
         XCTAssertEqual(result.unpricedTokens, 0)
+        XCTAssertEqual(result.exchangeRates?.rates[.eur], Decimal(string: "0.8"))
         let pricingCalls = await ledger.pricingSnapshotCallCount()
         let queryCount = await ledger.usageQueryCount()
         let timeZone = await ledger.lastCalendarTimeZoneIdentifier()
@@ -185,6 +186,13 @@ private actor QueryTestLedger: LedgerStore {
                 canonicalModelID: "gpt-canonical",
                 effectiveFrom: "2026-01-01",
                 effectiveTo: nil
+            )],
+            exchangeRateSnapshots: [ExchangeRateSnapshot(
+                catalogID: "test",
+                effectiveDate: "2026-08-05",
+                verifiedAt: "2026-08-05",
+                provenanceURL: URL(string: "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml")!,
+                rates: [.usd: 1, .eur: Decimal(string: "0.8")!]
             )]
         )
     }

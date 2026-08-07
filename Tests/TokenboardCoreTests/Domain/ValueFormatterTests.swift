@@ -31,6 +31,16 @@ final class ValueFormatterTests: XCTestCase {
         )
     }
 
+    func testSupportedCurrenciesUseExplicitUnambiguousSymbols() {
+        let value = Decimal(string: "1952.7156")!
+
+        XCTAssertEqual(ValueFormatter.currency(value, currency: .usd), "$1,952.72")
+        XCTAssertEqual(ValueFormatter.currency(value, currency: .eur), "€1,952.72")
+        XCTAssertEqual(ValueFormatter.currency(value, currency: .jpy), "¥1,953")
+        XCTAssertEqual(ValueFormatter.currency(value, currency: .gbp), "£1,952.72")
+        XCTAssertEqual(ValueFormatter.currency(value, currency: .cny), "CN¥1,952.72")
+    }
+
     func testExactTokensUseStableUSGrouping() {
         XCTAssertEqual(ValueFormatter.exactTokens(842_198), "842,198")
     }

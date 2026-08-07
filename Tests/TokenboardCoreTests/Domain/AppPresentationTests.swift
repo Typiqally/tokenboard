@@ -40,4 +40,53 @@ final class AppPresentationTests: XCTestCase {
         XCTAssertEqual(view.statusTitle, "◉ $3.00+")
         XCTAssertEqual(view.unpricedTitle, "84K unpriced")
     }
+
+    func testSelectedCurrencyConvertsEveryAPIEquivalentSurface() {
+        let summary = UsageSummary(
+            period: .today,
+            tokenTotal: 1_000,
+            knownAPIEquivalentUSD: Decimal(string: "7.42")!,
+            unpricedTokens: 5,
+            exchangeRates: exchangeRates(eur: "0.8")
+        )
+
+        let view = MenuPresentation(
+            summary: summary,
+            displayMetric: .apiValue,
+            displayCurrency: .eur,
+            hasHealthWarning: false
+        )
+
+        XCTAssertEqual(view.statusTitle, "◉ €5.94+")
+        XCTAssertEqual(view.apiValueTitle, "≈ €5.94 API equivalent")
+    }
+
+    func testMissingSelectedExchangeRateIsExplicitlyUnavailable() {
+        let summary = UsageSummary(
+            period: .today,
+            tokenTotal: 1_000,
+            knownAPIEquivalentUSD: 7,
+            unpricedTokens: 0
+        )
+
+        let view = MenuPresentation(
+            summary: summary,
+            displayMetric: .apiValue,
+            displayCurrency: .eur,
+            hasHealthWarning: false
+        )
+
+        XCTAssertEqual(view.statusTitle, "◉ —")
+        XCTAssertEqual(view.apiValueTitle, "EUR API equivalent unavailable")
+    }
+
+    private func exchangeRates(eur: String) -> ExchangeRateSnapshot {
+        ExchangeRateSnapshot(
+            catalogID: "test",
+            effectiveDate: "2026-08-07",
+            verifiedAt: "2026-08-07",
+            provenanceURL: URL(string: "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml")!,
+            rates: [.usd: 1, .eur: Decimal(string: eur)!]
+        )
+    }
 }
