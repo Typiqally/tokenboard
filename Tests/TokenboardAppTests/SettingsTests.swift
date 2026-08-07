@@ -33,6 +33,33 @@ final class SettingsTests: XCTestCase {
         ])
     }
 
+    func testPricingUpdateCopyExplainsTheNetworkBoundaryAndNextStep() {
+        XCTAssertEqual(
+            PricingUpdateCopy.explanation,
+            "Tokenboard never connects to the internet. Copy an update prompt and run it in Claude Code or Codex. The agent may use only the source you choose, then saves a candidate to Tokenboard’s local inbox for your review."
+        )
+        XCTAssertEqual(
+            PricingUpdateCopy.sourceTitle(.tokenboardRepository),
+            "Tokenboard Catalog"
+        )
+        XCTAssertEqual(
+            PricingUpdateCopy.sourceDescription(.tokenboardRepository),
+            "The agent may fetch only Tokenboard’s published pricing catalog from GitHub."
+        )
+        XCTAssertEqual(
+            PricingUpdateCopy.sourceDescription(.officialResearch),
+            "The agent may research pricing only on official OpenAI and Anthropic websites."
+        )
+        XCTAssertEqual(
+            PricingUpdateCopy.inboxStatus(.empty),
+            "No candidate is waiting. Run the copied prompt to create one."
+        )
+        XCTAssertEqual(
+            PricingUpdateCopy.inboxStatus(.invalid(.invalidCatalog)),
+            "The candidate file was rejected because its pricing catalog is invalid. Active pricing was not changed."
+        )
+    }
+
     func testRecoveryLoadsBackupWithoutRestoringUntilExplicitActionAndUsesShutdownBarrier() async throws {
         let recoveryFiles = try await makeRecoveryBackup()
         defer { try? FileManager.default.removeItem(at: recoveryFiles.root) }
