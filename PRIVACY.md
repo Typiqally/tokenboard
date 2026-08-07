@@ -22,4 +22,8 @@ SQLite schema changes create local pre-migration backups and retain at most the 
 
 Pricing catalogs retain effective-dated rate and provenance history so old usage can keep the rate that applied on its day. Unknown or uncovered usage remains unpriced.
 
-Use Settings to revoke a source grant or Reveal Local Data. Deleting Tokenboard's revealed local-data directory removes committed history, pricing history, checkpoints, recovery copies, and saved grants; do this only while Tokenboard is not running and only if you intend to reset all history.
+Reveal Local Data opens Tokenboard's Application Support directory. Deleting that directory removes the ledger, pricing history, checkpoints, and recovery copies, but it does not remove security-scoped bookmarks or preferences because those live in app `UserDefaults`.
+
+For a safe local-data reset, first revoke both source grants in Settings and disable Launch at Login, then quit Tokenboard, and only then delete the revealed Application Support data. The selected period, menu display mode, and historical-import approval preference remain unless app defaults are separately cleared. To clear those defaults too, after Tokenboard has quit, the explicitly scoped command is `defaults delete com.tokenboard.Tokenboard`. This command is destructive for all Tokenboard preferences and bookmarks; never run an unscoped `defaults delete` command.
+
+The optional `audit-local-usage.sh` contributor tool is a separately invoked, bounded live-source diagnostic. Its temporary directory is private and removed on exit; a non-content-safe model causes a generic refusal before normalized rows are written. A clean diagnostic result is not proof of complete ledger/source equivalence and cannot account for deleted, replaced, or already-ingested histories.

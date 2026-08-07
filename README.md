@@ -53,3 +53,5 @@ The repository catalog is a convenient source, not an automatic updater. Both ch
 - Calendar buckets reflect the Mac's local timezone at ingestion; changing timezones later does not rewrite historical buckets.
 
 See [PRIVACY.md](PRIVACY.md) for the exact local-data boundary and [CONTRIBUTING.md](CONTRIBUTING.md) for verification and release checks.
+
+The optional contributor audit is only a bounded comparison of currently discoverable live-source aggregates with the checkpointed main ledger file. It is not proof that Tokenboard's full history is equivalent to the files still on disk, and it cannot account for deleted, replaced, or previously ingested history.

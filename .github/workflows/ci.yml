@@ -13,6 +13,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Run tests
         run: swift test
       - name: Build release app
@@ -20,4 +22,8 @@ jobs:
       - name: Verify signed bundle
         run: Scripts/verify-entitlements.sh .build/release/Tokenboard.app
       - name: Check patch whitespace
-        run: git diff --check
+        env:
+          GITHUB_EVENT_BEFORE: ${{ github.event.before }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_BASE_REF: ${{ github.base_ref }}
+        run: Scripts/ci-diff-check.sh

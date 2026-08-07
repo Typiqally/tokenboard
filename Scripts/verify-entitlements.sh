@@ -1,6 +1,29 @@
 #!/bin/zsh
 set -euo pipefail
 
+validate_dependency_path() {
+    local dependency=$1
+    local component
+    local component_index
+    typeset -a components
+
+    [[ -n "$dependency" && "$dependency" == /* ]] || return 1
+    [[ "$dependency" != *'//'* \
+        && "$dependency" != */ \
+        && "$dependency" != */. \
+        && "$dependency" != */.. ]] || return 1
+    components=("${(@s:/:)dependency}")
+    for (( component_index = 2; component_index <= ${#components}; component_index++ )); do
+        component=$components[$component_index]
+        [[ -z "$component" || "$component" == "." || "$component" == ".." ]] && return 1
+    done
+    case "$dependency" in
+        /System/Library/*|/usr/lib/*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+main() {
 if (( $# != 1 )); then
     print -u2 "usage: Scripts/verify-entitlements.sh <Tokenboard.app>"
     exit 64
@@ -15,6 +38,16 @@ app_path=${app_path:A}
 contents_path="$app_path/Contents"
 info_plist="$contents_path/Info.plist"
 executable="$contents_path/MacOS/TokenboardApp"
+
+typeset symlink_path
+if ! symlink_path=$(/usr/bin/find "$contents_path" -type l -print -quit 2>/dev/null); then
+    print -u2 "Unable to inspect app bundle layout"
+    exit 65
+fi
+if [[ -n "$symlink_path" ]]; then
+    print -u2 "Symlink found in app bundle"
+    exit 65
+fi
 
 if [[ ! -f "$info_plist" || ! -f "$executable" || ! -x "$executable" ]]; then
     print -u2 "Tokenboard bundle layout is invalid"
@@ -109,17 +142,30 @@ if [[ "$binary_minimum" != "14.0" ]]; then
     exit 71
 fi
 
-while IFS= read -r linkage; do
-    [[ "$linkage" == "$executable:" ]] && continue
+typeset linkage_output
+typeset -a linkage_lines
+if ! linkage_output=$(/usr/bin/otool -L "$executable"); then
+    print -u2 "Unable to read runtime dependencies"
+    exit 72
+fi
+linkage_lines=("${(@f)linkage_output}")
+if (( ${#linkage_lines} < 1 )) || [[ "$linkage_lines[1]" != "$executable:" ]]; then
+    print -u2 "Mach-O dependency header is invalid"
+    exit 72
+fi
+for (( index = 2; index <= ${#linkage_lines}; index++ )); do
+    linkage=$linkage_lines[$index]
     linkage=${linkage#"${linkage%%[![:space:]]*}"}
     dependency=${linkage%% \(*}
-    case "$dependency" in
-        /System/Library/*|/usr/lib/*) ;;
-        *)
-            print -u2 "Non-system runtime dependency found"
-            exit 72
-            ;;
-    esac
-done < <(/usr/bin/otool -L "$executable")
+    if ! validate_dependency_path "$dependency"; then
+        print -u2 "Non-system or non-canonical runtime dependency found"
+        exit 72
+    fi
+done
 
 print "Tokenboard sandbox and single-process audit passed"
+}
+
+if [[ "$ZSH_EVAL_CONTEXT" == "toplevel" ]]; then
+    main "$@"
+fi
