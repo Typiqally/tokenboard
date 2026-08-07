@@ -126,15 +126,21 @@ struct AppPublishedState: Equatable, Sendable {
     var sourceHealth: [Provider: SourceHealth] {
         get { [.claudeCode: health.claude, .codex: health.codex] }
         set {
+            let previous = sourceHealth
             health = health.replacing(
                 claude: newValue[.claudeCode] ?? .notGranted,
                 codex: newValue[.codex] ?? .notGranted
             )
-            sourceWarningIssues = Dictionary(uniqueKeysWithValues: Provider.allCases.compactMap {
-                guard case let .warning(issue, _) = newValue[$0],
-                      issue.isDismissibleSourceWarning else { return nil }
-                return ($0, [issue])
-            })
+            for provider in Provider.allCases {
+                let updated = newValue[provider] ?? .notGranted
+                guard previous[provider] != updated else { continue }
+                if case let .warning(issue, _) = updated,
+                   issue.isDismissibleSourceWarning {
+                    sourceWarningIssues[provider] = [issue]
+                } else {
+                    sourceWarningIssues[provider] = nil
+                }
+            }
         }
     }
 
