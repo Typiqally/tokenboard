@@ -6,6 +6,17 @@ import TokenboardCore
 
 @MainActor
 final class SettingsTests: XCTestCase {
+    func testSettingsSidebarUsesFourFocusedDestinations() {
+        XCTAssertEqual(
+            SettingsSection.allCases.map(\.title),
+            ["General", "Sources", "Pricing", "Diagnostics"]
+        )
+        XCTAssertEqual(
+            SettingsSection.allCases.map(\.systemImage),
+            ["gearshape", "folder", "dollarsign.circle", "wrench.and.screwdriver"]
+        )
+    }
+
     func testRecoveryLoadsBackupWithoutRestoringUntilExplicitActionAndUsesShutdownBarrier() async throws {
         let recoveryFiles = try await makeRecoveryBackup()
         defer { try? FileManager.default.removeItem(at: recoveryFiles.root) }
