@@ -29,7 +29,7 @@ public enum ValueFormatter {
         formatter.groupingSeparator = ","
         formatter.decimalSeparator = "."
         formatter.minimumFractionDigits = 2
-        formatter.maximumFractionDigits = 4
+        formatter.maximumFractionDigits = 2
         return formatter.string(from: value as NSDecimalNumber)!
     }
 

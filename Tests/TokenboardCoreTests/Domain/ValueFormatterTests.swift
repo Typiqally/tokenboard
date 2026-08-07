@@ -13,6 +13,13 @@ final class ValueFormatterTests: XCTestCase {
         XCTAssertEqual(ValueFormatter.usd(Decimal(string: "7.42")!), "$7.42")
     }
 
+    func testUSDRoundsToCurrencyPrecision() {
+        XCTAssertEqual(
+            ValueFormatter.usd(Decimal(string: "1952.7156")!),
+            "$1,952.72"
+        )
+    }
+
     func testExactTokensUseStableUSGrouping() {
         XCTAssertEqual(ValueFormatter.exactTokens(842_198), "842,198")
     }
