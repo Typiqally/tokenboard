@@ -16,20 +16,21 @@ enum PricingSettingsCandidateAction: Equatable, Identifiable {
 
 enum PricingUpdateCopy {
     static let explanation = "Tokenboard never connects to the internet. Copy an update prompt and run it in Claude Code or Codex. The prompt tells the agent to use only the source you choose and save a candidate in Tokenboard’s local inbox for your review."
+    static let methodQuestion = "How should the agent update pricing?"
 
-    static func sourceTitle(_ source: AgentPricingSource) -> String {
+    static func methodTitle(_ source: AgentPricingSource) -> String {
         switch source {
-        case .tokenboardRepository: "Tokenboard Catalog"
-        case .officialResearch: "Official Provider Sites"
+        case .tokenboardRepository: "Use Tokenboard Catalog"
+        case .officialResearch: "Research Official Sites"
         }
     }
 
-    static func sourceDescription(_ source: AgentPricingSource) -> String {
+    static func methodDescription(_ source: AgentPricingSource) -> String {
         switch source {
         case .tokenboardRepository:
-            "The agent may fetch only Tokenboard’s published pricing catalog from GitHub."
+            "Use only Tokenboard’s published pricing catalog from GitHub."
         case .officialResearch:
-            "The agent may research pricing only on official OpenAI and Anthropic websites."
+            "Research only official OpenAI and Anthropic websites."
         }
     }
 
@@ -181,14 +182,17 @@ struct PricingSettingsView: View {
             Text(PricingUpdateCopy.explanation)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            Picker("Allowed source", selection: $promptSource) {
-                Text(PricingUpdateCopy.sourceTitle(.tokenboardRepository))
+            Text(PricingUpdateCopy.methodQuestion)
+                .font(.subheadline.weight(.medium))
+            Picker(PricingUpdateCopy.methodQuestion, selection: $promptSource) {
+                Text(PricingUpdateCopy.methodTitle(.tokenboardRepository))
                     .tag(AgentPricingSource.tokenboardRepository)
-                Text(PricingUpdateCopy.sourceTitle(.officialResearch))
+                Text(PricingUpdateCopy.methodTitle(.officialResearch))
                     .tag(AgentPricingSource.officialResearch)
             }
-            .pickerStyle(.menu)
-            Text(PricingUpdateCopy.sourceDescription(promptSource))
+            .pickerStyle(.radioGroup)
+            .labelsHidden()
+            Text(PricingUpdateCopy.methodDescription(promptSource))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             Button("Copy Update Prompt") {
