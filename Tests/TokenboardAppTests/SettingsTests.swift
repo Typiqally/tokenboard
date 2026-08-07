@@ -36,39 +36,22 @@ final class SettingsTests: XCTestCase {
     func testPricingUpdateCopyExplainsTheNetworkBoundaryAndNextStep() {
         XCTAssertEqual(
             PricingUpdateCopy.explanation,
-            "Tokenboard never connects to the internet. It creates a prompt for Claude Code or Codex, which saves a local pricing candidate for your review."
+            "Tokenboard never connects to the internet. Copy one of the prompts below into Claude Code or Codex. The agent saves a local pricing candidate for your review."
         )
         XCTAssertEqual(
-            PricingUpdateCopy.methodQuestion,
-            "What should the copied prompt tell the agent to do?"
-        )
-        XCTAssertEqual(
-            PricingUpdateCopy.selectionEffect,
-            "This choice changes the instructions copied to your clipboard. Tokenboard itself still has no network access."
-        )
-        XCTAssertEqual(
-            PricingUpdateCopy.methodTitle(.tokenboardRepository),
-            "Use Tokenboard Catalog"
-        )
-        XCTAssertEqual(
-            PricingUpdateCopy.methodTitle(.officialResearch),
-            "Research Official Sites"
-        )
-        XCTAssertEqual(
-            PricingUpdateCopy.methodDescription(.tokenboardRepository),
-            "Use only Tokenboard’s published pricing catalog from GitHub."
-        )
-        XCTAssertEqual(
-            PricingUpdateCopy.methodDescription(.officialResearch),
-            "Research only official OpenAI and Anthropic websites."
-        )
-        XCTAssertEqual(
-            PricingUpdateCopy.copyButtonTitle(.tokenboardRepository),
-            "Copy Catalog-Only Prompt"
-        )
-        XCTAssertEqual(
-            PricingUpdateCopy.copyButtonTitle(.officialResearch),
-            "Copy Official-Research Prompt"
+            PricingUpdateCopy.promptOptions,
+            [
+                PricingPromptOption(
+                    source: .tokenboardRepository,
+                    buttonTitle: "Copy Catalog-Only Prompt",
+                    description: "Uses only Tokenboard’s published pricing catalog on GitHub."
+                ),
+                PricingPromptOption(
+                    source: .officialResearch,
+                    buttonTitle: "Copy Official-Sites Prompt",
+                    description: "Researches only official OpenAI and Anthropic websites."
+                )
+            ]
         )
         XCTAssertEqual(
             PricingUpdateCopy.inboxStatus(.empty),
