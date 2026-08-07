@@ -242,6 +242,50 @@ final class PricingInboxTests: XCTestCase {
         XCTAssertEqual(applyCalls, 1)
     }
 
+    func testQuiesceWaitsThroughApplyFinalizationAndBlocksNewResolution() async throws {
+        let root = try makeRoot(label: "QuiesceApply")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try candidateData(id: "quiesce-apply").write(
+            to: root.appending(path: "Pricing/Inbox/\(PricingInbox.candidateFilename)")
+        )
+        let ledger = SuspendingPricingLedger()
+        let inbox = PricingInbox(
+            ledger: ledger,
+            applicationSupportDirectory: root,
+            bundledCatalogData: bundledData()
+        )
+        try await inbox.start()
+        let apply = Task { try await inbox.applyPending() }
+        await ledger.waitUntilApplyStarted()
+        let completion = QuiescenceCompletion()
+        let quiesce = Task {
+            await inbox.quiesce()
+            await completion.markCompleted()
+        }
+
+        let blocked = await eventually {
+            do {
+                try await inbox.rejectPending()
+                return false
+            } catch let error as PricingInboxError {
+                return error == .quiescing
+            } catch {
+                return false
+            }
+        }
+        XCTAssertTrue(blocked)
+        let completedWhileSuspended = await completion.isCompleted()
+        XCTAssertFalse(completedWhileSuspended)
+        await assertInboxError(.resolutionInProgress) { try await inbox.stop() }
+
+        await ledger.resumeApply()
+        try await apply.value
+        await quiesce.value
+        let completedAfterApply = await completion.isCompleted()
+        XCTAssertTrue(completedAfterApply)
+        try await inbox.stop()
+    }
+
     func testConcurrentSecondApplyIsRejectedWhileFirstApplySuspends() async throws {
         let root = try makeRoot(label: "ConcurrentApply")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -495,6 +539,32 @@ final class PricingInboxTests: XCTestCase {
         try await inbox.applyPending()
         let applyCalls = await ledger.applyCallCountValue()
         XCTAssertEqual(applyCalls, 1)
+    }
+
+    func testQuiescedStopClosesCommittedFinalizationResidueWithoutReapplying() async throws {
+        let root = try makeRoot(label: "QuiescedCommittedFinalization")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try candidateData(id: "quiesced-committed").write(
+            to: root.appending(path: "Pricing/Inbox/\(PricingInbox.candidateFilename)")
+        )
+        let ledger = PricingInboxTestLedger(latestApplied: nil)
+        let fileSystem = RecordingPricingInboxFileSystem()
+        let inbox = PricingInbox(
+            ledger: ledger,
+            applicationSupportDirectory: root,
+            bundledCatalogData: bundledData(),
+            fileSystem: fileSystem
+        )
+        try await inbox.start()
+        fileSystem.failNext(.installCanonical(.applied, "quiesced-committed.json"))
+        await XCTAssertThrowsErrorAsync { try await inbox.applyPending() }
+
+        await inbox.quiesce()
+        try await inbox.stop()
+
+        let applyCalls = await ledger.applyCallCountValue()
+        XCTAssertEqual(applyCalls, 1)
+        XCTAssertEqual(fileSystem.closeCallCount(), 1)
     }
 
     func testPostCommitExportSyncFailureRemainsFinalizationOnlyUntilSameRunRetry() async throws {
@@ -1046,6 +1116,13 @@ private actor SuspendingFailPricingLedger: LedgerStore {
 }
 
 private enum FailOncePricingLedgerError: Error { case injected }
+
+private actor QuiescenceCompletion {
+    private var completed = false
+
+    func markCompleted() { completed = true }
+    func isCompleted() -> Bool { completed }
+}
 
 private actor FailOncePricingLedger: LedgerStore {
     private var latest: Data?

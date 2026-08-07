@@ -84,6 +84,7 @@ public struct TokenboardHealth: Equatable, Sendable {
             || Self.isWarning(codex)
             || database != .healthy
             || pricing != .healthy
+            || skippedRecordCount > 0
             || unpricedTokens > 0
     }
 

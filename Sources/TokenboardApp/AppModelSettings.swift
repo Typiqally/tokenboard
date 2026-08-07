@@ -4,10 +4,18 @@ import TokenboardCore
 @MainActor
 extension AppModel {
     func refreshSettings() async {
-        await refreshSettings(statusMessage: nil)
+        await runSettingsOperation { [weak self] in
+            await self?.performRefreshSettings(statusMessage: nil)
+        }
     }
 
     func copyAgentPrompt(source: AgentPricingSource) async {
+        await runSettingsOperation { [weak self] in
+            await self?.performCopyAgentPrompt(source: source)
+        }
+    }
+
+    private func performCopyAgentPrompt(source: AgentPricingSource) async {
         do {
             try await pricingInbox.exportCurrentSnapshot()
             let inbox = applicationPaths.pricing.appending(
@@ -36,8 +44,14 @@ extension AppModel {
     }
 
     func applyPendingPricing() async {
+        await runSettingsOperation { [weak self] in
+            await self?.performApplyPendingPricing()
+        }
+    }
+
+    private func performApplyPendingPricing() async {
         if settingsState.pricing.pendingCandidate == nil {
-            await refreshSettings()
+            await performRefreshSettings(statusMessage: nil)
         }
         guard settingsState.pricing.canApply,
               let identity = settingsState.pricing.pendingCandidate?.identity else {
@@ -48,19 +62,25 @@ extension AppModel {
         do {
             let outcome = try await pricingInbox.applyPending(matching: identity)
             await querySelectedSummary()
-            await refreshSettings(
+            await performRefreshSettings(
                 statusMessage: outcome == .finalized
                     ? "Pricing applied · API-equivalent value refreshed"
                     : "Pricing applied · File finalization will retry"
             )
         } catch {
-            await refreshSettings(statusMessage: error as? PricingInboxError == .candidateChanged
+            await performRefreshSettings(statusMessage: error as? PricingInboxError == .candidateChanged
                 ? "Pricing candidate changed · Review the replacement before applying"
                 : "Pricing apply failed · Active pricing unchanged")
         }
     }
 
     func rejectPendingPricing() async {
+        await runSettingsOperation { [weak self] in
+            await self?.performRejectPendingPricing()
+        }
+    }
+
+    private func performRejectPendingPricing() async {
         guard let identity = settingsState.pricing.pendingCandidate?.identity else {
             setSettingsStatus("No pending pricing candidate")
             return
@@ -68,19 +88,25 @@ extension AppModel {
         setSettingsLoading(true)
         do {
             let outcome = try await pricingInbox.rejectPending(matching: identity)
-            await refreshSettings(
+            await performRefreshSettings(
                 statusMessage: outcome == .finalized
                     ? "Pricing candidate rejected · Active pricing unchanged"
                     : "Pricing rejected · File finalization will retry"
             )
         } catch {
-            await refreshSettings(statusMessage: error as? PricingInboxError == .candidateChanged
+            await performRefreshSettings(statusMessage: error as? PricingInboxError == .candidateChanged
                 ? "Pricing candidate changed · Review the replacement before rejecting"
                 : "Pricing rejection failed · Active pricing unchanged")
         }
     }
 
     func retryPricingFinalization() async {
+        await runSettingsOperation { [weak self] in
+            await self?.performRetryPricingFinalization()
+        }
+    }
+
+    private func performRetryPricingFinalization() async {
         guard !settingsState.isFinalizationRetryInProgress,
               let identity = settingsState.pricing.finalizationIdentity else {
             return
@@ -92,11 +118,11 @@ extension AppModel {
             if outcome == .applied {
                 await querySelectedSummary()
             }
-            await refreshSettings(statusMessage: outcome == .applied
+            await performRefreshSettings(statusMessage: outcome == .applied
                 ? "Pricing file finalization completed"
                 : "Rejected candidate file finalization completed")
         } catch {
-            await refreshSettings(statusMessage: error as? PricingInboxError == .candidateChanged
+            await performRefreshSettings(statusMessage: error as? PricingInboxError == .candidateChanged
                 ? "Pricing finalization changed · Refresh Settings before retrying"
                 : "Pricing finalization retry failed · Files remain safely pending")
         }
@@ -152,7 +178,7 @@ extension AppModel {
             next.onboardingRequired = true
             commitState(next)
             await querySelectedSummary()
-            await refreshSettings(statusMessage: "Source access revoked · Committed totals retained")
+            await performRefreshSettings(statusMessage: "Source access revoked · Committed totals retained")
         } catch {
             coordinatorStatus = .inactive
             guard acceptsSourceMutation(generation: generation, id: mutationID) else {
@@ -197,6 +223,12 @@ extension AppModel {
     }
 
     func loadRecoveryBackups() async {
+        await runSettingsOperation { [weak self] in
+            await self?.performLoadRecoveryBackups()
+        }
+    }
+
+    func performLoadRecoveryBackups() async {
         do {
             let backups = try await databaseRecovery.availableBackups()
             var next = settingsState
@@ -211,20 +243,41 @@ extension AppModel {
     }
 
     func restoreLatestBackup() async {
+        if let restoreActivity {
+            await restoreActivity.task.value
+            return
+        }
         guard case .recoveryRequired = state.health.database,
-              !settingsState.isRestoringDatabase else { return }
+              !settingsState.isRestoringDatabase,
+              let confirmedBackup = settingsState.recoveryBackups.first else { return }
+        restoreActivityGeneration &+= 1
+        let id = restoreActivityGeneration
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.performRestore(confirmedBackup)
+        }
+        restoreActivity = AppRuntimeActivity(id: id, task: task)
+        await task.value
+        if restoreActivity?.id == id {
+            restoreActivity = nil
+        }
+    }
+
+    private func performRestore(_ confirmedBackup: DatabaseBackup) async {
         var nextSettings = settingsState
         nextSettings.isRestoringDatabase = true
         nextSettings.statusMessage = "Stopping local writers before restore…"
         commitSettingsState(nextSettings)
         do {
-            let backup = try await databaseRecovery.restoreLatest { [weak self] in
-                await self?.shutdown()
+            let backup = try await databaseRecovery.restore(confirmedBackup) { [weak self] in
+                guard let self else { return }
+                try await self.prepareForDatabaseRecovery().get()
             }
             nextSettings = settingsState
             nextSettings.isRestoringDatabase = false
             nextSettings.statusMessage = "Backup from \(backup.modificationDate.formatted(date: .abbreviated, time: .shortened)) restored and verified · Quit and reopen Tokenboard"
             commitSettingsState(nextSettings)
+            publishStoppedState()
         } catch {
             nextSettings = settingsState
             nextSettings.isRestoringDatabase = false
@@ -233,9 +286,9 @@ extension AppModel {
         }
     }
 
-    private func refreshSettings(statusMessage: String?) async {
+    private func performRefreshSettings(statusMessage: String?) async {
         if case .recoveryRequired = state.health.database {
-            await loadRecoveryBackups()
+            await performLoadRecoveryBackups()
             commitSettingsState(AppSettingsState(
                 sources: sourceSettings(),
                 pricing: settingsState.pricing,
@@ -330,6 +383,28 @@ extension AppModel {
         } catch {
             setSettingsLoading(false)
             setSettingsStatus("Settings unavailable: \(Self.errorDescription(error))")
+        }
+    }
+
+    private func runSettingsOperation(
+        _ operation: @escaping @MainActor () async -> Void
+    ) async {
+        while let existing = settingsActivity {
+            await existing.task.value
+            if settingsActivity?.id == existing.id {
+                settingsActivity = nil
+            }
+        }
+        guard !isWriterQuiescing,
+              state.lifecycle != .shuttingDown,
+              state.lifecycle != .stopped else { return }
+        settingsActivityGeneration &+= 1
+        let id = settingsActivityGeneration
+        let task = Task { @MainActor in await operation() }
+        settingsActivity = AppRuntimeActivity(id: id, task: task)
+        await task.value
+        if settingsActivity?.id == id {
+            settingsActivity = nil
         }
     }
 

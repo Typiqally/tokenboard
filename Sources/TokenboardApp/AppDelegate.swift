@@ -65,8 +65,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard !terminationPending else { return .terminateLater }
         terminationPending = true
         Task {
-            await model.shutdown()
-            sender.reply(toApplicationShouldTerminate: true)
+            let shutdownSucceeded = await model.shutdown()
+            if !shutdownSucceeded { terminationPending = false }
+            sender.reply(toApplicationShouldTerminate: shutdownSucceeded)
         }
         return .terminateLater
     }

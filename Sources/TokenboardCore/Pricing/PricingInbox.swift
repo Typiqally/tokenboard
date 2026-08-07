@@ -70,6 +70,7 @@ public enum PricingInboxError: Error, Equatable, Sendable {
     case couldNotMonitorInbox(Int32)
     case startInProgress
     case resolutionInProgress
+    case quiescing
     case candidateAlreadyApplied
     case noPendingCandidate
     case noActiveCatalog
@@ -101,6 +102,9 @@ public actor PricingInbox {
     private var isDetecting = false
     private var detectionRequested = false
     private var resolution: CandidateResolution?
+    private var isQuiescing = false
+    private var activeOperations = 0
+    private var quiescenceWaiters: [CheckedContinuation<Void, Never>] = []
 
     public init(
         ledger: any LedgerStore,
@@ -150,6 +154,9 @@ public actor PricingInbox {
     public func start() async throws {
         guard !started else { return }
         guard !isStarting else { throw PricingInboxError.startInProgress }
+        guard !isQuiescing else { throw PricingInboxError.quiescing }
+        activeOperations += 1
+        defer { finishOperation() }
         isStarting = true
         defer { isStarting = false }
 
@@ -198,11 +205,13 @@ public actor PricingInbox {
 
     public func stop() throws {
         switch state {
-        case .resolving, .rejectedFinalizing:
+        case .resolving:
             throw PricingInboxError.resolutionInProgress
-        case .committed:
+        case .rejectedFinalizing where !isQuiescing:
+            throw PricingInboxError.resolutionInProgress
+        case .committed where !isQuiescing:
             throw PricingInboxError.candidateAlreadyApplied
-        case .idle, .pending, .invalid:
+        case .idle, .pending, .invalid, .committed, .rejectedFinalizing:
             break
         }
         guard started || isStarting else { return }
@@ -214,6 +223,14 @@ public actor PricingInbox {
         activeSnapshot = nil
         state = .idle
         resolution = nil
+    }
+
+    public func quiesce() async {
+        isQuiescing = true
+        guard activeOperations > 0 else { return }
+        await withCheckedContinuation { continuation in
+            quiescenceWaiters.append(continuation)
+        }
     }
 
     public func pendingCandidate() -> PendingPricingCandidate? {
@@ -252,6 +269,8 @@ public actor PricingInbox {
     }
 
     public func applyPending() async throws {
+        try beginOperation()
+        defer { finishOperation() }
         switch state {
         case .resolving, .rejectedFinalizing:
             throw PricingInboxError.resolutionInProgress
@@ -268,6 +287,8 @@ public actor PricingInbox {
     public func applyPending(
         matching identity: PricingCandidateIdentity
     ) async throws -> PricingApplyOutcome {
+        try beginOperation()
+        defer { finishOperation() }
         switch state {
         case .resolving, .rejectedFinalizing:
             throw PricingInboxError.resolutionInProgress
@@ -301,6 +322,12 @@ public actor PricingInbox {
     }
 
     public func rejectPending() async throws {
+        try beginOperation()
+        defer { finishOperation() }
+        try await performRejectPending()
+    }
+
+    private func performRejectPending() async throws {
         let pending: PendingRecord
         switch state {
         case .resolving:
@@ -351,6 +378,8 @@ public actor PricingInbox {
     public func retryFinalization(
         matching identity: PricingCandidateIdentity
     ) async throws -> PricingFinalizationOutcome {
+        try beginOperation()
+        defer { finishOperation() }
         switch state {
         case let .committed(committed):
             guard committed.preview.identity == identity else {
@@ -379,6 +408,8 @@ public actor PricingInbox {
     public func rejectPending(
         matching identity: PricingCandidateIdentity
     ) async throws -> PricingRejectOutcome {
+        try beginOperation()
+        defer { finishOperation() }
         switch state {
         case let .pending(record) where record.preview.identity != identity:
             throw PricingInboxError.candidateChanged
@@ -390,7 +421,7 @@ public actor PricingInbox {
             break
         }
         do {
-            try await rejectPending()
+            try await performRejectPending()
             return .finalized
         } catch {
             if case let .rejectedFinalizing(record) = state,
@@ -549,7 +580,7 @@ public actor PricingInbox {
 
     private func requestCandidateDetection() async {
         detectionRequested = true
-        guard !isDetecting, state.allowsDetection else { return }
+        guard !isQuiescing, !isDetecting, state.allowsDetection else { return }
         isDetecting = true
         repeat {
             detectionRequested = false
@@ -706,6 +737,20 @@ public actor PricingInbox {
         default:
             .invalidCatalog
         }
+    }
+
+    private func beginOperation() throws {
+        guard !isQuiescing else { throw PricingInboxError.quiescing }
+        activeOperations += 1
+    }
+
+    private func finishOperation() {
+        precondition(activeOperations > 0)
+        activeOperations -= 1
+        guard activeOperations == 0 else { return }
+        let waiters = quiescenceWaiters
+        quiescenceWaiters.removeAll()
+        waiters.forEach { $0.resume() }
     }
 
     public static let currentCatalogFilename = "current-tokenboard-pricing.json"

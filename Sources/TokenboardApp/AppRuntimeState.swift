@@ -17,11 +17,14 @@ protocol AppLedgerRuntime: Sendable {
         calendar: Calendar
     ) async throws -> [DailyUsageRow]
     func skippedRecordCount() async throws -> Int
+    func skippedRecordCountsByProvider() async throws -> [Provider: Int]
     func shutdown() async throws
 }
 
 extension AppLedgerRuntime {
     func shutdown() async throws {}
+
+    func skippedRecordCountsByProvider() async throws -> [Provider: Int] { [:] }
 }
 
 protocol AppUsageQuerying: Sendable {
@@ -51,6 +54,7 @@ protocol AppIngestionCoordinating: Sendable {
 
 protocol AppPricingInboxWatching: Sendable {
     func start() async throws
+    func quiesce() async throws
     func stop() async throws
     func pendingCandidate() async -> PendingPricingCandidate?
     func status() async -> PricingInboxStatus
@@ -66,12 +70,15 @@ protocol AppPricingInboxWatching: Sendable {
 
 protocol AppDatabaseRecovering: Sendable {
     func availableBackups() async throws -> [DatabaseBackup]
-    func restoreLatest(
+    func restore(
+        _ confirmedBackup: DatabaseBackup,
         afterShutdown: @Sendable () async throws -> Void
     ) async throws -> DatabaseBackup
 }
 
 extension AppPricingInboxWatching {
+    func quiesce() async throws {}
+
     func status() async -> PricingInboxStatus {
         await pendingCandidate().map(PricingInboxStatus.valid) ?? .empty
     }

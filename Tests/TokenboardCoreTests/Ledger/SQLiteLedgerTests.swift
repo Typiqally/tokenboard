@@ -53,6 +53,7 @@ final class SQLiteLedgerTests: XCTestCase {
 
     private func checkpoint(
         fingerprint: String? = nil,
+        provider: Provider = .codex,
         timestamp: Date? = nil,
         byteOffset: Int64 = 120,
         lastUsageIdentityHash: String? = nil,
@@ -61,7 +62,7 @@ final class SQLiteLedgerTests: XCTestCase {
     ) -> SourceCheckpoint {
         SourceCheckpoint(
             fingerprint: fingerprint ?? fingerprintA,
-            provider: .codex,
+            provider: provider,
             parserVersion: 1,
             byteOffset: byteOffset,
             fileSize: 120,
@@ -73,11 +74,15 @@ final class SQLiteLedgerTests: XCTestCase {
         )
     }
 
-    private func skippedRecord(reason: String = "malformed_record") -> SkippedRecord {
+    private func skippedRecord(
+        fingerprint: String? = nil,
+        recordHash: String? = nil,
+        reason: String = "malformed_record"
+    ) -> SkippedRecord {
         SkippedRecord(
-            sourceFingerprint: fingerprintA,
+            sourceFingerprint: fingerprint ?? fingerprintA,
             byteOffset: 12,
-            recordHash: recordHash,
+            recordHash: recordHash ?? self.recordHash,
             parserVersion: 1,
             reason: reason
         )
@@ -202,6 +207,38 @@ final class SQLiteLedgerTests: XCTestCase {
 
         let skippedRecordCount = try await ledger.skippedRecordCount()
         XCTAssertEqual(skippedRecordCount, 2)
+    }
+
+    func testSkippedRecordCountsPersistByCheckpointProvider() async throws {
+        let (ledger, directory) = try makeLedger()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try await ledger.migrate()
+        try await ledger.commit(
+            [],
+            skipped: [skippedRecord()],
+            checkpoint: checkpoint(provider: .codex),
+            calendar: calendar
+        )
+        try await ledger.commit(
+            [],
+            skipped: [skippedRecord(
+                fingerprint: fingerprintB,
+                recordHash: String(repeating: "e", count: 64)
+            )],
+            checkpoint: checkpoint(fingerprint: fingerprintB, provider: .claudeCode),
+            calendar: calendar
+        )
+        try await ledger.shutdown()
+
+        let reopened = try SQLiteLedger(
+            databaseURL: directory.appending(path: "ledger.sqlite"),
+            backupDirectory: directory.appending(path: "Backups")
+        )
+        try await reopened.migrate()
+        let counts = try await reopened.skippedRecordCountsByProvider()
+
+        XCTAssertEqual(counts, [.codex: 1, .claudeCode: 1])
+        try await reopened.shutdown()
     }
 
     func testExistingQuantityOverflowRollsBackUsageSkippedRecordsAndCheckpoint() async throws {

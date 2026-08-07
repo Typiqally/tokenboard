@@ -18,6 +18,7 @@ public enum SQLiteValue: Sendable, Equatable {
 
 public final class SQLiteConnection {
     let handle: OpaquePointer
+    private var isClosed = false
 
     public init(url: URL) throws {
         var pointer: OpaquePointer?
@@ -41,7 +42,21 @@ public final class SQLiteConnection {
     }
 
     deinit {
-        sqlite3_close(handle)
+        if !isClosed {
+            sqlite3_close_v2(handle)
+        }
+    }
+
+    public func close() throws {
+        guard !isClosed else { return }
+        let result = sqlite3_close(handle)
+        guard result == SQLITE_OK else {
+            throw SQLiteFailure(
+                code: result,
+                message: String(cString: sqlite3_errmsg(handle))
+            )
+        }
+        isClosed = true
     }
 
     public func execute(_ sql: String) throws {

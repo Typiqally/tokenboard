@@ -44,10 +44,16 @@ final class AppModel: ObservableObject {
     var inFlightQueries: [UInt64: Task<Result<UsageSummary, Error>, Never>] = [:]
     var activityGeneration: UInt64 = 0
     var sourceMutationGeneration: UInt64 = 0
+    var settingsActivityGeneration: UInt64 = 0
+    var restoreActivityGeneration: UInt64 = 0
     var startupTask: Task<Void, Never>?
     var activity: AppRuntimeActivity?
     var sourceMutation: AppRuntimeActivity?
-    var shutdownTask: Task<Void, Never>?
+    var settingsActivity: AppRuntimeActivity?
+    var restoreActivity: AppRuntimeActivity?
+    var shutdownTask: Task<Bool, Never>?
+    var recoveryBarrierTask: Task<Result<Void, any Error>, Never>?
+    var isWriterQuiescing = false
     var resultConsumerTask: Task<Void, Never>?
     var pendingIngestionResults: [IngestionResultKey: IngestionBatchResult] = [:]
     var knownIngestionResults: Set<IngestionResultKey> = []
@@ -135,6 +141,7 @@ final class AppModel: ObservableObject {
     }
 
     func refresh() async {
+        guard state.health.database == .healthy else { return }
         guard await ensureReady(retryFailed: true) else { return }
         guard isReadyForSources else { return }
         guard preferences.historicalImportApproved,
@@ -182,21 +189,70 @@ final class AppModel: ObservableObject {
     func openPricing() { onOpenPricing?() }
     func openSettings() { onOpenSettings?() }
 
-    func shutdown() async {
+    @discardableResult
+    func shutdown() async -> Bool {
+        if let restoreActivity {
+            await restoreActivity.task.value
+        }
         if let shutdownTask {
-            await shutdownTask.value
-            return
+            return await shutdownTask.value
         }
         let task = Task { @MainActor [weak self] in
-            guard let self else { return }
-            await self.performShutdown()
+            guard let self else { return true }
+            let succeeded = await self.performShutdown()
+            if !succeeded { self.shutdownTask = nil }
+            return succeeded
         }
         shutdownTask = task
-        await task.value
+        return await task.value
     }
 
-    private func performShutdown() async {
-        guard state.lifecycle != .stopped else { return }
+    private func performShutdown() async -> Bool {
+        guard state.lifecycle != .stopped else { return true }
+
+        guard case .success = await prepareForDatabaseRecovery() else {
+            return false
+        }
+
+        publishStoppedState()
+        return true
+    }
+
+    func publishStoppedState() {
+        lastSummary = nil
+        var next = state
+        next.lifecycle = .stopped
+        next.presentation = nil
+        next.grantedProviders = []
+        next.sourceFileCounts = [:]
+        next.lastSuccessfulScans = [:]
+        next.sourceHealth = [.claudeCode: .notGranted, .codex: .notGranted]
+        next.lastUpdated = nil
+        next.isImporting = false
+        next.onboardingRequired = false
+        state = next
+    }
+
+    func prepareForDatabaseRecovery() async -> Result<Void, any Error> {
+        if let recoveryBarrierTask {
+            return await recoveryBarrierTask.value
+        }
+        let task = Task { @MainActor [weak self] () -> Result<Void, any Error> in
+            guard let self else { return .success(()) }
+            do {
+                try await self.performRecoveryBarrier()
+                return .success(())
+            } catch {
+                self.recoveryBarrierTask = nil
+                return .failure(error)
+            }
+        }
+        recoveryBarrierTask = task
+        return await task.value
+    }
+
+    private func performRecoveryBarrier() async throws {
+        isWriterQuiescing = true
 
         lifecycleGeneration &+= 1
         sourceMutationGeneration &+= 1
@@ -205,6 +261,7 @@ final class AppModel: ObservableObject {
         let startup = startupTask
         let currentActivity = activity?.task
         let currentSourceMutation = sourceMutation?.task
+        let currentSettingsActivity = settingsActivity?.task
         let currentResultConsumer = resultConsumerTask
         let currentQueries = Array(inFlightQueries.values)
         startup?.cancel()
@@ -223,43 +280,35 @@ final class AppModel: ObservableObject {
         state = next
 
         await coordinator.stop()
-        if inboxStatus != .inactive {
-            try? await pricingInbox.stop()
-        }
         await startup?.value
         await currentActivity?.value
         await currentSourceMutation?.value
+        await currentSettingsActivity?.value
         await currentResultConsumer?.value
         for query in currentQueries { _ = await query.value }
 
         await coordinator.stop()
-        if inboxStatus != .inactive {
-            try? await pricingInbox.stop()
-        }
+        let remainingQueries = Array(inFlightQueries.values)
+        remainingQueries.forEach { $0.cancel() }
+        for query in remainingQueries { _ = await query.value }
+        try await pricingInbox.quiesce()
+        try await pricingInbox.stop()
+        let finalQueries = Array(inFlightQueries.values)
+        finalQueries.forEach { $0.cancel() }
+        for query in finalQueries { _ = await query.value }
+        await settingsActivity?.task.value
         coordinatorStatus = .inactive
         inboxStatus = .inactive
         startupTask = nil
         activity = nil
         sourceMutation = nil
+        settingsActivity = nil
         resultConsumerTask = nil
         lastAppliedSequence.removeAll()
         isProcessingIngestionResults = false
         inFlightQueries.removeAll()
         closeActiveGrants()
-        try? await ledger.shutdown()
-        lastSummary = nil
-
-        next = state
-        next.lifecycle = .stopped
-        next.presentation = nil
-        next.grantedProviders = []
-        next.sourceFileCounts = [:]
-        next.lastSuccessfulScans = [:]
-        next.sourceHealth = [.claudeCode: .notGranted, .codex: .notGranted]
-        next.lastUpdated = nil
-        next.isImporting = false
-        next.onboardingRequired = false
-        state = next
+        try await ledger.shutdown()
     }
 
 }

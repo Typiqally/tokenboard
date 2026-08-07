@@ -76,10 +76,23 @@ extension AppModel {
 
             guard let resolved = await resolveStoredGrants(generation: generation),
                   accepts(generation) else { return }
+            let durableSkipped = (try? await ledger.skippedRecordCountsByProvider()) ?? [:]
+            let skippedCount = (try? await ledger.skippedRecordCount()) ?? 0
+            guard accepts(generation) else {
+                resolved.grants.values.forEach { $0.close() }
+                return
+            }
             activeGrants = resolved.grants
             var next = state
             next.lifecycle = .ready
             next.sourceHealth = resolved.health
+            for (provider, count) in durableSkipped where count > 0
+                && resolved.grants[provider] != nil {
+                next.sourceHealth[provider] = .warning(
+                    message: TokenboardHealth.Issue.unknownFormats.message
+                )
+            }
+            next.health = next.health.replacing(skippedRecordCount: skippedCount)
             next.sourceFileCounts = resolved.counts
             next.grantedProviders = Set(resolved.grants.keys)
             next.onboardingRequired = !preferences.historicalImportApproved
@@ -130,7 +143,7 @@ extension AppModel {
             database: .recoveryRequired(message: issue.message)
         )
         commitState(next)
-        await loadRecoveryBackups()
+        await performLoadRecoveryBackups()
     }
 
     func finishStartupBehavior() async {

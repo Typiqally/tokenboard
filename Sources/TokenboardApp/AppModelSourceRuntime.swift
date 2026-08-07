@@ -334,12 +334,17 @@ extension AppModel {
 
         let period = state.selectedPeriod
         let (queryID, summaryResult) = await requestSummary(period: period)
+        let skippedCount = try? await ledger.skippedRecordCount()
+        let durableSkipped = (try? await ledger.skippedRecordCountsByProvider()) ?? [:]
         guard readyGeneration == generation,
               accepts(generation),
-              coordinatorStatus == .active(runID: result.runID) else { return }
+              coordinatorStatus == .active(runID: result.runID),
+              lastAppliedSequence[result.runID, default: 0] + 1 == result.sequence else {
+            return
+        }
 
         var next = state
-        if let skippedCount = try? await ledger.skippedRecordCount() {
+        if let skippedCount {
             next.health = next.health.replacing(skippedRecordCount: skippedCount)
         }
         let hasSuccessfulProvider = result.providers.values.contains { outcome in
@@ -359,10 +364,12 @@ extension AppModel {
                 if let successfulUpdate,
                    result.scope == .inventory
                     || !Self.isWarning(next.sourceHealth[provider] ?? .notGranted) {
-                    next.sourceHealth[provider] = .healthy(
-                        fileCount: next.sourceFileCounts[provider, default: 0],
-                        lastUpdated: successfulUpdate
-                    )
+                    next.sourceHealth[provider] = durableSkipped[provider, default: 0] > 0
+                        ? .warning(message: TokenboardHealth.Issue.unknownFormats.message)
+                        : .healthy(
+                            fileCount: next.sourceFileCounts[provider, default: 0],
+                            lastUpdated: successfulUpdate
+                        )
                 }
             case let .attention(discoveredFiles, _):
                 if result.scope == .inventory {

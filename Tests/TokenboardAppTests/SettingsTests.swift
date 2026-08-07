@@ -7,10 +7,9 @@ import TokenboardCore
 @MainActor
 final class SettingsTests: XCTestCase {
     func testRecoveryLoadsBackupWithoutRestoringUntilExplicitActionAndUsesShutdownBarrier() async throws {
-        let backup = DatabaseBackup(
-            url: URL(fileURLWithPath: "/private/tmp/Backups/ledger-v1-100.sqlite"),
-            modificationDate: Date(timeIntervalSince1970: 100)
-        )
+        let recoveryFiles = try await makeRecoveryBackup()
+        defer { try? FileManager.default.removeItem(at: recoveryFiles.root) }
+        let backup = recoveryFiles.backup
         let recovery = SettingsRecovery(backup: backup)
         let setup = try makeSetup(candidate: nil, databaseRecovery: recovery)
         defer { setup.cleanup() }
@@ -37,6 +36,158 @@ final class SettingsTests: XCTestCase {
         XCTAssertTrue(didAwaitShutdown)
         XCTAssertEqual(setup.model.state.lifecycle, .stopped)
         XCTAssertTrue(setup.model.settingsState.statusMessage?.contains("restored and verified") == true)
+    }
+
+    private func makeRecoveryBackup() async throws -> (root: URL, backup: DatabaseBackup) {
+        let root = FileManager.default.temporaryDirectory.resolvingSymlinksInPath().appending(
+            path: "SettingsTests-recovery-\(UUID().uuidString)",
+            directoryHint: .isDirectory
+        )
+        let backups = root.appending(path: "Backups", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: backups, withIntermediateDirectories: true)
+        try Data("current".utf8).write(to: root.appending(path: "ledger.sqlite"))
+        try Data("backup".utf8).write(
+            to: backups.appending(path: "ledger-v1-100.sqlite")
+        )
+        let service = DatabaseRecoveryService(
+            databaseURL: root.appending(path: "ledger.sqlite"),
+            backupDirectory: backups
+        )
+        let available = try await service.availableBackups()
+        let backup = try XCTUnwrap(available.first)
+        return (root, backup)
+    }
+
+    func testRecoveryBarrierFailurePreventsRestoreMutation() async throws {
+        let recoveryFiles = try await makeRecoveryBackup()
+        defer { try? FileManager.default.removeItem(at: recoveryFiles.root) }
+        let recovery = SettingsRecovery(backup: recoveryFiles.backup)
+        let setup = try makeSetup(
+            candidate: nil,
+            ledgerShutdownError: SettingsError.injected,
+            databaseRecovery: recovery
+        )
+        defer { setup.cleanup() }
+        publishRecoveryRequired(in: setup.model)
+        await setup.model.refreshSettings()
+
+        await setup.model.restoreLatestBackup()
+
+        let mutationCount = await recovery.mutationCount()
+        let didAwaitShutdown = await recovery.didAwaitShutdown()
+        XCTAssertEqual(mutationCount, 0)
+        XCTAssertFalse(didAwaitShutdown)
+        XCTAssertEqual(setup.model.state.lifecycle, .shuttingDown)
+        XCTAssertTrue(setup.model.settingsState.statusMessage?.contains("failed safely") == true)
+
+        await setup.model.restoreLatestBackup()
+
+        let retryMutations = await recovery.mutationCount()
+        let retryShutdownCount = await setup.ledger.shutdownCount()
+        let writerStarts = await setup.inbox.startCount()
+        XCTAssertEqual(retryMutations, 1)
+        XCTAssertEqual(retryShutdownCount, 2)
+        XCTAssertEqual(writerStarts, 0)
+        XCTAssertEqual(setup.model.state.lifecycle, .stopped)
+    }
+
+    func testTerminationRefusesStrictCloseFailureAndCanRetryWithoutRestartingWriters() async throws {
+        let setup = try makeSetup(
+            candidate: nil,
+            ledgerShutdownError: SettingsError.injected
+        )
+        defer { setup.cleanup() }
+        await setup.model.start()
+
+        let first = await setup.model.shutdown()
+
+        XCTAssertFalse(first)
+        XCTAssertEqual(setup.model.state.lifecycle, .shuttingDown)
+        let startsAfterFailure = await setup.inbox.startCount()
+        XCTAssertEqual(startsAfterFailure, 1)
+
+        let second = await setup.model.shutdown()
+
+        XCTAssertTrue(second)
+        XCTAssertEqual(setup.model.state.lifecycle, .stopped)
+        let startsAfterRetry = await setup.inbox.startCount()
+        let shutdownsAfterRetry = await setup.ledger.shutdownCount()
+        XCTAssertEqual(startsAfterRetry, 1)
+        XCTAssertEqual(shutdownsAfterRetry, 2)
+    }
+
+    func testShutdownWaitsForRetainedRestoreAcrossRecoveryPhases() async throws {
+        for phase in ["replacement", "validation", "rollback"] {
+            let recoveryFiles = try await makeRecoveryBackup()
+            defer { try? FileManager.default.removeItem(at: recoveryFiles.root) }
+            let gate = SettingsMutationGate()
+            let recovery = SettingsRecovery(backup: recoveryFiles.backup, stageGate: gate)
+            let setup = try makeSetup(candidate: nil, databaseRecovery: recovery)
+            defer { setup.cleanup() }
+            publishRecoveryRequired(in: setup.model)
+            await setup.model.refreshSettings()
+
+            let restore = Task { await setup.model.restoreLatestBackup() }
+            await gate.waitUntilEntered()
+            let completion = SettingsCompletionFlag()
+            let shutdown = Task {
+                await setup.model.shutdown()
+                await completion.markCompleted()
+            }
+            try? await Task.sleep(for: .milliseconds(20))
+            let completedEarly = await completion.isCompleted()
+            XCTAssertFalse(completedEarly, "termination escaped during \(phase)")
+
+            await gate.release()
+            await restore.value
+            await shutdown.value
+            let completed = await completion.isCompleted()
+            XCTAssertTrue(completed)
+            XCTAssertEqual(setup.model.state.lifecycle, .stopped)
+        }
+    }
+
+    func testShutdownAwaitsPricingApplyBeforeInboxQuiescenceAndLedgerClose() async throws {
+        let applyGate = SettingsMutationGate()
+        let setup = try makeSetup(
+            candidate: validatedCandidate(),
+            pricingApplyGate: applyGate
+        )
+        defer { setup.cleanup() }
+        await setup.model.start()
+        await setup.model.refreshSettings()
+        setup.recorder.reset()
+
+        let apply = Task { await setup.model.applyPendingPricing() }
+        await applyGate.waitUntilEntered()
+        let shutdown = Task { await setup.model.shutdown() }
+        try? await Task.sleep(for: .milliseconds(20))
+        let shutdownCount = await setup.ledger.shutdownCount()
+        XCTAssertEqual(shutdownCount, 0)
+        XCTAssertFalse(setup.recorder.snapshot.contains("inbox.quiesce"))
+
+        await applyGate.release()
+        await apply.value
+        _ = await shutdown.value
+        let events = setup.recorder.snapshot
+        let applyComplete = try XCTUnwrap(events.firstIndex(of: "inbox.apply.complete"))
+        let quiesce = try XCTUnwrap(events.firstIndex(of: "inbox.quiesce"))
+        let stop = try XCTUnwrap(events.firstIndex(of: "inbox.stop"))
+        let close = try XCTUnwrap(events.firstIndex(of: "ledger.shutdown"))
+        XCTAssertTrue(applyComplete < quiesce)
+        XCTAssertTrue(quiesce < stop)
+        XCTAssertTrue(stop < close)
+    }
+
+    private func publishRecoveryRequired(in model: AppModel) {
+        var failed = model.state
+        failed.lifecycle = .failed(message: TokenboardHealth.Issue.integrityFailure.message)
+        failed.health = failed.health.replacing(
+            database: .recoveryRequired(
+                message: TokenboardHealth.Issue.integrityFailure.message
+            )
+        )
+        model.commitState(failed)
     }
 
     func testRefreshingSettingsWaitsForStartupWhenOpenedOnDemand() async throws {
@@ -526,6 +677,8 @@ final class SettingsTests: XCTestCase {
         finalizationOutcome: PricingFinalizationOutcome = .applied,
         finalizationRetryGate: SettingsMutationGate? = nil,
         finalizationRetryError: PricingInboxError? = nil,
+        pricingApplyGate: SettingsMutationGate? = nil,
+        ledgerShutdownError: SettingsError? = nil,
         databaseRecovery: (any AppDatabaseRecovering)? = nil
     ) throws -> SettingsSetup {
         let suite = "SettingsTests.\(UUID().uuidString)"
@@ -545,8 +698,13 @@ final class SettingsTests: XCTestCase {
             root: URL(fileURLWithPath: "/private/tmp/\(suite)-Application Support", isDirectory: true)
         )
         let rows = [usageRow(quantity: 100_000)]
-        let ledger = SettingsLedger(pricing: pricing, rows: rows)
         let recorder = SettingsRecorder()
+        let ledger = SettingsLedger(
+            pricing: pricing,
+            rows: rows,
+            recorder: recorder,
+            shutdownError: ledgerShutdownError
+        )
         let inbox = SettingsInbox(
             candidate: candidate,
             ledger: ledger,
@@ -555,7 +713,8 @@ final class SettingsTests: XCTestCase {
             applyOutcome: applyOutcome,
             finalizationOutcome: finalizationOutcome,
             finalizationRetryGate: finalizationRetryGate,
-            finalizationRetryError: finalizationRetryError
+            finalizationRetryError: finalizationRetryError,
+            applyGate: pricingApplyGate
         )
         let query = SettingsQuery()
         let coordinator = SettingsCoordinator(mutationGate: coordinatorMutationGate)
@@ -679,24 +838,32 @@ private actor SettingsRecovery: AppDatabaseRecovering {
     private let backup: DatabaseBackup
     private var restores = 0
     private var shutdownAwaited = false
+    private var mutations = 0
+    private let stageGate: SettingsMutationGate?
 
-    init(backup: DatabaseBackup) {
+    init(backup: DatabaseBackup, stageGate: SettingsMutationGate? = nil) {
         self.backup = backup
+        self.stageGate = stageGate
     }
 
     func availableBackups() -> [DatabaseBackup] { [backup] }
 
-    func restoreLatest(
+    func restore(
+        _ confirmedBackup: DatabaseBackup,
         afterShutdown: @Sendable () async throws -> Void
     ) async throws -> DatabaseBackup {
+        guard confirmedBackup == backup else { throw SettingsError.injected }
         restores += 1
         try await afterShutdown()
         shutdownAwaited = true
+        if let stageGate { await stageGate.suspend() }
+        mutations += 1
         return backup
     }
 
     func restoreCount() -> Int { restores }
     func didAwaitShutdown() -> Bool { shutdownAwaited }
+    func mutationCount() -> Int { mutations }
 }
 
 private final class SettingsRecorder: @unchecked Sendable {
@@ -710,10 +877,20 @@ private final class SettingsRecorder: @unchecked Sendable {
 private actor SettingsLedger: AppLedgerRuntime {
     private var pricing: PricingSnapshot
     private let rows: [DailyUsageRow]
+    private let recorder: SettingsRecorder
+    private var shutdownFailuresRemaining: Int
+    private var shutdowns = 0
 
-    init(pricing: PricingSnapshot, rows: [DailyUsageRow]) {
+    init(
+        pricing: PricingSnapshot,
+        rows: [DailyUsageRow],
+        recorder: SettingsRecorder,
+        shutdownError: SettingsError?
+    ) {
         self.pricing = pricing
         self.rows = rows
+        self.recorder = recorder
+        shutdownFailuresRemaining = shutdownError == nil ? 0 : 1
     }
 
     func migrate() {}
@@ -728,6 +905,15 @@ private actor SettingsLedger: AppLedgerRuntime {
     func pricingSnapshot() -> PricingSnapshot { pricing }
     func usageRows(in interval: DateInterval?, calendar: Calendar) -> [DailyUsageRow] { rows }
     func skippedRecordCount() -> Int { 3 }
+    func shutdown() throws {
+        shutdowns += 1
+        recorder.append("ledger.shutdown")
+        if shutdownFailuresRemaining > 0 {
+            shutdownFailuresRemaining -= 1
+            throw SettingsError.injected
+        }
+    }
+    func shutdownCount() -> Int { shutdowns }
     func currentPricing() -> PricingSnapshot { pricing }
     func currentRows() -> [DailyUsageRow] { rows }
 
@@ -888,6 +1074,12 @@ private actor SettingsMutationGate {
     }
 }
 
+private actor SettingsCompletionFlag {
+    private var completed = false
+    func markCompleted() { completed = true }
+    func isCompleted() -> Bool { completed }
+}
+
 private actor SettingsInbox: AppPricingInboxWatching {
     private var candidate: PendingPricingCandidate?
     private let ledger: SettingsLedger
@@ -895,11 +1087,13 @@ private actor SettingsInbox: AppPricingInboxWatching {
     private var applyCount = 0
     private var rejectCount = 0
     private var retryCount = 0
+    private var starts = 0
     private var forcedStatus: PricingInboxStatus?
     private let applyOutcome: PricingApplyOutcome
     private let finalizationOutcome: PricingFinalizationOutcome
     private let finalizationRetryGate: SettingsMutationGate?
     private let finalizationRetryError: PricingInboxError?
+    private let applyGate: SettingsMutationGate?
 
     init(
         candidate: ValidatedPricingCatalog?,
@@ -909,7 +1103,8 @@ private actor SettingsInbox: AppPricingInboxWatching {
         applyOutcome: PricingApplyOutcome = .finalized,
         finalizationOutcome: PricingFinalizationOutcome = .applied,
         finalizationRetryGate: SettingsMutationGate? = nil,
-        finalizationRetryError: PricingInboxError? = nil
+        finalizationRetryError: PricingInboxError? = nil,
+        applyGate: SettingsMutationGate? = nil
     ) {
         self.ledger = ledger
         self.recorder = recorder
@@ -918,6 +1113,7 @@ private actor SettingsInbox: AppPricingInboxWatching {
         self.finalizationOutcome = finalizationOutcome
         self.finalizationRetryGate = finalizationRetryGate
         self.finalizationRetryError = finalizationRetryError
+        self.applyGate = applyGate
         if let candidate {
             self.candidate = PendingPricingCandidate(
                 catalog: candidate,
@@ -928,8 +1124,9 @@ private actor SettingsInbox: AppPricingInboxWatching {
         }
     }
 
-    func start() {}
-    func stop() {}
+    func start() { starts += 1 }
+    func quiesce() { recorder.append("inbox.quiesce") }
+    func stop() { recorder.append("inbox.stop") }
     func pendingCandidate() -> PendingPricingCandidate? { candidate }
     func status() -> PricingInboxStatus {
         forcedStatus ?? candidate.map(PricingInboxStatus.valid) ?? .empty
@@ -937,8 +1134,11 @@ private actor SettingsInbox: AppPricingInboxWatching {
     func exportCurrentSnapshot() { recorder.append("inbox.export") }
     func applyPending() async {
         applyCount += 1
+        recorder.append("inbox.apply.start")
+        if let applyGate { await applyGate.suspend() }
         if let candidate { await ledger.install(candidate.catalog) }
         candidate = nil
+        recorder.append("inbox.apply.complete")
     }
     func applyPending(
         matching identity: PricingCandidateIdentity
@@ -979,6 +1179,7 @@ private actor SettingsInbox: AppPricingInboxWatching {
     func counts() -> (apply: Int, reject: Int, retry: Int) {
         (applyCount, rejectCount, retryCount)
     }
+    func startCount() -> Int { starts }
 }
 
 @MainActor

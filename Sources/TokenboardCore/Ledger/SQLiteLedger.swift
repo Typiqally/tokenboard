@@ -43,12 +43,20 @@ public actor SQLiteLedger: LedgerStore {
     }
 
     public func migrate() throws {
+        try migrate(createPreMigrationBackup: true)
+    }
+
+    func migrateForRecovery() throws {
+        try migrate(createPreMigrationBackup: false)
+    }
+
+    private func migrate(createPreMigrationBackup: Bool) throws {
         let connection = try requiredConnection()
         try DatabaseMigrator(
             connection: connection,
             backupDirectory: backupDirectory,
             migrations: Migrations.all
-        ).migrate()
+        ).migrate(createPreMigrationBackup: createPreMigrationBackup)
         privacyHasher = try loadOrCreatePrivacyHasher(using: connection)
     }
 
@@ -61,13 +69,14 @@ public actor SQLiteLedger: LedgerStore {
 
     public func shutdown() throws {
         guard !isClosed else { return }
-        let openConnection = connection
-        defer {
-            privacyHasher = nil
-            connection = nil
-            isClosed = true
+        guard let openConnection = connection else {
+            throw LedgerError.connectionClosed
         }
-        try openConnection?.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+        try openConnection.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+        try openConnection.close()
+        privacyHasher = nil
+        connection = nil
+        isClosed = true
     }
 
     public func skippedRecordCount() throws -> Int {
@@ -85,6 +94,39 @@ public actor SQLiteLedger: LedgerStore {
             throw LedgerError.corruptData("skipped-record count is invalid")
         }
         return count
+    }
+
+    public func skippedRecordCountsByProvider() throws -> [Provider: Int] {
+        let connection = try requiredConnection()
+        let statement = try prepare(
+            """
+            SELECT source_checkpoints.provider, COUNT(*)
+            FROM skipped_records
+            JOIN source_checkpoints
+              ON source_checkpoints.fingerprint = skipped_records.source_fingerprint
+            GROUP BY source_checkpoints.provider
+            ORDER BY source_checkpoints.provider;
+            """,
+            using: connection
+        )
+        defer { sqlite3_finalize(statement) }
+        var counts: [Provider: Int] = [:]
+        while true {
+            let result = sqlite3_step(statement)
+            if result == SQLITE_DONE { return counts }
+            guard result == SQLITE_ROW else {
+                throw failure(result, using: connection)
+            }
+            let rawProvider = try sqliteText(statement, at: 0, using: connection)
+            guard let provider = Provider(rawValue: rawProvider) else {
+                throw LedgerError.corruptData("skipped-record provider is invalid")
+            }
+            let rawCount = sqlite3_column_int64(statement, 1)
+            guard rawCount >= 0, let count = Int(exactly: rawCount) else {
+                throw LedgerError.corruptData("skipped-record provider count is invalid")
+            }
+            counts[provider] = count
+        }
     }
 
     public func commit(

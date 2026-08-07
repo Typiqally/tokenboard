@@ -37,6 +37,7 @@ struct DatabaseRecoveryView: View {
                 } message: {
                     Text("Tokenboard will stop local scanning and replace only ledger.sqlite after shutdown completes.")
                 }
+                .disabled(model.settingsState.isRestoringDatabase)
             } else {
                 Text("No matching migration backup is available.")
                     .foregroundStyle(.secondary)

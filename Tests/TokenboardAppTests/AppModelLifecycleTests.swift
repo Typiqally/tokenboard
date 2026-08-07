@@ -43,7 +43,7 @@ final class AppModelLifecycleTests: XCTestCase {
         XCTAssertEqual(setup.access.counts, [2, 0])
 
         await stopGate.resume()
-        await shutdown.value
+        _ = await shutdown.value
         let countAfterStopping = await setup.ledger.shutdownCount()
         XCTAssertEqual(countAfterStopping, 1)
         XCTAssertEqual(setup.access.counts, [2, 2])
@@ -72,10 +72,10 @@ final class AppModelLifecycleTests: XCTestCase {
         }
     }
 
-    func testRefreshRetriesFailedPrerequisitesAndSkipsAlreadyAppliedCatalog() async throws {
+    func testRefreshRetriesNonRecoveryPrerequisitesAndSkipsAlreadyAppliedCatalog() async throws {
         let setup = try makeSetup(
             approved: false,
-            failure: .migrate,
+            failure: .latestCatalog,
             failureIsOneShot: true,
             catalogAlreadyApplied: true
         )
@@ -96,6 +96,31 @@ final class AppModelLifecycleTests: XCTestCase {
         XCTAssertEqual(coordinatorCounts, [0, 0, 0])
     }
 
+    func testRefreshCannotRetryDatabaseRecoveryOrRestartWriters() async throws {
+        let setup = try makeSetup(
+            approved: true,
+            failure: .migrate,
+            failureIsOneShot: true
+        )
+        defer { setup.cleanup() }
+        await setup.model.start()
+        let migrationsBefore = await setup.ledger.migrateCount()
+        let inboxBefore = await setup.inbox.counts()
+        let coordinatorBefore = await setup.coordinator.counts()
+
+        await setup.model.refresh()
+
+        let migrationsAfter = await setup.ledger.migrateCount()
+        let inboxAfter = await setup.inbox.counts()
+        let coordinatorAfter = await setup.coordinator.counts()
+        XCTAssertEqual(migrationsAfter, migrationsBefore)
+        XCTAssertEqual(inboxAfter, inboxBefore)
+        XCTAssertEqual(coordinatorAfter, coordinatorBefore)
+        guard case .recoveryRequired = setup.model.health.database else {
+            return XCTFail("Refresh cleared recovery-required database health")
+        }
+    }
+
     func testShutdownDuringStartupPreventsLateResourceRecreation() async throws {
         let gate = AsyncTestGate()
         let setup = try makeSetup(approved: true, startupGate: gate)
@@ -107,7 +132,7 @@ final class AppModelLifecycleTests: XCTestCase {
         await Task.yield()
         await gate.resume()
         await startTask.value
-        await shutdownTask.value
+        _ = await shutdownTask.value
 
         XCTAssertEqual(setup.model.state.lifecycle, .stopped)
         XCTAssertEqual(setup.access.counts, [0, 0])
@@ -138,7 +163,7 @@ final class AppModelLifecycleTests: XCTestCase {
         await coordinatorGate.resume()
         await first.value
         await second.value
-        await shutdown.value
+        _ = await shutdown.value
 
         XCTAssertEqual(setup.model.state.lifecycle, .stopped)
         XCTAssertEqual(setup.access.counts, [2, 2])
@@ -181,7 +206,7 @@ final class AppModelLifecycleTests: XCTestCase {
         await Task.yield()
         await setup.query.resume(.thisWeek)
         await selection.value
-        await shutdown.value
+        _ = await shutdown.value
 
         XCTAssertEqual(setup.model.state.lifecycle, .stopped)
         XCTAssertNil(setup.model.state.presentation)
@@ -207,7 +232,7 @@ final class AppModelLifecycleTests: XCTestCase {
         XCTAssertFalse(completedWhileStopping)
         XCTAssertEqual(setup.access.counts, [2, 0])
         await stopGate.resume()
-        await first.value
+        _ = await first.value
         await second.value
 
         let completedAfterStop = await secondCompleted.value()
@@ -255,7 +280,7 @@ final class AppModelLifecycleTests: XCTestCase {
 
         await setup.query.resume(.today)
         await refresh.value
-        await firstShutdown.value
+        _ = await firstShutdown.value
         await secondShutdown.value
 
         XCTAssertTrue(refreshReleased)
@@ -917,7 +942,7 @@ final class AppModelLifecycleTests: XCTestCase {
 
         await stopGate.resume()
         await replacementTask.value
-        await shutdownTask.value
+        _ = await shutdownTask.value
 
         let events = recorder.snapshot
         guard let stopComplete = events.firstIndex(of: "coordinator.stop.complete"),
@@ -953,8 +978,8 @@ final class AppModelLifecycleTests: XCTestCase {
         XCTAssertEqual(setup.model.state.sourceFileCounts[.codex], 9)
     }
 
-    func testRetryPreservesIntegrityAndLatestCatalogPrerequisiteSemantics() async throws {
-        for failure in [StartupFailurePoint.integrity, .latestCatalog] {
+    func testRetryPreservesLatestCatalogPrerequisiteSemantics() async throws {
+        for failure in [StartupFailurePoint.latestCatalog] {
             let setup = try makeSetup(
                 approved: false,
                 failure: failure,
@@ -975,6 +1000,58 @@ final class AppModelLifecycleTests: XCTestCase {
             XCTAssertEqual(applyCount, 0)
             XCTAssertEqual(inboxCounts, [1, 0])
         }
+    }
+
+    func testPersistedProviderDiagnosticsRemainWarningsAfterStartup() async throws {
+        let setup = try makeSetup(
+            approved: false,
+            durableSkipped: [.claudeCode: 2]
+        )
+        defer { setup.cleanup() }
+
+        await setup.model.start()
+
+        XCTAssertEqual(setup.model.health.skippedRecordCount, 2)
+        XCTAssertTrue(setup.model.health.hasWarning)
+        XCTAssertEqual(
+            setup.model.sourceHealth[.claudeCode],
+            .warning(message: TokenboardHealth.Issue.unknownFormats.message)
+        )
+    }
+
+    func testBatchDiagnosticsAwaitMergesIntoCurrentState() async throws {
+        let diagnosticsGate = AsyncTestGate()
+        let setup = try makeSetup(
+            approved: false,
+            skippedCountGateCall: 3,
+            skippedCountGate: diagnosticsGate
+        )
+        defer { setup.cleanup() }
+        await setup.model.start()
+        await setup.model.startHistoricalImport()
+        let runID = await setup.coordinator.runID()
+
+        await setup.coordinator.emit(IngestionBatchResult(
+            runID: runID,
+            sequence: 2,
+            scope: .incremental,
+            providers: [.claudeCode: .success(discoveredFiles: 1, scannedFiles: 1)]
+        ))
+        await diagnosticsGate.waitUntilEntered()
+        await setup.model.select(displayMetric: .apiValue)
+        var recoveryState = setup.model.state
+        recoveryState.health = recoveryState.health.replacing(
+            database: .recoveryRequired(message: "newer health")
+        )
+        setup.model.commitState(recoveryState)
+        await diagnosticsGate.resume()
+        await waitUntil { setup.model.lastAppliedSequence[runID] == 2 }
+
+        XCTAssertEqual(setup.model.state.selectedDisplayMetric, .apiValue)
+        XCTAssertEqual(
+            setup.model.health.database,
+            .recoveryRequired(message: "newer health")
+        )
     }
 
     func testReplacementDiscoveryDoesNotBlockMainActor() async throws {
@@ -1055,6 +1132,9 @@ final class AppModelLifecycleTests: XCTestCase {
         coordinatorFailingStartRoot: URL? = nil,
         restoredInventoryCount: Int? = nil,
         refreshInventoryCount: Int = 0,
+        durableSkipped: [Provider: Int] = [:],
+        skippedCountGateCall: Int? = nil,
+        skippedCountGate: AsyncTestGate? = nil,
         catalogCommitBeforeFailure: Bool = false,
         now: @escaping @Sendable () -> Date = { Date(timeIntervalSince1970: 1_775_000_000) }
     ) throws -> LifecycleSetup {
@@ -1074,7 +1154,10 @@ final class AppModelLifecycleTests: XCTestCase {
             failureIsOneShot: failureIsOneShot,
             catalogAlreadyApplied: catalogAlreadyApplied,
             catalogCommitBeforeFailure: catalogCommitBeforeFailure,
-            startupGate: startupGate
+            startupGate: startupGate,
+            durableSkipped: durableSkipped,
+            skippedCountGateCall: skippedCountGateCall,
+            skippedCountGate: skippedCountGate
         )
         let inbox = LifecycleInbox(
             failure: failure == .inbox,
@@ -1217,23 +1300,35 @@ private actor LifecycleLedger: AppLedgerRuntime {
     private(set) var applyCount = 0
     private var appliedCatalog: Data?
     private var shutdowns = 0
+    private var migrations = 0
+    private let durableSkipped: [Provider: Int]
+    private let skippedCountGateCall: Int?
+    private let skippedCountGate: AsyncTestGate?
+    private var skippedCountCalls = 0
 
     init(
         failure: StartupFailurePoint?,
         failureIsOneShot: Bool,
         catalogAlreadyApplied: Bool,
         catalogCommitBeforeFailure: Bool,
-        startupGate: AsyncTestGate?
+        startupGate: AsyncTestGate?,
+        durableSkipped: [Provider: Int],
+        skippedCountGateCall: Int?,
+        skippedCountGate: AsyncTestGate?
     ) {
         self.failure = failure
         self.failureIsOneShot = failureIsOneShot
         self.catalogAlreadyApplied = catalogAlreadyApplied
         self.catalogCommitBeforeFailure = catalogCommitBeforeFailure
         self.startupGate = startupGate
+        self.durableSkipped = durableSkipped
+        self.skippedCountGateCall = skippedCountGateCall
+        self.skippedCountGate = skippedCountGate
         appliedCatalog = catalogAlreadyApplied ? Data([1]) : nil
     }
 
     func migrate() async throws {
+        migrations += 1
         if let startupGate { await startupGate.suspend() }
         try failIfNeeded(.migrate)
     }
@@ -1263,7 +1358,14 @@ private actor LifecycleLedger: AppLedgerRuntime {
         PricingSnapshot(catalogIDs: [], rates: [], aliases: [])
     }
     func usageRows(in interval: DateInterval?, calendar: Calendar) -> [DailyUsageRow] { [] }
-    func skippedRecordCount() -> Int { 0 }
+    func skippedRecordCount() async -> Int {
+        skippedCountCalls += 1
+        if skippedCountCalls == skippedCountGateCall, let skippedCountGate {
+            await skippedCountGate.suspend()
+        }
+        return durableSkipped.values.reduce(0, +)
+    }
+    func skippedRecordCountsByProvider() -> [Provider: Int] { durableSkipped }
     func shutdown() { shutdowns += 1 }
 
     private func failIfNeeded(_ point: StartupFailurePoint) throws {
@@ -1274,6 +1376,7 @@ private actor LifecycleLedger: AppLedgerRuntime {
 
     func appliedCount() -> Int { applyCount }
     func shutdownCount() -> Int { shutdowns }
+    func migrateCount() -> Int { migrations }
 }
 
 private actor LifecycleInbox: AppPricingInboxWatching {

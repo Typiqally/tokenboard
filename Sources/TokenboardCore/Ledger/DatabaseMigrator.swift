@@ -25,7 +25,7 @@ public struct DatabaseMigrator {
         self.migrations = migrations
     }
 
-    public func migrate() throws {
+    public func migrate(createPreMigrationBackup: Bool = true) throws {
         try connection.execute("CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY, name TEXT NOT NULL, checksum TEXT NOT NULL, applied_at TEXT NOT NULL);")
         let currentVersion = try connection.userVersion
         try validateMigrationDefinitions()
@@ -34,7 +34,7 @@ public struct DatabaseMigrator {
         let pending = migrations
             .filter { $0.version > currentVersion }
             .sorted { $0.version < $1.version }
-        if currentVersion > 0, !pending.isEmpty {
+        if createPreMigrationBackup, currentVersion > 0, !pending.isEmpty {
             try createBackup()
             try retainNewestTwoBackups()
         }
