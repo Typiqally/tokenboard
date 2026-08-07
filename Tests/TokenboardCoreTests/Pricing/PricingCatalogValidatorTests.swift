@@ -22,6 +22,28 @@ final class PricingCatalogValidatorTests: XCTestCase {
     }
     """#
 
+    private var validV2: String {
+        valid
+            .replacingOccurrences(of: #""schemaVersion": 1"#, with: #""schemaVersion": 2"#)
+            .replacingOccurrences(
+                of: #""models": ["#,
+                with: #""exchangeRates": {
+        "baseCurrency": "USD",
+        "effectiveDate": "2026-08-07",
+        "verifiedAt": "2026-08-07",
+        "provenanceURL": "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml",
+        "rates": {
+          "USD": "1",
+          "EUR": "0.866926745",
+          "JPY": "158.33550065",
+          "GBP": "0.743519723",
+          "CNY": "6.747637625"
+        }
+      },
+      "models": ["#
+            )
+    }
+
     func testValidCatalogNormalizesDecimalRatesAndCanonicalJSON() throws {
         let decoded = try load(valid)
         let catalog = try PricingCatalogValidator().validate(decoded)
@@ -33,6 +55,98 @@ final class PricingCatalogValidatorTests: XCTestCase {
         let reloaded = try PricingCatalogLoader().load(catalog.canonicalJSON)
         let revalidated = try PricingCatalogValidator().validate(reloaded)
         XCTAssertEqual(revalidated.canonicalJSON, catalog.canonicalJSON)
+    }
+
+    func testSchemaV1RemainsUSDOnly() throws {
+        let catalog = try validate(valid)
+
+        XCTAssertEqual(catalog.schemaVersion, 1)
+        XCTAssertNil(catalog.exchangeRates)
+    }
+
+    func testSchemaV2RequiresOneCompleteUSDExchangeSnapshot() throws {
+        let catalog = try validate(validV2)
+        let exchangeRates = try XCTUnwrap(catalog.exchangeRates)
+
+        XCTAssertEqual(exchangeRates.baseCurrency, .usd)
+        XCTAssertEqual(exchangeRates.effectiveDate, "2026-08-07")
+        XCTAssertEqual(exchangeRates.verifiedAt, "2026-08-07")
+        XCTAssertEqual(
+            exchangeRates.provenanceURL.absoluteString,
+            "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml"
+        )
+        XCTAssertEqual(exchangeRates.rates[.usd], Decimal(string: "1"))
+        XCTAssertEqual(exchangeRates.rates[.eur], Decimal(string: "0.866926745"))
+        XCTAssertEqual(exchangeRates.rates[.jpy], Decimal(string: "158.33550065"))
+        XCTAssertEqual(exchangeRates.rates[.gbp], Decimal(string: "0.743519723"))
+        XCTAssertEqual(exchangeRates.rates[.cny], Decimal(string: "6.747637625"))
+        XCTAssertEqual(
+            try validate(String(decoding: catalog.canonicalJSON, as: UTF8.self)).canonicalJSON,
+            catalog.canonicalJSON
+        )
+    }
+
+    func testSchemaKeysRequireFXOnlyForVersion2() {
+        let v1WithFX = validV2.replacingOccurrences(of: #""schemaVersion": 2"#, with: #""schemaVersion": 1"#)
+        assertLoadingError(.invalidStructure("catalog has missing or unknown keys")) {
+            _ = try load(v1WithFX)
+        }
+
+        let v2WithoutFX = valid.replacingOccurrences(of: #""schemaVersion": 1"#, with: #""schemaVersion": 2"#)
+        assertLoadingError(.invalidStructure("catalog has missing or unknown keys")) {
+            _ = try load(v2WithoutFX)
+        }
+    }
+
+    func testRejectsInvalidExchangeRateSnapshotSemantics() {
+        let cases: [(String, PricingCatalogValidationError)] = [
+            (
+                validV2.replacingOccurrences(of: #""baseCurrency": "USD""#, with: #""baseCurrency": "EUR""#),
+                .invalidExchangeRateSnapshot("base currency must be USD")
+            ),
+            (
+                validV2.replacingOccurrences(of: #""USD": "1""#, with: #""USD": "0.9""#),
+                .invalidExchangeRateSnapshot("USD rate must equal 1")
+            ),
+            (
+                validV2.replacingOccurrences(of: #""EUR": "0.866926745","#, with: ""),
+                .invalidExchangeRateSnapshot("rates must contain exactly USD, EUR, JPY, GBP, CNY")
+            ),
+            (
+                validV2.replacingOccurrences(of: #""EUR": "0.866926745""#, with: #""EUR": "0""#),
+                .invalidExchangeRateSnapshot("EUR rate must be greater than zero")
+            ),
+            (
+                validV2.replacingOccurrences(of: #""effectiveDate": "2026-08-07""#, with: #""effectiveDate": "2026-02-30""#),
+                .invalidDate("2026-02-30")
+            ),
+            (
+                validV2.replacingOccurrences(
+                    of: "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml",
+                    with: "https://rates.invalid/latest"
+                ),
+                .invalidExchangeRateProvenance
+            )
+        ]
+
+        for (document, expected) in cases {
+            assertValidationError(expected) { _ = try validate(document) }
+        }
+    }
+
+    func testRejectsUnknownExchangeRateKeysAndUnsupportedSchema() {
+        let unknownFXKey = validV2.replacingOccurrences(
+            of: #""rates": {"#,
+            with: #""unexpected": true, "rates": {"#,
+            maxReplacements: 1
+        )
+        assertLoadingError(.invalidStructure("exchangeRates has missing or unknown keys")) {
+            _ = try load(unknownFXKey)
+        }
+
+        assertValidationError(.unsupportedSchemaVersion(3)) {
+            _ = try validate(validV2.replacingOccurrences(of: #""schemaVersion": 2"#, with: #""schemaVersion": 3"#))
+        }
     }
 
     func testRejectsExactOpaqueUnknownIdentifierAsAnObservedAlias() {

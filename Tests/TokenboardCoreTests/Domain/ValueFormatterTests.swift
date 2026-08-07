@@ -3,6 +3,17 @@ import XCTest
 @testable import TokenboardCore
 
 final class ValueFormatterTests: XCTestCase {
+    func testDisplayCurrenciesAreStableAndOrdered() {
+        XCTAssertEqual(
+            DisplayCurrency.allCases.map(\.rawValue),
+            ["USD", "EUR", "JPY", "GBP", "CNY"]
+        )
+        XCTAssertEqual(DisplayCurrency.jpy.fractionDigits, 0)
+        for currency in [DisplayCurrency.usd, .eur, .gbp, .cny] {
+            XCTAssertEqual(currency.fractionDigits, 2)
+        }
+    }
+
     func testCompactTokensUseThreeSignificantDigits() {
         XCTAssertEqual(ValueFormatter.compactTokens(842_198), "842K")
         XCTAssertEqual(ValueFormatter.compactTokens(1_250), "1.25K")
