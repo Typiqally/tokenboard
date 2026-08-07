@@ -15,6 +15,7 @@ enum NativeMenuBuilder {
         state: AppPublishedState?,
         startupError: String?,
         target: AnyObject?,
+        availableDisplayCurrencies: Set<DisplayCurrency> = Set(DisplayCurrency.allCases),
         isRestoringDatabase: Bool = false,
         requiresRelaunch: Bool = false,
         preservationRetryRequired: Bool = false,
@@ -43,6 +44,12 @@ enum NativeMenuBuilder {
         menu.addItem(periodMenuItem(
             state: state,
             target: target,
+            isEnabled: regularActionsEnabled
+        ))
+        menu.addItem(currencyMenuItem(
+            state: state,
+            target: target,
+            availableCurrencies: availableDisplayCurrencies,
             isEnabled: regularActionsEnabled
         ))
         menu.addItem(displayMetricMenuItem(
@@ -158,6 +165,36 @@ enum NativeMenuBuilder {
         return parent
     }
 
+    private static func currencyMenuItem(
+        state: AppPublishedState?,
+        target: AnyObject?,
+        availableCurrencies: Set<DisplayCurrency>,
+        isEnabled: Bool
+    ) -> NSMenuItem {
+        let selectedCurrency = state?.selectedDisplayCurrency
+        let parent = NSMenuItem(
+            title: selectedCurrency.map { "Currency: \($0.rawValue)" } ?? "Currency",
+            action: nil,
+            keyEquivalent: ""
+        )
+        let submenu = NSMenu(title: "Currency")
+        submenu.autoenablesItems = false
+        for currency in DisplayCurrency.allCases {
+            let item = actionItem(
+                currency.rawValue,
+                action: NSSelectorFromString("selectDisplayCurrency:"),
+                target: target,
+                isEnabled: isEnabled && availableCurrencies.contains(currency)
+            )
+            item.representedObject = currency.rawValue
+            item.state = selectedCurrency == currency ? .on : .off
+            submenu.addItem(item)
+        }
+        parent.submenu = submenu
+        parent.isEnabled = isEnabled
+        return parent
+    }
+
     private static func actionItem(
         _ title: String,
         action: Selector,
@@ -207,12 +244,14 @@ final class MenuController: NSObject, NSMenuDelegate {
             .sink { [weak self] state, settings in
                 self?.rebuildMenu(
                     state: state,
+                    exchangeRates: settings.pricing.exchangeRates,
                     isRestoringDatabase: settings.isRestoringDatabase,
                     disposition: settings.databaseRecoveryDisposition
                 )
             }
         rebuildMenu(
             state: model.state,
+            exchangeRates: model.settingsState.pricing.exchangeRates,
             isRestoringDatabase: model.settingsState.isRestoringDatabase,
             disposition: model.settingsState.databaseRecoveryDisposition
         )
@@ -222,7 +261,12 @@ final class MenuController: NSObject, NSMenuDelegate {
         model = nil
         self.startupError = "Startup paused: \(String(describing: startupError))"
         super.init()
-        rebuildMenu(state: nil, isRestoringDatabase: false, disposition: .none)
+        rebuildMenu(
+            state: nil,
+            exchangeRates: nil,
+            isRestoringDatabase: false,
+            disposition: .none
+        )
     }
 
     func menuWillOpen(_ menu: NSMenu) {
@@ -243,13 +287,19 @@ final class MenuController: NSObject, NSMenuDelegate {
 
     private func rebuildMenu(
         state: AppPublishedState?,
+        exchangeRates: ExchangeRateSnapshot?,
         isRestoringDatabase: Bool,
         disposition: DatabaseRecoveryDisposition
     ) {
+        var availableDisplayCurrencies: Set<DisplayCurrency> = [.usd]
+        if let exchangeRates {
+            availableDisplayCurrencies.formUnion(exchangeRates.rates.keys)
+        }
         let built = NativeMenuBuilder.makeMenu(
             state: state,
             startupError: startupError,
             target: self,
+            availableDisplayCurrencies: availableDisplayCurrencies,
             isRestoringDatabase: isRestoringDatabase,
             requiresRelaunch: disposition == .requiresRelaunch,
             preservationRetryRequired: disposition == .preservationRetryRequired,
@@ -278,6 +328,13 @@ final class MenuController: NSObject, NSMenuDelegate {
               let metric = DisplayMetric(rawValue: rawValue),
               let model else { return }
         Task { await model.select(displayMetric: metric) }
+    }
+
+    @objc func selectDisplayCurrency(_ sender: NSMenuItem) {
+        guard let rawValue = sender.representedObject as? String,
+              let currency = DisplayCurrency(rawValue: rawValue),
+              let model else { return }
+        model.select(displayCurrency: currency)
     }
 
     @objc func openPricing() { model?.openPricing() }

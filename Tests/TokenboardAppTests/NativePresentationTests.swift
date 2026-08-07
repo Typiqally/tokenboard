@@ -14,7 +14,11 @@ final class NativePresentationTests: XCTestCase {
             knownAPIEquivalentUSD: Decimal(string: "7.42")!,
             unpricedTokens: 84_000
         )
-        var state = AppPublishedState.initial(period: .thisMonth, displayMetric: .apiValue)
+        var state = AppPublishedState.initial(
+            period: .thisMonth,
+            displayMetric: .apiValue,
+            displayCurrency: .eur
+        )
         state.lifecycle = .ready
         state.presentation = MenuPresentation(
             summary: summary,
@@ -32,7 +36,8 @@ final class NativePresentationTests: XCTestCase {
         let built = NativeMenuBuilder.makeMenu(
             state: state,
             startupError: nil,
-            target: nil
+            target: nil,
+            availableDisplayCurrencies: [.usd, .eur, .gbp]
         )
 
         XCTAssertEqual(topLevelTitles(built.menu), [
@@ -40,6 +45,7 @@ final class NativePresentationTests: XCTestCase {
             "≈ $7.42 API equivalent",
             "—",
             "Period: This Month",
+            "Currency: EUR",
             "Menu Bar: API Value",
             "—",
             "Updated never",
@@ -56,12 +62,16 @@ final class NativePresentationTests: XCTestCase {
         let period = built.menu.items[3].submenu!.items
         XCTAssertEqual(period.map(\.title), ["Today", "This Week", "This Month", "This Year", "All Time"])
         XCTAssertEqual(period.map(\.state), [.off, .off, .on, .off, .off])
-        let metrics = built.menu.items[4].submenu!.items
+        let currencies = built.menu.items[4].submenu!.items
+        XCTAssertEqual(currencies.map(\.title), ["USD", "EUR", "JPY", "GBP", "CNY"])
+        XCTAssertEqual(currencies.map(\.state), [.off, .on, .off, .off, .off])
+        XCTAssertEqual(currencies.map(\.isEnabled), [true, true, false, true, false])
+        let metrics = built.menu.items[5].submenu!.items
         XCTAssertEqual(metrics.map(\.title), ["Tokens", "API Value"])
         XCTAssertEqual(metrics.map(\.state), [.off, .on])
-        XCTAssertEqual(built.menu.items[8].keyEquivalent, "r")
-        XCTAssertEqual(built.menu.items[10].keyEquivalent, ",")
-        XCTAssertEqual(built.menu.items[12].keyEquivalent, "q")
+        XCTAssertEqual(built.menu.items[9].keyEquivalent, "r")
+        XCTAssertEqual(built.menu.items[11].keyEquivalent, ",")
+        XCTAssertEqual(built.menu.items[13].keyEquivalent, "q")
     }
 
     func testMenuOmitsWarningDetailsAndDismissAction() throws {
@@ -118,6 +128,15 @@ final class NativePresentationTests: XCTestCase {
     func testMenuControllerRendersEmittedSnapshotAndWiresRealSelectorsAndValues() async throws {
         let setup = try makeModel()
         defer { setup.cleanup() }
+        var settings = setup.model.settingsState
+        settings.pricing.exchangeRates = ExchangeRateSnapshot(
+            catalogID: "test-catalog",
+            effectiveDate: "2026-08-07",
+            verifiedAt: "2026-08-07",
+            provenanceURL: URL(string: "https://rates.example")!,
+            rates: [.usd: 1, .eur: Decimal(string: "0.86")!]
+        )
+        setup.model.commitSettingsState(settings)
         let controller = MenuController(model: setup.model)
         var emitted = AppPublishedState.initial(period: .thisWeek, displayMetric: .tokens)
         emitted.lifecycle = .ready
@@ -147,6 +166,20 @@ final class NativePresentationTests: XCTestCase {
         _ = controller.perform(NSSelectorFromString("selectPeriod:"), with: year)
         await waitUntil { setup.preferences.selectedPeriod == .thisYear }
         XCTAssertEqual(setup.model.state.selectedPeriod, .thisYear)
+
+        let currencyParent = controller.renderedMenu?.items.first {
+            $0.title == "Currency: USD"
+        }
+        let euro = currencyParent?.submenu?.items.first { $0.title == "EUR" }
+        XCTAssertEqual(euro?.representedObject as? String, "EUR")
+        XCTAssertEqual(euro?.target as? MenuController, controller)
+        XCTAssertEqual(euro?.action, NSSelectorFromString("selectDisplayCurrency:"))
+        XCTAssertTrue(euro?.isEnabled == true)
+        XCTAssertTrue(controller.responds(to: NSSelectorFromString("selectDisplayCurrency:")))
+        guard let euro else { return XCTFail("missing EUR menu action") }
+        _ = controller.perform(NSSelectorFromString("selectDisplayCurrency:"), with: euro)
+        XCTAssertEqual(setup.preferences.selectedDisplayCurrency, .eur)
+        XCTAssertEqual(setup.model.state.selectedDisplayCurrency, .eur)
 
         let metricParent = controller.renderedMenu?.items.first {
             $0.title == "Menu Bar: Tokens"
