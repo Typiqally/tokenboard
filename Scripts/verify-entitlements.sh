@@ -23,6 +23,16 @@ validate_dependency_path() {
     esac
 }
 
+validate_linkage_line() {
+    local linkage=$1
+    local metadata_pattern
+    metadata_pattern='^(.+) \(compatibility version [0-9]+(\.[0-9]+)*, current version [0-9]+(\.[0-9]+)*(, weak)?\)$'
+
+    [[ "$linkage" != *$'\n'* && "$linkage" != *$'\r'* ]] || return 1
+    [[ "$linkage" =~ $metadata_pattern ]] || return 1
+    validate_dependency_path "$match[1]"
+}
+
 main() {
 if (( $# != 1 )); then
     print -u2 "usage: Scripts/verify-entitlements.sh <Tokenboard.app>"
@@ -156,9 +166,8 @@ fi
 for (( index = 2; index <= ${#linkage_lines}; index++ )); do
     linkage=$linkage_lines[$index]
     linkage=${linkage#"${linkage%%[![:space:]]*}"}
-    dependency=${linkage%% \(*}
-    if ! validate_dependency_path "$dependency"; then
-        print -u2 "Non-system or non-canonical runtime dependency found"
+    if ! validate_linkage_line "$linkage"; then
+        print -u2 "Malformed, non-system, or non-canonical runtime dependency found"
         exit 72
     fi
 done

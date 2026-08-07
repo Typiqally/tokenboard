@@ -23,7 +23,9 @@ case "$event_name" in
             && /usr/bin/git cat-file -e "${before}^{commit}" 2>/dev/null; then
             base_commit=$(/usr/bin/git rev-parse --verify "${before}^{commit}")
         else
-            base_commit=$(/usr/bin/git rev-parse --verify 'HEAD^{commit}^')
+            empty_tree=$(/usr/bin/git hash-object -t tree /dev/null)
+            /usr/bin/git diff --check "$empty_tree" HEAD
+            exit
         fi
         ;;
     *)

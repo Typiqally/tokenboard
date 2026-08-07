@@ -41,6 +41,7 @@ typeset -r maximum_file_count=20000
 typeset -r maximum_file_bytes=$((64 * 1024 * 1024))
 typeset -r maximum_total_bytes=$((512 * 1024 * 1024))
 typeset -r maximum_ledger_bytes=$((1024 * 1024 * 1024))
+typeset -r manifest_limit_status=75
 
 umask 077
 audit_root=$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/tokenboard-audit.XXXXXX")
@@ -108,13 +109,36 @@ audit_ctimes=()
 typeset file_count=0
 typeset total_bytes=0
 
+write_bounded_manifest() {
+    local maximum_entries=$1
+    local path
+    local accepted_entries=0
+    while IFS= read -r -d '' path; do
+        accepted_entries=$((accepted_entries + 1))
+        if (( accepted_entries > maximum_entries )); then
+            return "$manifest_limit_status"
+        fi
+        print -rn -- "$path"$'\0'
+    done
+}
+
 discover_root() {
     local provider=$1
     local root=$2
     local manifest=$3
-    local path size
-    if ! /usr/bin/find "$root" -iname '*.jsonl' -print0 \
-        >"$manifest" 2>/dev/null; then
+    local path size remaining_entries
+    typeset -a discovery_status
+    remaining_entries=$((maximum_file_count - file_count))
+    set +e
+    /usr/bin/find "$root" -iname '*.jsonl' -print0 2>/dev/null \
+        | write_bounded_manifest "$remaining_entries" >"$manifest"
+    discovery_status=("${pipestatus[@]}")
+    set -e
+    # The capped consumer is authoritative; find may receive SIGPIPE after it closes.
+    if (( discovery_status[2] == manifest_limit_status )); then
+        refuse_limits
+    fi
+    if (( discovery_status[1] != 0 || discovery_status[2] != 0 )); then
         refuse_input
     fi
     while IFS= read -r -d '' path; do
@@ -302,7 +326,8 @@ for (( index = 1; index <= ${#audit_paths}; index++ )); do
         refuse_input
     fi
 
-    if ! jq -e -s "$model_validator" <&$opened_fd >/dev/null 2>/dev/null; then
+    if ! /usr/bin/head -c "$audit_sizes[$index]" <&$opened_fd \
+        | jq -e -s "$model_validator" >/dev/null 2>/dev/null; then
         close_opened
         refuse_model
     fi
@@ -312,13 +337,15 @@ for (( index = 1; index <= ${#audit_paths}; index++ )); do
     fi
     provider=$audit_providers[$index]
     if [[ "$provider" == "claude_code" ]]; then
-        if ! jq -c -s "$claude_filter" <&$opened_fd \
+        if ! /usr/bin/head -c "$audit_sizes[$index]" <&$opened_fd \
+            | jq -c -s "$claude_filter" \
             >>"$audit_root/live-usage.jsonl" 2>/dev/null; then
             close_opened
             refuse_input
         fi
     else
-        if ! jq -c -s "$codex_filter" <&$opened_fd \
+        if ! /usr/bin/head -c "$audit_sizes[$index]" <&$opened_fd \
+            | jq -c -s "$codex_filter" \
             >>"$audit_root/live-usage.jsonl" 2>/dev/null; then
             close_opened
             refuse_input
