@@ -39,16 +39,24 @@ final class SettingsTests: XCTestCase {
             "Tokenboard never connects to the internet. Copy an update prompt and run it in Claude Code or Codex. The prompt tells the agent to use only the source you choose and save a candidate in Tokenboard’s local inbox for your review."
         )
         XCTAssertEqual(
-            PricingUpdateCopy.sourceTitle(.tokenboardRepository),
-            "Tokenboard Catalog"
+            PricingUpdateCopy.methodQuestion,
+            "How should the agent update pricing?"
         )
         XCTAssertEqual(
-            PricingUpdateCopy.sourceDescription(.tokenboardRepository),
-            "The agent may fetch only Tokenboard’s published pricing catalog from GitHub."
+            PricingUpdateCopy.methodTitle(.tokenboardRepository),
+            "Use Tokenboard Catalog"
         )
         XCTAssertEqual(
-            PricingUpdateCopy.sourceDescription(.officialResearch),
-            "The agent may research pricing only on official OpenAI and Anthropic websites."
+            PricingUpdateCopy.methodTitle(.officialResearch),
+            "Research Official Sites"
+        )
+        XCTAssertEqual(
+            PricingUpdateCopy.methodDescription(.tokenboardRepository),
+            "Use only Tokenboard’s published pricing catalog from GitHub."
+        )
+        XCTAssertEqual(
+            PricingUpdateCopy.methodDescription(.officialResearch),
+            "Research only official OpenAI and Anthropic websites."
         )
         XCTAssertEqual(
             PricingUpdateCopy.inboxStatus(.empty),
