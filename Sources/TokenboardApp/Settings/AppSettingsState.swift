@@ -80,6 +80,7 @@ struct SettingsDiagnosticsState: Equatable, Sendable {
 enum DatabaseRecoveryDisposition: Equatable, Sendable {
     case none
     case requiresRelaunch
+    case preservationRetryRequired
     case preservationFailed
 }
 

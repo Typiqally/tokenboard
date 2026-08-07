@@ -158,14 +158,16 @@ final class SettingsTests: XCTestCase {
         XCTAssertTrue(built.menu.items.first { $0.title == "Quit Tokenboard" }?.isEnabled == true)
     }
 
-    func testCompletedRestoreRequiresRelaunchAndOnlyQuitAndRevealRemainAvailable() async throws {
+    func testCompletedRestoreRequiresRelaunchAndKeepsSettingsReachable() async throws {
         let recoveryFiles = try await makeRecoveryBackup()
         defer { try? FileManager.default.removeItem(at: recoveryFiles.root) }
         let recovery = SettingsRecovery(backup: recoveryFiles.backup)
         let setup = try makeSetup(candidate: nil, databaseRecovery: recovery)
         defer { setup.cleanup() }
         var pricingOpenCount = 0
+        var settingsOpenCount = 0
         setup.model.onOpenPricing = { pricingOpenCount += 1 }
+        setup.model.onOpenSettings = { settingsOpenCount += 1 }
         publishRecoveryRequired(in: setup.model)
         await setup.model.refreshSettings()
 
@@ -185,23 +187,28 @@ final class SettingsTests: XCTestCase {
             requiresRelaunch: setup.model.requiresDatabaseRecoveryRelaunch
         )
         let enabledActions = built.menu.items.filter { $0.action != nil && $0.isEnabled }
-        XCTAssertEqual(enabledActions.map(\.title), ["Quit Tokenboard"])
+        guard enabledActions.map(\.title) == ["Settings", "Quit Tokenboard"] else {
+            throw SettingsError.injected
+        }
         setup.model.openPricing()
+        setup.model.openSettings()
         await setup.model.restoreBackup(recoveryFiles.backup)
         let restores = await recovery.restoreCount()
-        guard restores == 1, pricingOpenCount == 0 else { throw SettingsError.injected }
+        guard restores == 1, pricingOpenCount == 0, settingsOpenCount == 1 else {
+            throw SettingsError.injected
+        }
         setup.model.revealLocalData()
         guard setup.revealer.selections == [[setup.paths.root]] else {
             throw SettingsError.injected
         }
     }
 
-    func testPreservationFailureRetryTransitionsToVerifiedRelaunchState() async throws {
+    func testRetryablePreservationFailureRetryTransitionsToVerifiedRelaunchState() async throws {
         let recoveryFiles = try await makeRecoveryBackup()
         defer { try? FileManager.default.removeItem(at: recoveryFiles.root) }
         let recovery = SettingsRecovery(
             backup: recoveryFiles.backup,
-            restoreError: .preservationFailed
+            restoreError: .preservationRetryRequired
         )
         let setup = try makeSetup(candidate: nil, databaseRecovery: recovery)
         defer { setup.cleanup() }
@@ -227,6 +234,132 @@ final class SettingsTests: XCTestCase {
                 canRestore: false,
                 canQuit: true
               ) else { throw SettingsError.injected }
+    }
+
+    func testTerminalPreservationFailureOffersRevealSettingsAndQuitWithoutRetryClaim() async throws {
+        let recoveryFiles = try await makeRecoveryBackup()
+        defer { try? FileManager.default.removeItem(at: recoveryFiles.root) }
+        let recovery = SettingsRecovery(
+            backup: recoveryFiles.backup,
+            restoreError: .preservationFailed
+        )
+        let setup = try makeSetup(candidate: nil, databaseRecovery: recovery)
+        defer { setup.cleanup() }
+        var settingsOpenCount = 0
+        setup.model.onOpenSettings = { settingsOpenCount += 1 }
+        publishRecoveryRequired(in: setup.model)
+        await setup.model.refreshSettings()
+
+        await setup.model.restoreBackup(recoveryFiles.backup)
+
+        let actions = DatabaseRecoveryView(model: setup.model).actionState
+        guard actions == DatabaseRecoveryActionState(
+            canReveal: true,
+            canRestore: false,
+            canQuit: true,
+            canRetryPreservation: false
+        ), setup.model.settingsState.statusMessage?.contains("could not be retained") == true else {
+            throw SettingsError.injected
+        }
+        setup.model.openSettings()
+        let built = NativeMenuBuilder.makeMenu(
+            state: setup.model.state,
+            startupError: nil,
+            target: nil,
+            preservationFailed: true
+        )
+        let enabled = built.menu.items.filter { $0.action != nil && $0.isEnabled }.map(\.title)
+        guard enabled == ["Settings", "Quit Tokenboard"], settingsOpenCount == 1 else {
+            throw SettingsError.injected
+        }
+        guard await setup.model.shutdown() else { throw SettingsError.injected }
+    }
+
+    func testRetryablePreservationBlocksTerminationAndShutdownAwaitsActiveRetry() async throws {
+        let recoveryFiles = try await makeRecoveryBackup()
+        defer { try? FileManager.default.removeItem(at: recoveryFiles.root) }
+        let retryGate = SettingsMutationGate()
+        let recovery = SettingsRecovery(
+            backup: recoveryFiles.backup,
+            restoreError: .preservationRetryRequired,
+            preservationRetryGate: retryGate
+        )
+        let setup = try makeSetup(candidate: nil, databaseRecovery: recovery)
+        defer { setup.cleanup() }
+        publishRecoveryRequired(in: setup.model)
+        await setup.model.refreshSettings()
+        await setup.model.restoreBackup(recoveryFiles.backup)
+
+        guard await setup.model.shutdown() == false else { throw SettingsError.injected }
+        let delegate = AppDelegate(model: setup.model)
+        guard await delegate.shutdownForTermination() == false else { throw SettingsError.injected }
+
+        let retry = Task { await setup.model.retryDatabasePreservation() }
+        await retryGate.waitUntilEntered()
+        let shutdownCompleted = SettingsCompletionFlag()
+        let shutdown = Task {
+            let result = await setup.model.shutdown()
+            await shutdownCompleted.markCompleted()
+            return result
+        }
+        await Task.yield()
+        guard await shutdownCompleted.isCompleted() == false else {
+            throw SettingsError.injected
+        }
+        await retryGate.release()
+        await retry.value
+        guard await shutdown.value,
+              setup.model.requiresDatabaseRecoveryRelaunch else {
+            throw SettingsError.injected
+        }
+    }
+
+    func testRetryablePreservationKeepsSettingsMenuReachableAfterWindowClose() async throws {
+        let recoveryFiles = try await makeRecoveryBackup()
+        defer { try? FileManager.default.removeItem(at: recoveryFiles.root) }
+        let recovery = SettingsRecovery(
+            backup: recoveryFiles.backup,
+            restoreError: .preservationRetryRequired
+        )
+        let setup = try makeSetup(candidate: nil, databaseRecovery: recovery)
+        defer { setup.cleanup() }
+        var settingsOpenCount = 0
+        setup.model.onOpenSettings = { settingsOpenCount += 1 }
+        publishRecoveryRequired(in: setup.model)
+        await setup.model.refreshSettings()
+        await setup.model.restoreBackup(recoveryFiles.backup)
+
+        setup.model.openSettings()
+        setup.model.openSettings()
+        let built = NativeMenuBuilder.makeMenu(
+            state: setup.model.state,
+            startupError: nil,
+            target: nil,
+            preservationRetryRequired: true
+        )
+        let enabled = built.menu.items.filter { $0.action != nil && $0.isEnabled }.map(\.title)
+        guard settingsOpenCount == 2, enabled == ["Settings"] else {
+            throw SettingsError.injected
+        }
+    }
+
+    func testOversizedRecoveryBackupPublishesSupportedLimitInsteadOfNoMatch() async throws {
+        let recoveryFiles = try await makeRecoveryBackup()
+        defer { try? FileManager.default.removeItem(at: recoveryFiles.root) }
+        let recovery = SettingsRecovery(
+            backup: recoveryFiles.backup,
+            availabilityError: .backupTooLarge(maximumBytes: 256 * 1_024 * 1_024)
+        )
+        let setup = try makeSetup(candidate: nil, databaseRecovery: recovery)
+        defer { setup.cleanup() }
+        publishRecoveryRequired(in: setup.model)
+
+        await setup.model.refreshSettings()
+
+        guard setup.model.settingsState.recoveryBackups.isEmpty,
+              setup.model.settingsState.statusMessage?.contains("256 MiB") == true else {
+            throw SettingsError.injected
+        }
     }
 
     private func makeRecoveryBackup() async throws -> (root: URL, backup: DatabaseBackup) {
@@ -1029,25 +1162,34 @@ private actor SettingsRecovery: AppDatabaseRecovering {
     private let backup: DatabaseBackup
     private var available: [DatabaseBackup]
     private let restoreError: DatabaseRecoveryError?
+    private let availabilityError: DatabaseRecoveryError?
     private var restores = 0
     private var receivedBackups: [DatabaseBackup] = []
     private var shutdownAwaited = false
     private var mutations = 0
     private var preservationRetries = 0
     private let stageGate: SettingsMutationGate?
+    private let preservationRetryGate: SettingsMutationGate?
 
     init(
         backup: DatabaseBackup,
         stageGate: SettingsMutationGate? = nil,
-        restoreError: DatabaseRecoveryError? = nil
+        restoreError: DatabaseRecoveryError? = nil,
+        preservationRetryGate: SettingsMutationGate? = nil,
+        availabilityError: DatabaseRecoveryError? = nil
     ) {
         self.backup = backup
         available = [backup]
         self.stageGate = stageGate
         self.restoreError = restoreError
+        self.preservationRetryGate = preservationRetryGate
+        self.availabilityError = availabilityError
     }
 
-    func availableBackups() -> [DatabaseBackup] { available }
+    func availableBackups() throws -> [DatabaseBackup] {
+        if let availabilityError { throw availabilityError }
+        return available
+    }
 
     func restore(
         _ confirmedBackup: DatabaseBackup,
@@ -1064,7 +1206,10 @@ private actor SettingsRecovery: AppDatabaseRecovering {
     }
 
     func restoreCount() -> Int { restores }
-    func retryPreservation() { preservationRetries += 1 }
+    func retryPreservation() async {
+        preservationRetries += 1
+        if let preservationRetryGate { await preservationRetryGate.suspend() }
+    }
     func preservationRetryCount() -> Int { preservationRetries }
     func didAwaitShutdown() -> Bool { shutdownAwaited }
     func mutationCount() -> Int { mutations }

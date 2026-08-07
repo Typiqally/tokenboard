@@ -102,7 +102,7 @@ public final class SQLiteConnection {
             bytes,
             sqlite3_int64(byteCount),
             sqlite3_int64(capacity),
-            UInt32(SQLITE_DESERIALIZE_FREEONCLOSE | SQLITE_DESERIALIZE_RESIZEABLE)
+            UInt32(SQLITE_DESERIALIZE_FREEONCLOSE)
         )
         guard result == SQLITE_OK else {
             // FREEONCLOSE transfers ownership even when sqlite3_deserialize fails.

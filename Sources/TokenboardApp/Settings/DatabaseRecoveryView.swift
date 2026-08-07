@@ -27,7 +27,7 @@ struct DatabaseRecoveryView: View {
                     .disabled(!actionState.canRestore)
                     Button("Quit") { quit() }
                         .disabled(!actionState.canQuit)
-                    if model.databaseRecoveryPreservationFailed {
+                    if model.databaseRecoveryPreservationRetryRequired {
                         Button("Retry Preservation") {
                             Task { await model.retryDatabasePreservation() }
                         }
@@ -52,7 +52,7 @@ struct DatabaseRecoveryView: View {
                         .disabled(!actionState.canReveal)
                     Button("Quit") { quit() }
                         .disabled(!actionState.canQuit)
-                    if model.databaseRecoveryPreservationFailed {
+                    if model.databaseRecoveryPreservationRetryRequired {
                         Button("Retry Preservation") {
                             Task { await model.retryDatabasePreservation() }
                         }
@@ -70,8 +70,8 @@ struct DatabaseRecoveryView: View {
             canRestore: enabled
                 && !model.isDatabaseRecoveryActionLocked
                 && !model.settingsState.recoveryBackups.isEmpty,
-            canQuit: enabled && !model.databaseRecoveryPreservationFailed,
-            canRetryPreservation: enabled && model.databaseRecoveryPreservationFailed
+            canQuit: enabled && !model.databaseRecoveryPreservationRetryRequired,
+            canRetryPreservation: enabled && model.databaseRecoveryPreservationRetryRequired
         )
     }
 

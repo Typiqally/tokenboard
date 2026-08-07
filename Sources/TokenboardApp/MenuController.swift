@@ -17,6 +17,7 @@ enum NativeMenuBuilder {
         target: AnyObject?,
         isRestoringDatabase: Bool = false,
         requiresRelaunch: Bool = false,
+        preservationRetryRequired: Bool = false,
         preservationFailed: Bool = false
     ) -> BuiltNativeMenu {
         let menu = NSMenu()
@@ -38,7 +39,10 @@ enum NativeMenuBuilder {
         }
 
         menu.addItem(.separator())
-        let regularActionsEnabled = !isRestoringDatabase && !requiresRelaunch && !preservationFailed
+        let regularActionsEnabled = !isRestoringDatabase
+            && !requiresRelaunch
+            && !preservationRetryRequired
+            && !preservationFailed
         menu.addItem(periodMenuItem(
             state: state,
             target: target,
@@ -86,7 +90,7 @@ enum NativeMenuBuilder {
             action: NSSelectorFromString("openSettings"),
             target: target,
             keyEquivalent: ",",
-            isEnabled: regularActionsEnabled
+            isEnabled: !isRestoringDatabase
         ))
         menu.addItem(.separator())
         menu.addItem(actionItem(
@@ -94,7 +98,7 @@ enum NativeMenuBuilder {
             action: NSSelectorFromString("quit"),
             target: target,
             keyEquivalent: "q",
-            isEnabled: !isRestoringDatabase && !preservationFailed
+            isEnabled: !isRestoringDatabase && !preservationRetryRequired
         ))
         return BuiltNativeMenu(menu: menu, statusTitle: statusTitle, updatedItem: updatedItem)
     }
@@ -245,6 +249,7 @@ final class MenuController: NSObject, NSMenuDelegate {
             target: self,
             isRestoringDatabase: isRestoringDatabase,
             requiresRelaunch: disposition == .requiresRelaunch,
+            preservationRetryRequired: disposition == .preservationRetryRequired,
             preservationFailed: disposition == .preservationFailed
         )
         built.menu.delegate = self

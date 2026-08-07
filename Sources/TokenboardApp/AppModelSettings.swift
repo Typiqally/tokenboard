@@ -235,6 +235,15 @@ extension AppModel {
             var next = settingsState
             next.recoveryBackups = backups
             commitSettingsState(next)
+        } catch let recoveryError as DatabaseRecoveryError {
+            var next = settingsState
+            next.recoveryBackups = []
+            if case let .backupTooLarge(maximumBytes) = recoveryError {
+                next.statusMessage = "Migration backup exceeds the supported \(Self.mebibytes(maximumBytes)) MiB restore limit; the database was not changed"
+            } else {
+                next.statusMessage = "Backup list unavailable; the database was not changed"
+            }
+            commitSettingsState(next)
         } catch {
             var next = settingsState
             next.recoveryBackups = []
@@ -270,8 +279,26 @@ extension AppModel {
     }
 
     func retryDatabasePreservation() async {
-        guard settingsState.databaseRecoveryDisposition == .preservationFailed,
+        if let preservationActivity {
+            await preservationActivity.task.value
+            return
+        }
+        guard settingsState.databaseRecoveryDisposition == .preservationRetryRequired,
               !settingsState.isRestoringDatabase else { return }
+        preservationActivityGeneration &+= 1
+        let id = preservationActivityGeneration
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.performPreservationRetry()
+        }
+        preservationActivity = AppRuntimeActivity(id: id, task: task)
+        await task.value
+        if preservationActivity?.id == id {
+            preservationActivity = nil
+        }
+    }
+
+    private func performPreservationRetry() async {
         var next = settingsState
         next.isRestoringDatabase = true
         next.statusMessage = "Retrying recovery artifact preservation…"
@@ -283,10 +310,24 @@ extension AppModel {
             next.databaseRecoveryDisposition = .requiresRelaunch
             next.statusMessage = "Recovery artifact preserved and verified · Quit and reopen Tokenboard"
             commitSettingsState(next)
-        } catch {
+        } catch let recoveryError as DatabaseRecoveryError
+            where recoveryError == .cleanupPending {
+            next = settingsState
+            next.isRestoringDatabase = false
+            next.databaseRecoveryDisposition = .requiresRelaunch
+            next.statusMessage = "Recovery artifact preserved and verified · Cleanup will resume after reopening Tokenboard"
+            commitSettingsState(next)
+        } catch let recoveryError as DatabaseRecoveryError
+            where recoveryError == .preservationFailed {
             next = settingsState
             next.isRestoringDatabase = false
             next.databaseRecoveryDisposition = .preservationFailed
+            next.statusMessage = "The recovery artifact could not be retained · Reveal Data or quit Tokenboard"
+            commitSettingsState(next)
+        } catch {
+            next = settingsState
+            next.isRestoringDatabase = false
+            next.databaseRecoveryDisposition = .preservationRetryRequired
             next.statusMessage = "Recovery artifact preservation failed · Reveal Data and retry"
             commitSettingsState(next)
         }
@@ -321,13 +362,30 @@ extension AppModel {
             commitSettingsState(nextSettings)
             publishStoppedState()
         } catch let recoveryError as DatabaseRecoveryError
+            where recoveryError == .preservationRetryRequired {
+            nextSettings = settingsState
+            nextSettings.isRestoringDatabase = false
+            nextSettings.databaseRecoveryDisposition = .preservationRetryRequired
+            nextSettings.statusMessage = "Recovery changed the database; a verified recovery snapshot is held open by Tokenboard until preservation succeeds · Reveal Data and retry"
+            commitSettingsState(nextSettings)
+            publishStoppedState()
+        } catch let recoveryError as DatabaseRecoveryError
             where recoveryError == .preservationFailed {
             nextSettings = settingsState
             nextSettings.isRestoringDatabase = false
             nextSettings.databaseRecoveryDisposition = .preservationFailed
-            nextSettings.statusMessage = "Restore changed the database, but no verified recovery artifact remains · Reveal Data and keep Tokenboard open"
+            nextSettings.statusMessage = "Restore changed the database, but the recovery artifact could not be retained · Reveal Data or quit Tokenboard"
             commitSettingsState(nextSettings)
             publishStoppedState()
+        } catch let recoveryError as DatabaseRecoveryError {
+            nextSettings = settingsState
+            nextSettings.isRestoringDatabase = false
+            if case let .backupTooLarge(maximumBytes) = recoveryError {
+                nextSettings.statusMessage = "Migration backup exceeds the supported \(Self.mebibytes(maximumBytes)) MiB restore limit; the database was not changed"
+            } else {
+                nextSettings.statusMessage = "Restore failed safely · Existing database and backup were preserved"
+            }
+            commitSettingsState(nextSettings)
         } catch {
             nextSettings = settingsState
             nextSettings.isRestoringDatabase = false
@@ -518,6 +576,10 @@ extension AppModel {
         var next = settingsState
         next.isFinalizationRetryInProgress = inProgress
         commitSettingsState(next)
+    }
+
+    private static func mebibytes(_ bytes: Int) -> Int {
+        bytes / (1_024 * 1_024)
     }
 }
 

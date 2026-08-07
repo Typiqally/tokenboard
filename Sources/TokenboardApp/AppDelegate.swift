@@ -11,6 +11,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var onboardingObservation: AnyCancellable?
     private var terminationPending = false
 
+    override init() {
+        super.init()
+    }
+
+    init(model: AppModel) {
+        self.model = model
+        super.init()
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         do {
             let paths = try ApplicationPaths.resolve()
@@ -61,15 +70,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard let model else { return .terminateNow }
+        guard model != nil else { return .terminateNow }
         guard !terminationPending else { return .terminateLater }
         terminationPending = true
         Task {
-            let shutdownSucceeded = await model.shutdown()
+            let shutdownSucceeded = await shutdownForTermination()
             if !shutdownSucceeded { terminationPending = false }
             sender.reply(toApplicationShouldTerminate: shutdownSucceeded)
         }
         return .terminateLater
+    }
+
+    func shutdownForTermination() async -> Bool {
+        guard let model else { return true }
+        return await model.shutdown()
     }
 
     private func bundledCatalogURL() throws -> URL {

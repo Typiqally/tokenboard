@@ -1,9 +1,41 @@
 import Foundation
 import CSQLite
+import Darwin
 import XCTest
 @testable import TokenboardCore
 
 final class SQLiteLedgerTests: XCTestCase {
+    func testFixedRecoveryImageFailsWithSQLiteFullBeforeGrowingPastCapacity() throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let database = directory.appending(path: "growth.sqlite")
+        let source = try SQLiteConnection(url: database)
+        try source.execute("PRAGMA journal_mode = DELETE;")
+        try source.execute("CREATE TABLE growth(value BLOB NOT NULL);")
+        try source.close()
+        let descriptor = Darwin.open(database.path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
+        guard descriptor >= 0 else { throw SQLiteGrowthInvariantError.openFailed }
+        defer { Darwin.close(descriptor) }
+        var information = stat()
+        guard fstat(descriptor, &information) == 0,
+              let byteCount = Int(exactly: information.st_size) else {
+            throw SQLiteGrowthInvariantError.statFailed
+        }
+        let recovery = try SQLiteConnection.recoveryConnection(
+            descriptor: descriptor,
+            byteCount: byteCount,
+            maximumBytes: byteCount
+        )
+        defer { try? recovery.close() }
+
+        do {
+            try recovery.execute("INSERT INTO growth VALUES(zeroblob(1048576));")
+            throw SQLiteGrowthInvariantError.growthEscapedLimit
+        } catch let failure as SQLiteFailure {
+            guard failure.code == SQLITE_FULL else { throw failure }
+        }
+    }
+
     func testTruncateCheckpointAcceptsOnlyDocumentedCompleteResultShapes() {
         XCTAssertTrue(SQLiteConnection.isCompleteTruncateCheckpoint(
             result: SQLITE_OK,
@@ -500,4 +532,10 @@ final class SQLiteLedgerTests: XCTestCase {
         let value = "safe\u{0000}multibyte-✓"
         XCTAssertEqual(try connection.textBindingRoundTripForTesting(value), value)
     }
+}
+
+private enum SQLiteGrowthInvariantError: Error {
+    case openFailed
+    case statFailed
+    case growthEscapedLimit
 }

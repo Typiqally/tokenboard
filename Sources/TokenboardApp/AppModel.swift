@@ -21,13 +21,13 @@ final class AppModel: ObservableObject {
     var canStartHistoricalImport: Bool { state.canStartHistoricalImport }
     var isSourceMutationInProgress: Bool { sourceMutation != nil }
     var isDatabaseRestoreInProgress: Bool {
-        restoreActivity != nil || settingsState.isRestoringDatabase
+        restoreActivity != nil || preservationActivity != nil || settingsState.isRestoringDatabase
     }
     var requiresDatabaseRecoveryRelaunch: Bool {
         settingsState.databaseRecoveryDisposition == .requiresRelaunch
     }
-    var databaseRecoveryPreservationFailed: Bool {
-        settingsState.databaseRecoveryDisposition == .preservationFailed
+    var databaseRecoveryPreservationRetryRequired: Bool {
+        settingsState.databaseRecoveryDisposition == .preservationRetryRequired
     }
     var isDatabaseRecoveryActionLocked: Bool {
         settingsState.databaseRecoveryDisposition != .none
@@ -58,11 +58,13 @@ final class AppModel: ObservableObject {
     var sourceMutationGeneration: UInt64 = 0
     var settingsActivityGeneration: UInt64 = 0
     var restoreActivityGeneration: UInt64 = 0
+    var preservationActivityGeneration: UInt64 = 0
     var startupTask: Task<Void, Never>?
     var activity: AppRuntimeActivity?
     var sourceMutation: AppRuntimeActivity?
     var settingsActivity: AppRuntimeActivity?
     var restoreActivity: AppRuntimeActivity?
+    var preservationActivity: AppRuntimeActivity?
     var shutdownTask: Task<Bool, Never>?
     var recoveryBarrierTask: Task<Result<Void, any Error>, Never>?
     var isWriterQuiescing = false
@@ -214,7 +216,7 @@ final class AppModel: ObservableObject {
     }
 
     func openSettings() {
-        guard !isDatabaseRestoreInProgress, !isDatabaseRecoveryActionLocked else { return }
+        guard !isDatabaseRestoreInProgress else { return }
         onOpenSettings?()
     }
 
@@ -222,6 +224,12 @@ final class AppModel: ObservableObject {
     func shutdown() async -> Bool {
         if let restoreActivity {
             await restoreActivity.task.value
+        }
+        if let preservationActivity {
+            await preservationActivity.task.value
+        }
+        guard settingsState.databaseRecoveryDisposition != .preservationRetryRequired else {
+            return false
         }
         if let shutdownTask {
             return await shutdownTask.value
