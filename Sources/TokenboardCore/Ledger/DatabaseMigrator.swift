@@ -1,5 +1,4 @@
 import CSQLite
-import CryptoKit
 import Darwin
 import Foundation
 
@@ -18,6 +17,37 @@ public struct Migration: Sendable {
 enum DatabaseMigrationBackupOperation: Equatable {
     case didOpenBackupDirectory
     case didSerializeBackup(byteCount: Int, usedNoCopy: Bool)
+    case willPruneBackup(name: String)
+    case didValidateCreatedBackup
+    case didSyncBackupDirectoryEntry
+    case willQuarantineBackup(name: String)
+}
+
+struct DatabaseMigrationMemoryOperations: @unchecked Sendable {
+    let allocate: (Int) -> UnsafeMutableRawPointer?
+    let deserialize: (
+        OpaquePointer,
+        UnsafeMutableRawPointer,
+        sqlite3_int64,
+        sqlite3_int64,
+        UInt32
+    ) -> Int32
+    let release: (UnsafeMutableRawPointer) -> Void
+
+    static let sqlite = DatabaseMigrationMemoryOperations(
+        allocate: { sqlite3_malloc64(sqlite3_uint64($0)) },
+        deserialize: { database, storage, databaseBytes, capacity, flags in
+            sqlite3_deserialize(
+                database,
+                "main",
+                storage,
+                databaseBytes,
+                capacity,
+                flags
+            )
+        },
+        release: sqlite3_free
+    )
 }
 
 enum DatabaseBackupNaming {
@@ -43,6 +73,7 @@ public struct DatabaseMigrator {
     private let backupName: (Int32) -> String
     private let backupOperation: (DatabaseMigrationBackupOperation) throws -> Void
     private let maximumBackupBytes: Int
+    private let memoryOperations: DatabaseMigrationMemoryOperations
 
     public init(connection: SQLiteConnection, backupDirectory: URL, migrations: [Migration]) {
         self.connection = connection
@@ -51,6 +82,7 @@ public struct DatabaseMigrator {
         backupName = DatabaseBackupNaming.canonical
         backupOperation = { _ in }
         maximumBackupBytes = DatabaseRecoveryService.maximumRecoveryImageBytes
+        memoryOperations = .sqlite
     }
 
     init(
@@ -59,7 +91,8 @@ public struct DatabaseMigrator {
         migrations: [Migration],
         backupName: @escaping (Int32) -> String,
         backupOperation: @escaping (DatabaseMigrationBackupOperation) throws -> Void = { _ in },
-        maximumBackupBytes: Int = DatabaseRecoveryService.maximumRecoveryImageBytes
+        maximumBackupBytes: Int = DatabaseRecoveryService.maximumRecoveryImageBytes,
+        memoryOperations: DatabaseMigrationMemoryOperations = .sqlite
     ) {
         self.connection = connection
         self.backupDirectory = backupDirectory
@@ -67,6 +100,7 @@ public struct DatabaseMigrator {
         self.backupName = backupName
         self.backupOperation = backupOperation
         self.maximumBackupBytes = maximumBackupBytes
+        self.memoryOperations = memoryOperations
     }
 
     public func migrate(createPreMigrationBackup: Bool = true) throws {
@@ -79,16 +113,66 @@ public struct DatabaseMigrator {
             .sorted { $0.version < $1.version }
         if createPreMigrationBackup, currentVersion > 0, !pending.isEmpty {
             let layout = try validatedBackupLayout()
-            try withBackupDirectory { directory in
-                try createBackup(in: directory, version: currentVersion, layout: layout)
-                try retainNewestTwoBackups(in: directory)
+            try withBackupDirectory { handles in
+                let created = try createBackup(
+                    in: handles.directory,
+                    version: currentVersion,
+                    layout: layout
+                )
+                var completed = false
+                var quarantined: [QuarantinedBackup] = []
+                defer {
+                    if !completed {
+                        restoreQuarantinedBackups(quarantined, in: handles.directory)
+                        unlinkCreatedFile(created.descriptor, in: handles.directory, name: created.name)
+                    }
+                    Darwin.close(created.descriptor)
+                }
+                quarantined = try retainNewestTwoBackups(
+                    in: handles.directory,
+                    preserving: created
+                )
+                let finalIdentity = try DatabaseBackupArtifact.validate(
+                    descriptor: created.descriptor,
+                    maximumBytes: maximumBackupBytes,
+                    migrations: migrations
+                )
+                guard finalIdentity == created.identity,
+                      name(created.name, in: handles.directory, binds: finalIdentity) else {
+                    throw failure(SQLITE_CANTOPEN, "migration backup binding changed")
+                }
+                try apply(pending, from: currentVersion) {
+                    try backupOperation(.didValidateCreatedBackup)
+                    try ensureCanonicalDirectoryBindings(handles)
+                    let commitIdentity = try DatabaseBackupArtifact.validate(
+                        descriptor: created.descriptor,
+                        maximumBytes: maximumBackupBytes,
+                        migrations: migrations
+                    )
+                    guard commitIdentity == created.identity,
+                          name(created.name, in: handles.directory, binds: commitIdentity) else {
+                        throw failure(SQLITE_CANTOPEN, "migration backup binding changed")
+                    }
+                    try ensureCanonicalDirectoryBindings(handles)
+                    completed = true
+                    try finalizeQuarantinedBackups(quarantined, in: handles.directory)
+                }
             }
+            return
         }
+        try apply(pending, from: currentVersion)
+    }
 
-        for migration in pending {
+    private func apply(
+        _ pending: [Migration],
+        from currentVersion: Int32,
+        beforeFirstSchemaWrite: () throws -> Void = {}
+    ) throws {
+        for (index, migration) in pending.enumerated() {
             try connection.transaction {
+                if index == pending.startIndex { try beforeFirstSchemaWrite() }
                 if currentVersion == 0, migration.version == 1 {
-                    try connection.execute(Self.schemaMigrationsSQL)
+                    try connection.execute(databaseSchemaMigrationsSQL)
                 }
                 try connection.execute(migration.sql)
                 let escapedName = migration.name.replacingOccurrences(of: "'", with: "''")
@@ -150,25 +234,25 @@ public struct DatabaseMigrator {
         }
     }
 
-    private func withBackupDirectory(_ body: (Int32) throws -> Void) throws {
+    private func withBackupDirectory(_ body: (BackupDirectoryHandles) throws -> Void) throws {
         let standardized = backupDirectory.standardizedFileURL
         guard backupDirectory.isFileURL,
               backupDirectory.path == standardized.path,
               isSinglePathComponent(standardized.lastPathComponent) else {
             throw failure(SQLITE_CANTOPEN, "invalid migration backup directory")
         }
-        let parentPath = standardized.deletingLastPathComponent().path
-        let parent = Darwin.open(
-            parentPath,
-            O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW
-        )
-        guard parent >= 0 else { throw posixFailure("unable to open migration backup parent") }
+        let canonical = canonicalSystemURL(standardized)
+        let parentURL = canonical.deletingLastPathComponent()
+        let parent = try openDirectoryPathNoFollow(parentURL.path)
         defer { Darwin.close(parent) }
 
-        let name = standardized.lastPathComponent
-        if mkdirat(parent, name, S_IRWXU) != 0, errno != EEXIST {
+        let name = canonical.lastPathComponent
+        let createResult = mkdirat(parent, name, S_IRWXU)
+        if createResult != 0, errno != EEXIST {
             throw posixFailure("unable to create migration backup directory")
         }
+        try syncDirectory(parent, failureMessage: "unable to sync migration backup parent")
+        try backupOperation(.didSyncBackupDirectoryEntry)
         let directory = openat(
             parent,
             name,
@@ -176,13 +260,17 @@ public struct DatabaseMigrator {
         )
         guard directory >= 0 else { throw posixFailure("unable to open migration backup directory") }
         defer { Darwin.close(directory) }
-        var information = stat()
-        guard fstat(directory, &information) == 0,
-              information.st_mode & S_IFMT == S_IFDIR else {
+        guard directoriesMatch(parent, parent), directoryIsLinked(directory),
+              directoryName(name, in: parent, binds: directory) else {
             throw failure(SQLITE_CANTOPEN, "unsafe migration backup directory")
         }
         try backupOperation(.didOpenBackupDirectory)
-        try body(directory)
+        try body(BackupDirectoryHandles(
+            parentURL: parentURL,
+            name: name,
+            parent: parent,
+            directory: directory
+        ))
     }
 
     private func validatedBackupLayout() throws -> BackupLayout {
@@ -209,7 +297,7 @@ public struct DatabaseMigrator {
         in directory: Int32,
         version: Int32,
         layout: BackupLayout
-    ) throws {
+    ) throws -> CreatedBackup {
         let name = backupName(version)
         guard DatabaseBackupNaming.isBackupFilename(name), isSinglePathComponent(name) else {
             throw failure(SQLITE_CANTOPEN, "invalid migration backup name")
@@ -221,10 +309,12 @@ public struct DatabaseMigrator {
             S_IRUSR | S_IWUSR
         )
         guard descriptor >= 0 else { throw posixFailure("unable to create migration backup") }
-        var completed = false
+        var returned = false
         defer {
-            if !completed { unlinkCreatedFile(descriptor, in: directory, name: name) }
-            Darwin.close(descriptor)
+            if !returned {
+                unlinkCreatedFile(descriptor, in: directory, name: name)
+                Darwin.close(descriptor)
+            }
         }
 
         var destination: OpaquePointer?
@@ -242,19 +332,22 @@ public struct DatabaseMigrator {
         defer {
             if destinationOpen { sqlite3_close(destination) }
         }
-        guard let storage = sqlite3_malloc64(sqlite3_uint64(layout.byteCount)) else {
+        guard let storage = memoryOperations.allocate(layout.byteCount) else {
             throw failure(SQLITE_NOMEM, "unable to allocate bounded migration backup image")
         }
-        let deserializeResult = sqlite3_deserialize(
+        var ownershipTransferred = false
+        defer {
+            if !ownershipTransferred { memoryOperations.release(storage) }
+        }
+        ownershipTransferred = true
+        let deserializeResult = memoryOperations.deserialize(
             destination,
-            "main",
             storage,
             0,
             sqlite3_int64(layout.byteCount),
             UInt32(SQLITE_DESERIALIZE_FREEONCLOSE)
         )
         guard deserializeResult == SQLITE_OK else {
-            sqlite3_free(storage)
             throw failure(deserializeResult, "unable to initialize bounded migration backup image")
         }
         let maximumPages = max(1, Int64(maximumBackupBytes) / layout.pageSize)
@@ -323,10 +416,22 @@ public struct DatabaseMigrator {
         }
         guard fsync(descriptor) == 0 else { throw posixFailure("unable to sync migration backup") }
         guard fsync(directory) == 0 else { throw posixFailure("unable to sync migration backup directory") }
-        completed = true
+        let identity = try DatabaseBackupArtifact.validate(
+            descriptor: descriptor,
+            maximumBytes: maximumBackupBytes,
+            migrations: migrations
+        )
+        guard self.name(name, in: directory, binds: identity) else {
+            throw failure(SQLITE_CANTOPEN, "migration backup binding changed")
+        }
+        returned = true
+        return CreatedBackup(name: name, descriptor: descriptor, identity: identity)
     }
 
-    private func retainNewestTwoBackups(in directory: Int32) throws {
+    private func retainNewestTwoBackups(
+        in directory: Int32,
+        preserving created: CreatedBackup
+    ) throws -> [QuarantinedBackup] {
         let candidates = try listNames(in: directory).compactMap { name -> BackupCandidate? in
             guard DatabaseBackupNaming.isBackupFilename(name) else { return nil }
             let descriptor = openat(
@@ -335,37 +440,58 @@ public struct DatabaseMigrator {
                 O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
             )
             guard descriptor >= 0 else { return nil }
-            defer { Darwin.close(descriptor) }
-            var information = stat()
-            guard fstat(descriptor, &information) == 0,
-                  information.st_mode & S_IFMT == S_IFREG,
-                  information.st_nlink == 1 else { return nil }
-            return BackupCandidate(name: name, information: information)
-        }.sorted { lhs, rhs in
-            if lhs.information.st_mtimespec.tv_sec != rhs.information.st_mtimespec.tv_sec {
-                return lhs.information.st_mtimespec.tv_sec > rhs.information.st_mtimespec.tv_sec
+            do {
+                let identity = try DatabaseBackupArtifact.validate(
+                    descriptor: descriptor,
+                    maximumBytes: maximumBackupBytes,
+                    migrations: migrations
+                )
+                return BackupCandidate(
+                    name: name,
+                    descriptor: descriptor,
+                    identity: identity,
+                    isCreated: name == created.name && identity == created.identity
+                )
+            } catch {
+                Darwin.close(descriptor)
+                return nil
             }
-            if lhs.information.st_mtimespec.tv_nsec != rhs.information.st_mtimespec.tv_nsec {
-                return lhs.information.st_mtimespec.tv_nsec > rhs.information.st_mtimespec.tv_nsec
+        }.sorted { lhs, rhs in
+            if lhs.isCreated != rhs.isCreated { return lhs.isCreated }
+            if lhs.identity.modificationSeconds != rhs.identity.modificationSeconds {
+                return lhs.identity.modificationSeconds > rhs.identity.modificationSeconds
+            }
+            if lhs.identity.modificationNanoseconds != rhs.identity.modificationNanoseconds {
+                return lhs.identity.modificationNanoseconds > rhs.identity.modificationNanoseconds
             }
             return lhs.name > rhs.name
         }
+        defer { candidates.forEach { Darwin.close($0.descriptor) } }
 
-        var removed = false
-        for stale in candidates.dropFirst(2) {
-            var current = stat()
-            guard fstatat(directory, stale.name, &current, AT_SYMLINK_NOFOLLOW) == 0,
-                  current.st_dev == stale.information.st_dev,
-                  current.st_ino == stale.information.st_ino,
-                  current.st_nlink == 1,
-                  current.st_mode & S_IFMT == S_IFREG else { continue }
-            guard unlinkat(directory, stale.name, 0) == 0 else {
-                throw posixFailure("unable to prune migration backup")
+        var quarantined: [QuarantinedBackup] = []
+        do {
+            for stale in candidates.dropFirst(2) {
+                try backupOperation(.willPruneBackup(name: stale.name))
+                guard let currentIdentity = try? DatabaseBackupArtifact.validate(
+                    descriptor: stale.descriptor,
+                    maximumBytes: maximumBackupBytes,
+                    migrations: migrations
+                ), currentIdentity == stale.identity else { continue }
+                try backupOperation(.willQuarantineBackup(name: stale.name))
+                if let candidate = try quarantineCandidate(stale, in: directory) {
+                    quarantined.append(candidate)
+                }
             }
-            removed = true
-        }
-        if removed, fsync(directory) != 0 {
-            throw posixFailure("unable to sync migration backup retention")
+            if !quarantined.isEmpty {
+                try syncDirectory(
+                    directory,
+                    failureMessage: "unable to sync migration backup retention"
+                )
+            }
+            return quarantined
+        } catch {
+            restoreQuarantinedBackups(quarantined, in: directory)
+            throw error
         }
     }
 
@@ -392,17 +518,210 @@ public struct DatabaseMigrator {
 
     private func unlinkCreatedFile(_ descriptor: Int32, in directory: Int32, name: String) {
         var descriptorInfo = stat()
-        var namedInfo = stat()
-        guard fstat(descriptor, &descriptorInfo) == 0,
-              fstatat(directory, name, &namedInfo, AT_SYMLINK_NOFOLLOW) == 0,
-              descriptorInfo.st_dev == namedInfo.st_dev,
-              descriptorInfo.st_ino == namedInfo.st_ino else { return }
-        _ = unlinkat(directory, name, 0)
+        guard fstat(descriptor, &descriptorInfo) == 0 else { return }
+        let candidates = ([name] + ((try? listNames(in: directory)) ?? [])).uniqued()
+        for candidate in candidates {
+            var namedInfo = stat()
+            guard fstatat(directory, candidate, &namedInfo, AT_SYMLINK_NOFOLLOW) == 0,
+                  descriptorInfo.st_dev == namedInfo.st_dev,
+                  descriptorInfo.st_ino == namedInfo.st_ino else { continue }
+            let quarantine = ".tokenboard-cleanup-\(UUID().uuidString.lowercased())"
+            guard renameatx_np(
+                directory,
+                candidate,
+                directory,
+                quarantine,
+                UInt32(RENAME_EXCL)
+            ) == 0 else { continue }
+            var quarantinedInfo = stat()
+            var currentDescriptorInfo = stat()
+            guard fstat(descriptor, &currentDescriptorInfo) == 0,
+                  fstatat(directory, quarantine, &quarantinedInfo, AT_SYMLINK_NOFOLLOW) == 0,
+                  sameRegularFile(currentDescriptorInfo, quarantinedInfo) else {
+                restoreQuarantine(quarantine, to: candidate, in: directory)
+                continue
+            }
+            if unlinkat(directory, quarantine, 0) == 0 { _ = fsync(directory) }
+            return
+        }
+    }
+
+    private func quarantineCandidate(
+        _ candidate: BackupCandidate,
+        in directory: Int32
+    ) throws -> QuarantinedBackup? {
+        let quarantine = ".tokenboard-prune-\(UUID().uuidString.lowercased())"
+        guard renameatx_np(
+            directory,
+            candidate.name,
+            directory,
+            quarantine,
+            UInt32(RENAME_EXCL)
+        ) == 0 else {
+            if errno == ENOENT || errno == EEXIST { return nil }
+            throw posixFailure("unable to quarantine migration backup")
+        }
+        var quarantinedInfo = stat()
+        guard let currentIdentity = try? DatabaseBackupArtifact.validate(
+            descriptor: candidate.descriptor,
+            maximumBytes: maximumBackupBytes,
+            migrations: migrations
+        ), currentIdentity == candidate.identity,
+        fstatat(directory, quarantine, &quarantinedInfo, AT_SYMLINK_NOFOLLOW) == 0,
+        candidate.identity.binds(quarantinedInfo) else {
+            restoreQuarantine(quarantine, to: candidate.name, in: directory)
+            return nil
+        }
+        return QuarantinedBackup(originalName: candidate.name, quarantineName: quarantine)
+    }
+
+    private func finalizeQuarantinedBackups(
+        _ quarantined: [QuarantinedBackup],
+        in directory: Int32
+    ) throws {
+        for (index, candidate) in quarantined.enumerated() {
+            guard unlinkat(directory, candidate.quarantineName, 0) == 0 else {
+                restoreQuarantinedBackups(Array(quarantined[index...]), in: directory)
+                throw posixFailure("unable to prune migration backup")
+            }
+        }
+        if !quarantined.isEmpty {
+            try syncDirectory(directory, failureMessage: "unable to sync migration backup retention")
+        }
+    }
+
+    private func restoreQuarantinedBackups(
+        _ quarantined: [QuarantinedBackup],
+        in directory: Int32
+    ) {
+        for candidate in quarantined {
+            restoreQuarantine(
+                candidate.quarantineName,
+                to: candidate.originalName,
+                in: directory
+            )
+        }
+    }
+
+    private func restoreQuarantine(_ quarantine: String, to name: String, in directory: Int32) {
+        _ = renameatx_np(
+            directory,
+            quarantine,
+            directory,
+            name,
+            UInt32(RENAME_EXCL)
+        )
         _ = fsync(directory)
     }
 
+    private func sameRegularFile(_ lhs: stat, _ rhs: stat) -> Bool {
+        lhs.st_mode & S_IFMT == S_IFREG
+            && rhs.st_mode & S_IFMT == S_IFREG
+            && lhs.st_nlink == 1
+            && rhs.st_nlink == 1
+            && lhs.st_dev == rhs.st_dev
+            && lhs.st_ino == rhs.st_ino
+    }
+
+    private func syncDirectory(_ descriptor: Int32, failureMessage: String) throws {
+        while fsync(descriptor) != 0 {
+            if errno == EINTR { continue }
+            throw posixFailure(failureMessage)
+        }
+    }
+
     private func checksum(for sql: String) -> String {
-        SHA256.hash(data: Data(sql.utf8)).map { String(format: "%02x", $0) }.joined()
+        databaseMigrationChecksum(sql)
+    }
+
+    private func ensureCanonicalDirectoryBindings(_ handles: BackupDirectoryHandles) throws {
+        let currentParent = try openDirectoryPathNoFollow(handles.parentURL.path)
+        defer { Darwin.close(currentParent) }
+        guard directoriesMatch(handles.parent, currentParent),
+              directoryName(handles.name, in: currentParent, binds: handles.directory) else {
+            throw failure(SQLITE_CANTOPEN, "migration backup namespace changed")
+        }
+    }
+
+    private func openDirectoryPathNoFollow(_ path: String) throws -> Int32 {
+        guard path.hasPrefix("/") else {
+            throw failure(SQLITE_CANTOPEN, "invalid migration backup parent")
+        }
+        var descriptor = Darwin.open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+        guard descriptor >= 0 else { throw posixFailure("unable to open migration backup parent") }
+        do {
+            for component in path.split(separator: "/").map(String.init) {
+                guard isSinglePathComponent(component) else {
+                    throw failure(SQLITE_CANTOPEN, "invalid migration backup parent")
+                }
+                let next = openat(
+                    descriptor,
+                    component,
+                    O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW
+                )
+                guard next >= 0 else { throw posixFailure("unable to open migration backup parent") }
+                Darwin.close(descriptor)
+                descriptor = next
+            }
+            return descriptor
+        } catch {
+            Darwin.close(descriptor)
+            throw error
+        }
+    }
+
+    private func directoriesMatch(_ lhs: Int32, _ rhs: Int32) -> Bool {
+        var left = stat()
+        var right = stat()
+        return fstat(lhs, &left) == 0
+            && fstat(rhs, &right) == 0
+            && left.st_mode & S_IFMT == S_IFDIR
+            && right.st_mode & S_IFMT == S_IFDIR
+            && left.st_nlink > 0
+            && right.st_nlink > 0
+            && left.st_dev == right.st_dev
+            && left.st_ino == right.st_ino
+            && left.st_nlink == right.st_nlink
+    }
+
+    private func directoryIsLinked(_ descriptor: Int32) -> Bool {
+        var information = stat()
+        return fstat(descriptor, &information) == 0
+            && information.st_mode & S_IFMT == S_IFDIR
+            && information.st_nlink > 0
+    }
+
+    private func directoryName(_ name: String, in parent: Int32, binds descriptor: Int32) -> Bool {
+        var expected = stat()
+        var actual = stat()
+        return fstat(descriptor, &expected) == 0
+            && fstatat(parent, name, &actual, AT_SYMLINK_NOFOLLOW) == 0
+            && expected.st_mode & S_IFMT == S_IFDIR
+            && actual.st_mode & S_IFMT == S_IFDIR
+            && expected.st_nlink > 0
+            && actual.st_nlink > 0
+            && expected.st_dev == actual.st_dev
+            && expected.st_ino == actual.st_ino
+            && expected.st_nlink == actual.st_nlink
+    }
+
+    private func name(
+        _ name: String,
+        in directory: Int32,
+        binds identity: DatabaseBackupArtifactIdentity
+    ) -> Bool {
+        var information = stat()
+        return fstatat(directory, name, &information, AT_SYMLINK_NOFOLLOW) == 0
+            && identity.binds(information)
+    }
+
+    private func canonicalSystemURL(_ url: URL) -> URL {
+        let path = url.path
+        if path == "/var" || path.hasPrefix("/var/")
+            || path == "/tmp" || path.hasPrefix("/tmp/") {
+            return URL(fileURLWithPath: "/private" + path)
+        }
+        return url
     }
 
     private func corrupt(_ message: String) -> SQLiteFailure {
@@ -421,22 +740,61 @@ public struct DatabaseMigrator {
         !name.isEmpty && name != "." && name != ".." && !name.contains("/")
     }
 
-    private static let schemaMigrationsSQL = """
-    CREATE TABLE IF NOT EXISTS schema_migrations(
-      version INTEGER PRIMARY KEY,
-      name TEXT NOT NULL,
-      checksum TEXT NOT NULL,
-      applied_at TEXT NOT NULL
-    );
-    """
 }
 
-private struct BackupCandidate {
+let databaseSchemaMigrationsSQL = """
+CREATE TABLE IF NOT EXISTS schema_migrations(
+  version INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  checksum TEXT NOT NULL,
+  applied_at TEXT NOT NULL
+);
+"""
+
+private final class BackupCandidate {
     let name: String
-    let information: stat
+    let descriptor: Int32
+    let identity: DatabaseBackupArtifactIdentity
+    let isCreated: Bool
+    init(
+        name: String,
+        descriptor: Int32,
+        identity: DatabaseBackupArtifactIdentity,
+        isCreated: Bool
+    ) {
+        self.name = name
+        self.descriptor = descriptor
+        self.identity = identity
+        self.isCreated = isCreated
+    }
 }
 
 private struct BackupLayout {
     let pageSize: Int64
     let byteCount: Int
+}
+
+private struct BackupDirectoryHandles {
+    let parentURL: URL
+    let name: String
+    let parent: Int32
+    let directory: Int32
+}
+
+private struct CreatedBackup {
+    let name: String
+    let descriptor: Int32
+    let identity: DatabaseBackupArtifactIdentity
+}
+
+private struct QuarantinedBackup {
+    let originalName: String
+    let quarantineName: String
+}
+
+private extension Array where Element: Hashable {
+    func uniqued() -> [Element] {
+        var seen: Set<Element> = []
+        return filter { seen.insert($0).inserted }
+    }
 }

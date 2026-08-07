@@ -131,15 +131,28 @@ final class DatabaseRecoveryServiceTests: XCTestCase {
             backups.appending(path: "prefix-ledger-v1-300.sqlite"),
             backups.appending(path: "ledger-v1-300.sqlite.backup")
         ]
-        for file in [oldest, tiedA, tiedB] + impostors {
+        let validBytes = try await databaseBytes(quantity: 19)
+        for file in [oldest, tiedA, tiedB] {
+            try validBytes.write(to: file)
+        }
+        for file in impostors {
             try Data(file.lastPathComponent.utf8).write(to: file)
         }
+        let invalidLegacy = backups.appending(path: "ledger-v1-300.sqlite")
+        let invalidCanonical = backups.appending(
+            path: "ledger-v1-300-00000000-0000-4000-8000-000000000006.sqlite"
+        )
+        let invalidBytes = Data("regular-file-lookalike".utf8)
+        try invalidBytes.write(to: invalidLegacy)
+        try invalidBytes.write(to: invalidCanonical)
         try setModificationDate(Date(timeIntervalSince1970: 100), for: oldest)
         try setModificationDate(Date(timeIntervalSince1970: 200), for: tiedA)
         try setModificationDate(Date(timeIntervalSince1970: 200), for: tiedB)
         for file in impostors {
             try setModificationDate(Date(timeIntervalSince1970: 300), for: file)
         }
+        try setModificationDate(Date(timeIntervalSince1970: 300), for: invalidLegacy)
+        try setModificationDate(Date(timeIntervalSince1970: 300), for: invalidCanonical)
 
         let service = DatabaseRecoveryService(databaseURL: database, backupDirectory: backups)
         let result = try await service.availableBackups()
@@ -149,6 +162,8 @@ final class DatabaseRecoveryServiceTests: XCTestCase {
             "ledger-v1-200.sqlite",
             "ledger-v1-100.sqlite"
         ])
+        XCTAssertEqual(try Data(contentsOf: invalidLegacy), invalidBytes)
+        XCTAssertEqual(try Data(contentsOf: invalidCanonical), invalidBytes)
     }
 
     func testRestoreWaitsForShutdownThenRestoresLatestValidRows() async throws {
@@ -218,8 +233,8 @@ final class DatabaseRecoveryServiceTests: XCTestCase {
         let backups = setup.directory.appending(path: "Backups", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: backups, withIntermediateDirectories: true)
         let backup = backups.appending(path: "ledger-v1-100.sqlite")
-        try Data("backup-sentinel".utf8).write(to: backup)
         let databaseBefore = try Data(contentsOf: setup.database)
+        try databaseBefore.write(to: backup)
         let backupBefore = try Data(contentsOf: backup)
         let service = DatabaseRecoveryService(databaseURL: setup.database, backupDirectory: backups)
         let available = try await service.availableBackups()
@@ -236,7 +251,7 @@ final class DatabaseRecoveryServiceTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: backup), backupBefore)
     }
 
-    func testInvalidLatestBackupRollsBackOriginalAndPreservesBackup() async throws {
+    func testInvalidLatestBackupIsNotOfferedAndPreservesOriginalAndLookalike() async throws {
         let setup = try await makePopulatedLedger(quantity: 47)
         defer { try? FileManager.default.removeItem(at: setup.directory) }
         try await setup.ledger.shutdown()
@@ -248,11 +263,7 @@ final class DatabaseRecoveryServiceTests: XCTestCase {
         try invalidBytes.write(to: invalidBackup)
         let service = DatabaseRecoveryService(databaseURL: setup.database, backupDirectory: backups)
         let available = try await service.availableBackups()
-        let confirmed = try XCTUnwrap(available.first)
-
-        await XCTAssertThrowsErrorAsync {
-            _ = try await service.restore(confirmed) {}
-        }
+        XCTAssertEqual(available, [])
 
         XCTAssertEqual(try Data(contentsOf: setup.database), original)
         XCTAssertEqual(try Data(contentsOf: invalidBackup), invalidBytes)
@@ -433,7 +444,7 @@ final class DatabaseRecoveryServiceTests: XCTestCase {
         let backups = setup.directory.appending(path: "Backups", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: backups, withIntermediateDirectories: true)
         let backup = backups.appending(path: "ledger-v1-100.sqlite")
-        let backupBytes = Data(repeating: 0x5a, count: 128 * 1024)
+        let backupBytes = original
         try backupBytes.write(to: backup)
         let sidecar = setup.directory.appending(path: "ledger.sqlite-wal")
         let sidecarBytes = Data("sidecar".utf8)

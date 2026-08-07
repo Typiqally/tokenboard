@@ -323,7 +323,7 @@ public actor PricingInbox {
         }
     }
 
-    public func rejectPending() async throws {
+    func rejectPending() async throws {
         try beginOperation()
         defer { finishOperation() }
         try await performRejectPending()

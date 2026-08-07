@@ -1,4 +1,5 @@
 import CSQLite
+import CryptoKit
 import Darwin
 import Foundation
 
@@ -61,6 +62,18 @@ public final class SQLiteConnection {
         byteCount: Int,
         maximumBytes: Int
     ) throws -> SQLiteConnection {
+        try capturedRecoveryConnection(
+            descriptor: descriptor,
+            byteCount: byteCount,
+            maximumBytes: maximumBytes
+        ).connection
+    }
+
+    static func capturedRecoveryConnection(
+        descriptor: Int32,
+        byteCount: Int,
+        maximumBytes: Int
+    ) throws -> (connection: SQLiteConnection, digest: String) {
         guard byteCount >= 20, byteCount <= maximumBytes else {
             throw SQLiteFailure(code: SQLITE_NOTADB, message: "database image is too small")
         }
@@ -81,6 +94,7 @@ public final class SQLiteConnection {
         }
         let bytes = allocation.assumingMemoryBound(to: UInt8.self)
         var readCount = 0
+        var hasher = SHA256()
         while readCount < byteCount {
             let result = pread(descriptor, bytes.advanced(by: readCount), byteCount - readCount, off_t(readCount))
             guard result > 0 else {
@@ -89,8 +103,10 @@ public final class SQLiteConnection {
                 try? connection.close()
                 throw SQLiteFailure(code: SQLITE_IOERR, message: "unable to read recovery image")
             }
+            hasher.update(data: Data(bytes: bytes.advanced(by: readCount), count: result))
             readCount += result
         }
+        let digest = hasher.finalize().map { String(format: "%02x", $0) }.joined()
         // sqlite3_deserialize cannot accept a WAL-mode image. A completed checkpoint
         // makes the main file self-contained, so select rollback-journal mode in the
         // private image before SQLite sees it.
@@ -111,11 +127,19 @@ public final class SQLiteConnection {
         }
         do {
             try connection.execute("PRAGMA foreign_keys = ON;")
-            return connection
+            return (connection, digest)
         } catch {
             try? connection.close()
             throw error
         }
+    }
+
+    static func transient() throws -> SQLiteConnection {
+        try SQLiteConnection(
+            filename: ":memory:",
+            flags: SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX,
+            configureForLedger: false
+        )
     }
 
     static func immutableDescriptor(_ descriptor: Int32) throws -> SQLiteConnection {

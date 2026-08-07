@@ -17,6 +17,9 @@ public struct TokenboardHealth: Equatable, Sendable {
         case missingRoot
         case truncatedLog
         case replacedLog
+        case oversizedRecord
+        case unsafeSource
+        case missingStableIdentity
         case migrationFailure
         case integrityFailure
         case invalidPricingCandidate
@@ -33,6 +36,12 @@ public struct TokenboardHealth: Equatable, Sendable {
                 "A previously imported log was truncated; import is paused"
             case .replacedLog:
                 "A previously imported log changed; import is paused"
+            case .oversizedRecord:
+                "A source record is too large; import is paused at that record"
+            case .unsafeSource:
+                "A source file is unsafe; import is paused"
+            case .missingStableIdentity:
+                "A source log has no stable identity; import is paused"
             case .migrationFailure:
                 "Database migration failed; recovery is required"
             case .integrityFailure:

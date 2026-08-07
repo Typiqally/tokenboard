@@ -351,6 +351,39 @@ final class AppModelLifecycleTests: XCTestCase {
         XCTAssertNotNil(setup.model.state.lastUpdated)
     }
 
+    func testAttentionHealthMappingIsDistinctAndUsesDeterministicPrecedence() throws {
+        let setup = try makeSetup(approved: false)
+        defer { setup.cleanup() }
+        let individual: [(ScanOutcome.Attention, TokenboardHealth.Issue)] = [
+            (.unsafeSource, .unsafeSource),
+            (.oversizedRecord, .oversizedRecord),
+            (.truncated, .truncatedLog),
+            (.replaced, .replacedLog),
+            (.missingStableIdentity, .missingStableIdentity)
+        ]
+        for (attention, expected) in individual {
+            let issue = setup.model.healthIssue(for: ProviderIngestionDiagnostics(
+                skippedRecordCount: 0,
+                attention: [attention]
+            ))
+            XCTAssertEqual(issue, expected)
+            XCTAssertFalse(issue.message.localizedCaseInsensitiveContains("skipped"))
+        }
+
+        let mixed = setup.model.healthIssue(for: ProviderIngestionDiagnostics(
+            skippedRecordCount: 0,
+            attention: Set(individual.map(\.0))
+        ))
+        XCTAssertEqual(mixed, .unsafeSource)
+        XCTAssertEqual(
+            setup.model.healthIssue(for: ProviderIngestionDiagnostics(
+                skippedRecordCount: 1,
+                attention: []
+            )),
+            .unknownFormats
+        )
+    }
+
     func testStartupEventIsBufferedUntilCatchUpActivatesAndThenApplied() async throws {
         let startGate = AsyncTestGate()
         let setup = try makeSetup(approved: true, coordinatorStartGate: startGate)
@@ -1429,7 +1462,11 @@ private actor LifecycleInbox: AppPricingInboxWatching {
     ) throws -> PricingApplyOutcome {
         throw PricingInboxError.noPendingCandidate
     }
-    func rejectPending() {}
+    func rejectPending(
+        matching identity: PricingCandidateIdentity
+    ) throws -> PricingRejectOutcome {
+        throw PricingInboxError.noPendingCandidate
+    }
     func counts() -> [Int] { [starts, stops] }
 }
 

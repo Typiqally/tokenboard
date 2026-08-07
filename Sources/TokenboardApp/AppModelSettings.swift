@@ -74,15 +74,15 @@ extension AppModel {
         }
     }
 
-    func rejectPendingPricing() async {
+    func rejectPendingPricing(rejectedIdentity identity: PricingCandidateIdentity) async {
         await runSettingsOperation { [weak self] in
-            await self?.performRejectPendingPricing()
+            await self?.performRejectPendingPricing(rejectedIdentity: identity)
         }
     }
 
-    private func performRejectPendingPricing() async {
-        guard let identity = settingsState.pricing.pendingCandidate?.identity else {
-            setSettingsStatus("No pending pricing candidate")
+    private func performRejectPendingPricing(rejectedIdentity identity: PricingCandidateIdentity) async {
+        guard settingsState.pricing.pendingCandidate?.identity == identity else {
+            setSettingsStatus("Pricing candidate changed · Review the replacement before rejecting")
             return
         }
         setSettingsLoading(true)

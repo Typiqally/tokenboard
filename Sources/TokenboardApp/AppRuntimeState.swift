@@ -60,7 +60,6 @@ protocol AppPricingInboxWatching: Sendable {
     func status() async -> PricingInboxStatus
     func exportCurrentSnapshot() async throws
     func applyPending(matching identity: PricingCandidateIdentity) async throws -> PricingApplyOutcome
-    func rejectPending() async throws
     func rejectPending(matching identity: PricingCandidateIdentity) async throws -> PricingRejectOutcome
     func retryFinalization(
         matching identity: PricingCandidateIdentity
@@ -87,16 +86,6 @@ extension AppPricingInboxWatching {
 
     func status() async -> PricingInboxStatus {
         await pendingCandidate().map(PricingInboxStatus.valid) ?? .empty
-    }
-
-    func rejectPending(
-        matching identity: PricingCandidateIdentity
-    ) async throws -> PricingRejectOutcome {
-        guard await pendingCandidate()?.identity == identity else {
-            throw PricingInboxError.candidateChanged
-        }
-        try await rejectPending()
-        return .finalized
     }
 
     func retryFinalization(

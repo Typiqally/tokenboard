@@ -1,3 +1,4 @@
+import CSQLite
 import Darwin
 import Foundation
 import XCTest
@@ -186,25 +187,29 @@ final class DatabaseMigratorTests: XCTestCase {
         let database = directory.appending(path: "ledger.sqlite")
         let backups = directory.appending(path: "Backups")
         let connection = try SQLiteConnection(url: database)
-        try DatabaseMigrator(connection: connection, backupDirectory: backups, migrations: [
-            Migration(version: 1, name: "one", sql: "CREATE TABLE one(value INTEGER);")
-        ]).migrate()
+        try DatabaseMigrator(
+            connection: connection,
+            backupDirectory: backups,
+            migrations: [Migrations.v1]
+        ).migrate()
         try FileManager.default.createDirectory(at: backups, withIntermediateDirectories: true)
         let unrelated = backups.appending(path: "notes.txt")
         try Data("keep".utf8).write(to: unrelated)
+        let validBackup = try validV1BackupBytes()
         for second in 100...102 {
             let legacy = backups.appending(path: "ledger-v1-\(second).sqlite")
-            try Data("legacy-\(second)".utf8).write(to: legacy)
+            try validBackup.write(to: legacy)
             try FileManager.default.setAttributes(
                 [.modificationDate: Date(timeIntervalSince1970: TimeInterval(second))],
                 ofItemAtPath: legacy.path
             )
         }
 
-        try DatabaseMigrator(connection: connection, backupDirectory: backups, migrations: [
-            Migration(version: 1, name: "one", sql: "CREATE TABLE one(value INTEGER);"),
-            Migration(version: 2, name: "two", sql: "CREATE TABLE two(value INTEGER);")
-        ]).migrate()
+        try DatabaseMigrator(
+            connection: connection,
+            backupDirectory: backups,
+            migrations: Migrations.all
+        ).migrate()
 
         let names = try FileManager.default.contentsOfDirectory(atPath: backups.path)
         XCTAssertTrue(names.contains("notes.txt"))
@@ -217,6 +222,221 @@ final class DatabaseMigratorTests: XCTestCase {
             backupDirectory: backups
         ).availableBackups()
         XCTAssertTrue(available.contains { backupNames.contains($0.filename) })
+    }
+
+    func testDeserializeFailureTransfersStorageWithoutCallerRelease() throws {
+        let directory = try temporaryDirectory()
+        let database = directory.appending(path: "ledger.sqlite")
+        let backups = directory.appending(path: "Backups")
+        let connection = try SQLiteConnection(url: database)
+        try DatabaseMigrator(
+            connection: connection,
+            backupDirectory: backups,
+            migrations: [Migrations.v1]
+        ).migrate()
+        var allocated: UnsafeMutableRawPointer?
+        var callerReleaseCount = 0
+        let memory = DatabaseMigrationMemoryOperations(
+            allocate: { byteCount in
+                let pointer = UnsafeMutableRawPointer.allocate(
+                    byteCount: max(1, byteCount),
+                    alignment: MemoryLayout<UInt8>.alignment
+                )
+                allocated = pointer
+                return pointer
+            },
+            deserialize: { _, _, _, _, _ in SQLITE_ERROR },
+            release: { _ in callerReleaseCount += 1 }
+        )
+
+        XCTAssertThrowsError(try DatabaseMigrator(
+            connection: connection,
+            backupDirectory: backups,
+            migrations: Migrations.all,
+            backupName: { _ in
+                "ledger-v1-100-00000000-0000-4000-8000-000000000000.sqlite"
+            },
+            memoryOperations: memory
+        ).migrate())
+
+        XCTAssertEqual(callerReleaseCount, 0)
+        allocated?.deallocate()
+        XCTAssertEqual(try connection.userVersion, 1)
+        XCTAssertEqual(
+            try connection.queryStrings(
+                "SELECT name FROM sqlite_master WHERE name = 'daily_usage_quantity_integer_insert';"
+            ),
+            []
+        )
+    }
+
+    func testNewerInvalidBackupLookalikesArePreservedAndCannotEvictValidBackups() async throws {
+        let directory = try temporaryDirectory()
+        let database = directory.appending(path: "ledger.sqlite")
+        let backups = directory.appending(path: "Backups")
+        let connection = try SQLiteConnection(url: database)
+        try DatabaseMigrator(
+            connection: connection,
+            backupDirectory: backups,
+            migrations: [Migrations.v1]
+        ).migrate()
+        try FileManager.default.createDirectory(at: backups, withIntermediateDirectories: true)
+        let validBytes = try validV1BackupBytes()
+        let validOld = backups.appending(path: "ledger-v1-100.sqlite")
+        let validNew = backups.appending(path: "ledger-v1-200.sqlite")
+        try validBytes.write(to: validOld)
+        try validBytes.write(to: validNew)
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 100)],
+            ofItemAtPath: validOld.path
+        )
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 200)],
+            ofItemAtPath: validNew.path
+        )
+        let invalidLegacy = backups.appending(path: "ledger-v1-300.sqlite")
+        let invalidCanonical = backups.appending(
+            path: "ledger-v1-400-00000000-0000-4000-8000-000000000001.sqlite"
+        )
+        let invalidLegacyBytes = Data("not-a-database-legacy".utf8)
+        let metadataForgedBytes = try metadataOnlyV1BackupBytes()
+        try invalidLegacyBytes.write(to: invalidLegacy)
+        try metadataForgedBytes.write(to: invalidCanonical)
+        for invalid in [invalidLegacy, invalidCanonical] {
+            try FileManager.default.setAttributes(
+                [.modificationDate: Date(timeIntervalSince1970: 4_000_000_000)],
+                ofItemAtPath: invalid.path
+            )
+        }
+        let createdName = "ledger-v1-500-00000000-0000-4000-8000-000000000002.sqlite"
+
+        try DatabaseMigrator(
+            connection: connection,
+            backupDirectory: backups,
+            migrations: Migrations.all,
+            backupName: { _ in createdName }
+        ).migrate()
+
+        let names = try Set(FileManager.default.contentsOfDirectory(atPath: backups.path))
+        XCTAssertTrue(names.contains(createdName))
+        XCTAssertTrue(names.contains(validNew.lastPathComponent))
+        XCTAssertFalse(names.contains(validOld.lastPathComponent))
+        XCTAssertTrue(names.contains(invalidLegacy.lastPathComponent))
+        XCTAssertTrue(names.contains(invalidCanonical.lastPathComponent))
+        XCTAssertEqual(try Data(contentsOf: invalidLegacy), invalidLegacyBytes)
+        XCTAssertEqual(try Data(contentsOf: invalidCanonical), metadataForgedBytes)
+        let available = try await DatabaseRecoveryService(
+            databaseURL: database,
+            backupDirectory: backups
+        ).availableBackups()
+        XCTAssertEqual(Set(available.map(\.filename)), Set([createdName, validNew.lastPathComponent]))
+    }
+
+    func testBackupArtifactValidationRejectsContentMutationWithRestoredMetadata() throws {
+        let directory = try temporaryDirectory()
+        let backup = directory.appending(path: "ledger-v1-100.sqlite")
+        try validV1BackupBytes().write(to: backup)
+        let descriptor = open(backup.path, O_RDWR | O_CLOEXEC | O_NOFOLLOW)
+        XCTAssertTrue(descriptor >= 0)
+        defer { if descriptor >= 0 { Darwin.close(descriptor) } }
+        var original = stat()
+        XCTAssertEqual(fstat(descriptor, &original), 0)
+
+        XCTAssertThrowsError(try DatabaseBackupArtifact.validate(
+            descriptor: descriptor,
+            maximumBytes: DatabaseRecoveryService.maximumRecoveryImageBytes,
+            migrations: Migrations.all,
+            afterDatabaseValidation: {
+                var byte: UInt8 = 0
+                XCTAssertEqual(pread(descriptor, &byte, 1, 100), 1)
+                byte ^= 0xff
+                XCTAssertEqual(pwrite(descriptor, &byte, 1, 100), 1)
+                XCTAssertEqual(fsync(descriptor), 0)
+                var timestamps = [original.st_atimespec, original.st_mtimespec]
+                XCTAssertEqual(futimens(descriptor, &timestamps), 0)
+            }
+        ))
+    }
+
+    func testBackupArtifactValidationRejectsABAContentSwapAroundDatabaseValidation() throws {
+        let directory = try temporaryDirectory()
+        let backup = directory.appending(path: "ledger-v1-100.sqlite")
+        let validBytes = try validV1BackupBytes()
+        var invalidBytes = validBytes
+        invalidBytes[100] ^= 0xff
+        try invalidBytes.write(to: backup)
+        let descriptor = open(backup.path, O_RDWR | O_CLOEXEC | O_NOFOLLOW)
+        XCTAssertTrue(descriptor >= 0)
+        defer { if descriptor >= 0 { Darwin.close(descriptor) } }
+        var original = stat()
+        XCTAssertEqual(fstat(descriptor, &original), 0)
+
+        XCTAssertThrowsError(try DatabaseBackupArtifact.validate(
+            descriptor: descriptor,
+            maximumBytes: DatabaseRecoveryService.maximumRecoveryImageBytes,
+            migrations: Migrations.all,
+            afterSnapshotCapture: {
+                try self.overwrite(descriptor: descriptor, with: validBytes)
+            },
+            afterDatabaseValidation: {
+                try self.overwrite(descriptor: descriptor, with: invalidBytes)
+                var timestamps = [original.st_atimespec, original.st_mtimespec]
+                XCTAssertEqual(futimens(descriptor, &timestamps), 0)
+            }
+        ))
+    }
+
+    func testNewBackupDirectoryEntryIsSyncedBeforeBackupDirectoryUse() throws {
+        let directory = try temporaryDirectory()
+        let database = directory.appending(path: "ledger.sqlite")
+        let backups = directory.appending(path: "Backups")
+        let connection = try SQLiteConnection(url: database)
+        try DatabaseMigrator(
+            connection: connection,
+            backupDirectory: backups,
+            migrations: [Migrations.v1]
+        ).migrate(createPreMigrationBackup: false)
+        var operations: [DatabaseMigrationBackupOperation] = []
+
+        try DatabaseMigrator(
+            connection: connection,
+            backupDirectory: backups,
+            migrations: Migrations.all,
+            backupName: { _ in
+                "ledger-v1-100-00000000-0000-4000-8000-000000000008.sqlite"
+            },
+            backupOperation: { operations.append($0) }
+        ).migrate()
+
+        XCTAssertEqual(operations.first, .didSyncBackupDirectoryEntry)
+        XCTAssertTrue(operations.contains(.didOpenBackupDirectory))
+    }
+
+    func testExistingBackupDirectoryEntryIsSyncedBeforeBackupDirectoryUse() throws {
+        let directory = try temporaryDirectory()
+        let database = directory.appending(path: "ledger.sqlite")
+        let backups = directory.appending(path: "Backups")
+        let connection = try SQLiteConnection(url: database)
+        try DatabaseMigrator(
+            connection: connection,
+            backupDirectory: backups,
+            migrations: [Migrations.v1]
+        ).migrate(createPreMigrationBackup: false)
+        try FileManager.default.createDirectory(at: backups, withIntermediateDirectories: true)
+        var operations: [DatabaseMigrationBackupOperation] = []
+
+        try DatabaseMigrator(
+            connection: connection,
+            backupDirectory: backups,
+            migrations: Migrations.all,
+            backupName: { _ in
+                "ledger-v1-100-00000000-0000-4000-8000-000000000011.sqlite"
+            },
+            backupOperation: { operations.append($0) }
+        ).migrate()
+
+        XCTAssertEqual(operations.first, .didSyncBackupDirectoryEntry)
+        XCTAssertTrue(operations.contains(.didOpenBackupDirectory))
     }
 
     func testBackupCreationRejectsExistingRegularSymlinkHardlinkAndFIFOWithoutOverwriting() throws {
@@ -263,9 +483,11 @@ final class DatabaseMigratorTests: XCTestCase {
         let database = directory.appending(path: "ledger.sqlite")
         let backups = directory.appending(path: "Backups")
         let connection = try SQLiteConnection(url: database)
-        try DatabaseMigrator(connection: connection, backupDirectory: backups, migrations: [
-            Migration(version: 1, name: "one", sql: "CREATE TABLE one(value INTEGER);")
-        ]).migrate()
+        try DatabaseMigrator(
+            connection: connection,
+            backupDirectory: backups,
+            migrations: [Migrations.v1]
+        ).migrate()
         try FileManager.default.createDirectory(at: backups, withIntermediateDirectories: true)
         let outside = directory.appending(path: "outside")
         try Data("outside".utf8).write(to: outside)
@@ -276,10 +498,11 @@ final class DatabaseMigratorTests: XCTestCase {
         try FileManager.default.linkItem(at: outside, to: hardlink)
         XCTAssertEqual(mkfifo(fifo.path, S_IRUSR | S_IWUSR), 0)
 
-        try DatabaseMigrator(connection: connection, backupDirectory: backups, migrations: [
-            Migration(version: 1, name: "one", sql: "CREATE TABLE one(value INTEGER);"),
-            Migration(version: 2, name: "two", sql: "CREATE TABLE two(value INTEGER);")
-        ]).migrate()
+        try DatabaseMigrator(
+            connection: connection,
+            backupDirectory: backups,
+            migrations: Migrations.all
+        ).migrate()
 
         XCTAssertEqual(try Data(contentsOf: outside), Data("outside".utf8))
         XCTAssertTrue(FileManager.default.fileExists(atPath: symlink.path))
@@ -289,18 +512,181 @@ final class DatabaseMigratorTests: XCTestCase {
         XCTAssertEqual(fifoInfo.st_mode & S_IFMT, S_IFIFO)
     }
 
-    func testRetainedBackupDirectoryDescriptorDefeatsParentPathReplacement() throws {
+    func testBackupDirectoryReplacementFailsBeforeSchemaWriteAndCleansCreatedArtifact() throws {
         let directory = try temporaryDirectory()
         let database = directory.appending(path: "ledger.sqlite")
         let backups = directory.appending(path: "Backups")
         let retained = directory.appending(path: "RetainedBackups")
         let outside = directory.appending(path: "OutsideBackups")
         let connection = try SQLiteConnection(url: database)
+        try DatabaseMigrator(
+            connection: connection,
+            backupDirectory: backups,
+            migrations: [Migrations.v1]
+        ).migrate()
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        let name = "ledger-v1-100-00000000-0000-4000-8000-000000000000.sqlite"
+        let migrator = DatabaseMigrator(
+            connection: connection,
+            backupDirectory: backups,
+            migrations: Migrations.all,
+            backupName: { _ in name },
+            backupOperation: { operation in
+                guard operation == .didOpenBackupDirectory else { return }
+                try FileManager.default.moveItem(at: backups, to: retained)
+                try FileManager.default.createSymbolicLink(at: backups, withDestinationURL: outside)
+            }
+        )
+
+        XCTAssertThrowsError(try migrator.migrate())
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: retained.appending(path: name).path))
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: outside.path), [])
+        XCTAssertEqual(try connection.userVersion, 1)
+        XCTAssertEqual(
+            try connection.queryStrings(
+                "SELECT name FROM sqlite_master WHERE name = 'daily_usage_quantity_integer_insert';"
+            ),
+            []
+        )
+    }
+
+    func testBackupDirectoryReplacementAfterArtifactValidationFailsBeforeSchemaWrite() throws {
+        let directory = try temporaryDirectory()
+        let database = directory.appending(path: "ledger.sqlite")
+        let backups = directory.appending(path: "Backups")
+        let retained = directory.appending(path: "RetainedBackups")
+        let replacement = directory.appending(path: "ReplacementBackups")
+        let connection = try SQLiteConnection(url: database)
+        try DatabaseMigrator(
+            connection: connection,
+            backupDirectory: backups,
+            migrations: [Migrations.v1]
+        ).migrate()
+        try FileManager.default.createDirectory(at: replacement, withIntermediateDirectories: true)
+        let name = "ledger-v1-100-00000000-0000-4000-8000-000000000007.sqlite"
+
+        XCTAssertThrowsError(try DatabaseMigrator(
+            connection: connection,
+            backupDirectory: backups,
+            migrations: Migrations.all,
+            backupName: { _ in name },
+            backupOperation: { operation in
+                guard operation == .didValidateCreatedBackup else { return }
+                try FileManager.default.moveItem(at: backups, to: retained)
+                try FileManager.default.createSymbolicLink(
+                    at: backups,
+                    withDestinationURL: replacement
+                )
+            }
+        ).migrate())
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: retained.appending(path: name).path))
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: replacement.path), [])
+        XCTAssertEqual(try connection.userVersion, 1)
+        XCTAssertEqual(
+            try connection.queryStrings(
+                "SELECT name FROM sqlite_master WHERE name = 'daily_usage_quantity_integer_insert';"
+            ),
+            []
+        )
+    }
+
+    func testCreatedBackupReplacementAfterArtifactValidationFailsBeforeSchemaWrite() throws {
+        let directory = try temporaryDirectory()
+        let database = directory.appending(path: "ledger.sqlite")
+        let backups = directory.appending(path: "Backups")
+        let connection = try SQLiteConnection(url: database)
+        try DatabaseMigrator(
+            connection: connection,
+            backupDirectory: backups,
+            migrations: [Migrations.v1]
+        ).migrate()
+        let name = "ledger-v1-100-00000000-0000-4000-8000-000000000009.sqlite"
+        let renamed = backups.appending(path: "renamed-after-validation.sqlite")
+        let replacement = Data("replacement-after-validation".utf8)
+
+        XCTAssertThrowsError(try DatabaseMigrator(
+            connection: connection,
+            backupDirectory: backups,
+            migrations: Migrations.all,
+            backupName: { _ in name },
+            backupOperation: { operation in
+                guard operation == .didValidateCreatedBackup else { return }
+                try FileManager.default.moveItem(at: backups.appending(path: name), to: renamed)
+                try replacement.write(to: backups.appending(path: name))
+            }
+        ).migrate())
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: renamed.path))
+        XCTAssertEqual(try Data(contentsOf: backups.appending(path: name)), replacement)
+        XCTAssertEqual(try connection.userVersion, 1)
+    }
+
+    func testFinalBindingFailureRestoresBothOriginalBackupsAndCleansCreatedBackup() throws {
+        let directory = try temporaryDirectory()
+        let database = directory.appending(path: "ledger.sqlite")
+        let backups = directory.appending(path: "Backups")
+        let retained = directory.appending(path: "RetainedBackups")
+        let replacement = directory.appending(path: "ReplacementBackups")
+        let connection = try SQLiteConnection(url: database)
+        try DatabaseMigrator(
+            connection: connection,
+            backupDirectory: backups,
+            migrations: [Migrations.v1]
+        ).migrate()
+        try FileManager.default.createDirectory(at: backups, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: replacement, withIntermediateDirectories: true)
+        let validBytes = try validV1BackupBytes()
+        let originalNames = ["ledger-v1-100.sqlite", "ledger-v1-200.sqlite"]
+        for (index, originalName) in originalNames.enumerated() {
+            let original = backups.appending(path: originalName)
+            try validBytes.write(to: original)
+            try FileManager.default.setAttributes(
+                [.modificationDate: Date(timeIntervalSince1970: TimeInterval(100 + index))],
+                ofItemAtPath: original.path
+            )
+        }
+        let createdName = "ledger-v1-300-00000000-0000-4000-8000-000000000012.sqlite"
+
+        XCTAssertThrowsError(try DatabaseMigrator(
+            connection: connection,
+            backupDirectory: backups,
+            migrations: Migrations.all,
+            backupName: { _ in createdName },
+            backupOperation: { operation in
+                guard operation == .didValidateCreatedBackup else { return }
+                try FileManager.default.moveItem(at: backups, to: retained)
+                try FileManager.default.createSymbolicLink(
+                    at: backups,
+                    withDestinationURL: replacement
+                )
+            }
+        ).migrate())
+
+        XCTAssertEqual(
+            Set(try FileManager.default.contentsOfDirectory(atPath: retained.path)),
+            Set(originalNames)
+        )
+        for originalName in originalNames {
+            XCTAssertEqual(try Data(contentsOf: retained.appending(path: originalName)), validBytes)
+        }
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: replacement.path), [])
+        XCTAssertEqual(try connection.userVersion, 1)
+    }
+
+    func testBackupParentReplacementFailsBeforeSchemaWriteAndCleansCreatedArtifact() throws {
+        let root = try temporaryDirectory()
+        let parent = root.appending(path: "CanonicalParent")
+        let retainedParent = root.appending(path: "RetainedParent")
+        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+        let database = parent.appending(path: "ledger.sqlite")
+        let backups = parent.appending(path: "Backups")
+        let connection = try SQLiteConnection(url: database)
         try DatabaseMigrator(connection: connection, backupDirectory: backups, migrations: [
             Migration(version: 1, name: "one", sql: "CREATE TABLE one(value INTEGER);")
         ]).migrate()
-        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
-        let name = "ledger-v1-100-00000000-0000-4000-8000-000000000000.sqlite"
+        let name = "ledger-v1-100-00000000-0000-4000-8000-000000000003.sqlite"
         let migrator = DatabaseMigrator(
             connection: connection,
             backupDirectory: backups,
@@ -311,15 +697,147 @@ final class DatabaseMigratorTests: XCTestCase {
             backupName: { _ in name },
             backupOperation: { operation in
                 guard operation == .didOpenBackupDirectory else { return }
-                try FileManager.default.moveItem(at: backups, to: retained)
-                try FileManager.default.createSymbolicLink(at: backups, withDestinationURL: outside)
+                try FileManager.default.moveItem(at: parent, to: retainedParent)
+                try FileManager.default.createDirectory(
+                    at: parent.appending(path: "Backups"),
+                    withIntermediateDirectories: true
+                )
             }
         )
 
-        try migrator.migrate()
+        XCTAssertThrowsError(try migrator.migrate())
 
-        XCTAssertTrue(FileManager.default.fileExists(atPath: retained.appending(path: name).path))
-        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: outside.path), [])
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: retainedParent.appending(path: "Backups/\(name)").path
+        ))
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(atPath: parent.appending(path: "Backups").path),
+            []
+        )
+        XCTAssertEqual(try connection.userVersion, 1)
+        XCTAssertEqual(try connection.queryStrings("SELECT name FROM sqlite_master WHERE name = 'two';"), [])
+    }
+
+    func testCreatedBackupNameReplacementFailsBeforeSchemaWriteAndCleansRenamedArtifact() throws {
+        let directory = try temporaryDirectory()
+        let database = directory.appending(path: "ledger.sqlite")
+        let backups = directory.appending(path: "Backups")
+        let connection = try SQLiteConnection(url: database)
+        try DatabaseMigrator(connection: connection, backupDirectory: backups, migrations: [
+            Migration(version: 1, name: "one", sql: "CREATE TABLE one(value INTEGER);")
+        ]).migrate()
+        let name = "ledger-v1-100-00000000-0000-4000-8000-000000000004.sqlite"
+        let renamed = backups.appending(path: "renamed-created.sqlite")
+        let replacement = Data("replacement-must-survive".utf8)
+        let migrator = DatabaseMigrator(
+            connection: connection,
+            backupDirectory: backups,
+            migrations: [
+                Migration(version: 1, name: "one", sql: "CREATE TABLE one(value INTEGER);"),
+                Migration(version: 2, name: "two", sql: "CREATE TABLE two(value INTEGER);")
+            ],
+            backupName: { _ in name },
+            backupOperation: { operation in
+                guard case .didSerializeBackup = operation else { return }
+                try FileManager.default.moveItem(at: backups.appending(path: name), to: renamed)
+                try replacement.write(to: backups.appending(path: name))
+            }
+        )
+
+        XCTAssertThrowsError(try migrator.migrate())
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: renamed.path))
+        XCTAssertEqual(try Data(contentsOf: backups.appending(path: name)), replacement)
+        XCTAssertEqual(try connection.userVersion, 1)
+        XCTAssertEqual(try connection.queryStrings("SELECT name FROM sqlite_master WHERE name = 'two';"), [])
+    }
+
+    func testRetentionRevalidatesCandidateImmediatelyBeforeUnlink() throws {
+        let directory = try temporaryDirectory()
+        let database = directory.appending(path: "ledger.sqlite")
+        let backups = directory.appending(path: "Backups")
+        let connection = try SQLiteConnection(url: database)
+        try DatabaseMigrator(
+            connection: connection,
+            backupDirectory: backups,
+            migrations: [Migrations.v1]
+        ).migrate()
+        try FileManager.default.createDirectory(at: backups, withIntermediateDirectories: true)
+        let validBytes = try validV1BackupBytes()
+        for second in 100...102 {
+            let url = backups.appending(path: "ledger-v1-\(second).sqlite")
+            try validBytes.write(to: url)
+            try FileManager.default.setAttributes(
+                [.modificationDate: Date(timeIntervalSince1970: TimeInterval(second))],
+                ofItemAtPath: url.path
+            )
+        }
+        let changedName = "ledger-v1-101.sqlite"
+        let changedBytes = Data("changed-after-validation".utf8)
+        let createdName = "ledger-v1-200-00000000-0000-4000-8000-000000000005.sqlite"
+        try DatabaseMigrator(
+            connection: connection,
+            backupDirectory: backups,
+            migrations: Migrations.all,
+            backupName: { _ in createdName },
+            backupOperation: { operation in
+                guard operation == .willPruneBackup(name: changedName) else { return }
+                try changedBytes.write(to: backups.appending(path: changedName))
+            }
+        ).migrate()
+
+        XCTAssertEqual(try Data(contentsOf: backups.appending(path: changedName)), changedBytes)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: backups.appending(path: createdName).path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: backups.appending(path: "ledger-v1-102.sqlite").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: backups.appending(path: "ledger-v1-100.sqlite").path))
+    }
+
+    func testRetentionQuarantinePreservesReplacementIntroducedAtDestructiveBoundary() throws {
+        let directory = try temporaryDirectory()
+        let database = directory.appending(path: "ledger.sqlite")
+        let backups = directory.appending(path: "Backups")
+        let connection = try SQLiteConnection(url: database)
+        try DatabaseMigrator(
+            connection: connection,
+            backupDirectory: backups,
+            migrations: [Migrations.v1]
+        ).migrate()
+        try FileManager.default.createDirectory(at: backups, withIntermediateDirectories: true)
+        let validBytes = try validV1BackupBytes()
+        for second in 100...102 {
+            let url = backups.appending(path: "ledger-v1-\(second).sqlite")
+            try validBytes.write(to: url)
+            try FileManager.default.setAttributes(
+                [.modificationDate: Date(timeIntervalSince1970: TimeInterval(second))],
+                ofItemAtPath: url.path
+            )
+        }
+        let targetName = "ledger-v1-101.sqlite"
+        let preserved = backups.appending(path: "preserved-original.sqlite")
+        let replacement = Data("replacement-at-quarantine-boundary".utf8)
+        var didRunHook = false
+
+        try DatabaseMigrator(
+            connection: connection,
+            backupDirectory: backups,
+            migrations: Migrations.all,
+            backupName: { _ in
+                "ledger-v1-200-00000000-0000-4000-8000-000000000010.sqlite"
+            },
+            backupOperation: { operation in
+                guard operation == .willQuarantineBackup(name: targetName) else { return }
+                didRunHook = true
+                try FileManager.default.moveItem(
+                    at: backups.appending(path: targetName),
+                    to: preserved
+                )
+                try replacement.write(to: backups.appending(path: targetName))
+            }
+        ).migrate()
+
+        XCTAssertTrue(didRunHook)
+        XCTAssertEqual(try Data(contentsOf: backups.appending(path: targetName)), replacement)
+        XCTAssertEqual(try Data(contentsOf: preserved), validBytes)
     }
 
     func testBoundedBackupAcceptsExactPageImageAndUsesNoCopySerialization() throws {
@@ -447,5 +965,62 @@ final class DatabaseMigratorTests: XCTestCase {
         let shim = try String(contentsOf: TestRepository.root.appending(path: "Sources/CSQLite/sqlite_shim.h"))
         XCTAssertTrue(moduleMap.contains("header \"sqlite_shim.h\""))
         XCTAssertTrue(shim.contains("#include <sqlite3.h>"))
+    }
+
+    private func validV1BackupBytes() throws -> Data {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let database = directory.appending(path: "ledger.sqlite")
+        let connection = try SQLiteConnection(url: database)
+        try DatabaseMigrator(
+            connection: connection,
+            backupDirectory: directory.appending(path: "Backups"),
+            migrations: [Migrations.v1]
+        ).migrate(createPreMigrationBackup: false)
+        try connection.checkpointWAL()
+        try connection.close()
+        return try Data(contentsOf: database)
+    }
+
+    private func metadataOnlyV1BackupBytes() throws -> Data {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let database = directory.appending(path: "ledger.sqlite")
+        let connection = try SQLiteConnection(url: database)
+        try connection.execute("""
+        CREATE TABLE schema_migrations(
+          version INTEGER PRIMARY KEY,
+          name TEXT NOT NULL,
+          checksum TEXT NOT NULL,
+          applied_at TEXT NOT NULL
+        );
+        INSERT INTO schema_migrations(version, name, checksum, applied_at)
+        VALUES(1, '\(Migrations.v1.name)', '\(databaseMigrationChecksum(Migrations.v1.sql))', 'now');
+        PRAGMA user_version = 1;
+        """)
+        try connection.checkpointWAL()
+        try connection.close()
+        return try Data(contentsOf: database)
+    }
+
+    private func overwrite(descriptor: Int32, with data: Data) throws {
+        var offset = 0
+        try data.withUnsafeBytes { bytes in
+            while offset < data.count {
+                let result = pwrite(
+                    descriptor,
+                    bytes.baseAddress!.advanced(by: offset),
+                    data.count - offset,
+                    off_t(offset)
+                )
+                guard result > 0 else {
+                    if result < 0, errno == EINTR { continue }
+                    throw SQLiteFailure(code: SQLITE_IOERR, message: "test overwrite failed")
+                }
+                offset += result
+            }
+        }
+        XCTAssertEqual(ftruncate(descriptor, off_t(data.count)), 0)
+        XCTAssertEqual(fsync(descriptor), 0)
     }
 }

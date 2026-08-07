@@ -153,9 +153,9 @@ struct PricingSettingsView: View {
                                   selection.identity == identity else { return }
                             reviewSelection = selection
                         }
-                    case .reject:
+                    case let .reject(identity):
                         Button("Reject", role: .destructive) {
-                            Task { await model.rejectPendingPricing() }
+                            Task { await model.rejectPendingPricing(rejectedIdentity: identity) }
                         }
                     }
                 }

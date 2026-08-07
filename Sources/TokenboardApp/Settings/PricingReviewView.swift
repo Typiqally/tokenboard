@@ -31,7 +31,7 @@ struct PricingReviewView: View {
                 Spacer()
                 Button("Reject", role: .destructive) {
                     Task {
-                        await model.rejectPendingPricing()
+                        await model.rejectPendingPricing(rejectedIdentity: review.identity)
                         dismiss()
                     }
                 }

@@ -717,8 +717,26 @@ extension AppModel {
         for diagnostics: ProviderIngestionDiagnostics?
     ) -> TokenboardHealth.Issue {
         guard let diagnostics else { return .unknownFormats }
-        if diagnostics.attention.contains(.truncated) { return .truncatedLog }
-        if diagnostics.attention.contains(.replaced) { return .replacedLog }
+        let priority: [ScanOutcome.Attention] = [
+            .unsafeSource,
+            .oversizedRecord,
+            .truncated,
+            .replaced,
+            .missingStableIdentity
+        ]
+        for attention in priority where diagnostics.attention.contains(attention) {
+            return healthIssue(for: attention)
+        }
         return .unknownFormats
+    }
+
+    private func healthIssue(for attention: ScanOutcome.Attention) -> TokenboardHealth.Issue {
+        switch attention {
+        case .unsafeSource: .unsafeSource
+        case .oversizedRecord: .oversizedRecord
+        case .truncated: .truncatedLog
+        case .replaced: .replacedLog
+        case .missingStableIdentity: .missingStableIdentity
+        }
     }
 }

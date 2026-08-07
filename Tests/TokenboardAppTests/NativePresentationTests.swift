@@ -267,7 +267,11 @@ private actor PresentationInbox: AppPricingInboxWatching {
     ) throws -> PricingApplyOutcome {
         throw PricingInboxError.noPendingCandidate
     }
-    func rejectPending() {}
+    func rejectPending(
+        matching identity: PricingCandidateIdentity
+    ) throws -> PricingRejectOutcome {
+        throw PricingInboxError.noPendingCandidate
+    }
 }
 
 private final class PresentationBookmarkAccess: SecurityScopedBookmarkAccessing, @unchecked Sendable {

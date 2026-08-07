@@ -84,7 +84,7 @@ final class SettingsTests: XCTestCase {
         let captured = recoveryFiles.backup
         let backups = recoveryFiles.root.appending(path: "Backups", directoryHint: .isDirectory)
         let newerURL = backups.appending(path: "ledger-v2-200.sqlite")
-        try Data("newer-backup".utf8).write(to: newerURL)
+        try Data(contentsOf: recoveryFiles.root.appending(path: "ledger.sqlite")).write(to: newerURL)
         try FileManager.default.setAttributes(
             [.modificationDate: Date(timeIntervalSince1970: 9_999)],
             ofItemAtPath: newerURL.path
@@ -409,12 +409,18 @@ final class SettingsTests: XCTestCase {
         )
         let backups = root.appending(path: "Backups", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: backups, withIntermediateDirectories: true)
-        try Data("current".utf8).write(to: root.appending(path: "ledger.sqlite"))
-        try Data("backup".utf8).write(
-            to: backups.appending(path: "ledger-v1-100.sqlite")
-        )
+        let database = root.appending(path: "ledger.sqlite")
+        let connection = try SQLiteConnection(url: database)
+        try DatabaseMigrator(
+            connection: connection,
+            backupDirectory: backups,
+            migrations: Migrations.all
+        ).migrate(createPreMigrationBackup: false)
+        try connection.checkpointWAL()
+        try connection.close()
+        try Data(contentsOf: database).write(to: backups.appending(path: "ledger-v1-100.sqlite"))
         let service = DatabaseRecoveryService(
-            databaseURL: root.appending(path: "ledger.sqlite"),
+            databaseURL: database,
             backupDirectory: backups
         )
         let available = try await service.availableBackups()
@@ -846,8 +852,11 @@ final class SettingsTests: XCTestCase {
         await setup.model.start()
         await setup.model.refreshSettings()
         let pricingBefore = await setup.ledger.currentPricing()
+        let rejectedIdentity = try XCTUnwrap(
+            setup.model.settingsState.pricing.pendingCandidate?.identity
+        )
 
-        await setup.model.rejectPendingPricing()
+        await setup.model.rejectPendingPricing(rejectedIdentity: rejectedIdentity)
 
         let inboxCounts = await setup.inbox.counts()
         let pricingAfter = await setup.ledger.currentPricing()
@@ -855,6 +864,61 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(inboxCounts.apply, 0)
         XCTAssertEqual(pricingAfter, pricingBefore)
         XCTAssertEqual(setup.model.settingsState.statusMessage, "Pricing candidate rejected · Active pricing unchanged")
+    }
+
+    func testSettingsRejectKeepsReplacementWhenRenderedActionIdentityIsStale() async throws {
+        let setup = try makeSetup(candidate: validatedCandidate())
+        defer { setup.cleanup() }
+        await setup.model.start()
+        await setup.model.refreshSettings()
+        let actions = PricingSettingsView(model: setup.model).candidateActions
+        let renderedIdentity: PricingCandidateIdentity
+        guard case let .reject(identity)? = actions.last else {
+            return XCTFail("missing rendered Reject action")
+        }
+        renderedIdentity = identity
+
+        await setup.inbox.replaceCandidate(with: try validatedCandidate(
+            catalogID: "replacement-settings-reject",
+            modelID: "gpt-replacement-settings"
+        ))
+        await setup.model.rejectPendingPricing(rejectedIdentity: renderedIdentity)
+
+        let counts = await setup.inbox.counts()
+        XCTAssertEqual(counts.reject, 0)
+        XCTAssertEqual(
+            setup.model.settingsState.pricing.pendingCandidate?.catalog.catalogID,
+            "replacement-settings-reject"
+        )
+        XCTAssertEqual(
+            setup.model.settingsState.statusMessage,
+            "Pricing candidate changed · Review the replacement before rejecting"
+        )
+    }
+
+    func testReviewSheetRejectKeepsReplacementWhenCapturedReviewIdentityIsStale() async throws {
+        let setup = try makeSetup(candidate: validatedCandidate())
+        defer { setup.cleanup() }
+        await setup.model.start()
+        await setup.model.refreshSettings()
+        let review = try XCTUnwrap(PricingSettingsView(model: setup.model).currentReviewSelection)
+
+        await setup.inbox.replaceCandidate(with: try validatedCandidate(
+            catalogID: "replacement-review-reject",
+            modelID: "gpt-replacement-review"
+        ))
+        await setup.model.rejectPendingPricing(rejectedIdentity: review.identity)
+
+        let counts = await setup.inbox.counts()
+        XCTAssertEqual(counts.reject, 0)
+        XCTAssertEqual(
+            setup.model.settingsState.pricing.pendingCandidate?.catalog.catalogID,
+            "replacement-review-reject"
+        )
+        XCTAssertEqual(
+            setup.model.settingsState.statusMessage,
+            "Pricing candidate changed · Review the replacement before rejecting"
+        )
     }
 
     func testCopyPromptExportsFirstAndWritesOnePlainTextStringWithExactPaths() async throws {

@@ -160,16 +160,24 @@ public actor DatabaseRecoveryService {
             defer { Darwin.close(descriptor) }
             do {
                 _ = try boundedByteCount(of: descriptor, unsafe: .unsafeBackup)
+                let artifactIdentity = try DatabaseBackupArtifact.validate(
+                    descriptor: descriptor,
+                    maximumBytes: maximumRecoveryImageBytes,
+                    migrations: Migrations.all
+                )
+                backups.append(DatabaseBackup(
+                    filename: filename,
+                    identity: RecoveryFileIdentity(artifact: artifactIdentity)
+                ))
             } catch DatabaseRecoveryError.backupTooLarge {
+                foundOversized = true
+                continue
+            } catch DatabaseBackupArtifactError.tooLarge {
                 foundOversized = true
                 continue
             } catch {
                 continue
             }
-            backups.append(DatabaseBackup(
-                filename: filename,
-                identity: try identity(of: descriptor)
-            ))
         }
         if backups.isEmpty, foundOversized {
             throw DatabaseRecoveryError.backupTooLarge(
@@ -1385,6 +1393,15 @@ private struct RecoveryFileIdentity: Equatable, Sendable {
         modificationSeconds = Int64(information.st_mtimespec.tv_sec)
         modificationNanoseconds = Int64(information.st_mtimespec.tv_nsec)
         self.digest = digest
+    }
+
+    init(artifact: DatabaseBackupArtifactIdentity) {
+        device = artifact.device
+        inode = artifact.inode
+        size = artifact.size
+        modificationSeconds = artifact.modificationSeconds
+        modificationNanoseconds = artifact.modificationNanoseconds
+        digest = artifact.digest
     }
 
     var modificationDate: Date {
