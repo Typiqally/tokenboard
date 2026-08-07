@@ -14,9 +14,11 @@ enum NativeMenuBuilder {
     static func makeMenu(
         state: AppPublishedState?,
         startupError: String?,
-        target: AnyObject?
+        target: AnyObject?,
+        isRestoringDatabase: Bool = false
     ) -> BuiltNativeMenu {
         let menu = NSMenu()
+        menu.autoenablesItems = false
         let statusTitle: String
 
         if let presentation = state?.presentation {
@@ -34,8 +36,16 @@ enum NativeMenuBuilder {
         }
 
         menu.addItem(.separator())
-        menu.addItem(periodMenuItem(state: state, target: target))
-        menu.addItem(displayMetricMenuItem(state: state, target: target))
+        menu.addItem(periodMenuItem(
+            state: state,
+            target: target,
+            isEnabled: !isRestoringDatabase
+        ))
+        menu.addItem(displayMetricMenuItem(
+            state: state,
+            target: target,
+            isEnabled: !isRestoringDatabase
+        ))
         menu.addItem(.separator())
 
         if let state {
@@ -55,7 +65,8 @@ enum NativeMenuBuilder {
             "Refresh Now",
             action: NSSelectorFromString("refresh"),
             target: target,
-            keyEquivalent: "r"
+            keyEquivalent: "r",
+            isEnabled: !isRestoringDatabase
         ))
         var pricingTitle = "Pricing"
         if let unpriced = state?.presentation?.unpricedTitle {
@@ -64,30 +75,35 @@ enum NativeMenuBuilder {
         menu.addItem(actionItem(
             pricingTitle,
             action: NSSelectorFromString("openPricing"),
-            target: target
+            target: target,
+            isEnabled: !isRestoringDatabase
         ))
         menu.addItem(actionItem(
             "Settings",
             action: NSSelectorFromString("openSettings"),
             target: target,
-            keyEquivalent: ","
+            keyEquivalent: ",",
+            isEnabled: !isRestoringDatabase
         ))
         menu.addItem(.separator())
         menu.addItem(actionItem(
             "Quit Tokenboard",
             action: NSSelectorFromString("quit"),
             target: target,
-            keyEquivalent: "q"
+            keyEquivalent: "q",
+            isEnabled: !isRestoringDatabase
         ))
         return BuiltNativeMenu(menu: menu, statusTitle: statusTitle, updatedItem: updatedItem)
     }
 
     private static func periodMenuItem(
         state: AppPublishedState?,
-        target: AnyObject?
+        target: AnyObject?,
+        isEnabled: Bool
     ) -> NSMenuItem {
         let parent = NSMenuItem(title: "Period", action: nil, keyEquivalent: "")
         let submenu = NSMenu(title: "Period")
+        submenu.autoenablesItems = false
         let choices: [(CalendarPeriod, String)] = [
             (.today, "Today"),
             (.thisWeek, "This Week"),
@@ -99,33 +115,39 @@ enum NativeMenuBuilder {
             let item = actionItem(
                 title,
                 action: NSSelectorFromString("selectPeriod:"),
-                target: target
+                target: target,
+                isEnabled: isEnabled
             )
             item.representedObject = period.rawValue
             item.state = state?.selectedPeriod == period ? .on : .off
             submenu.addItem(item)
         }
         parent.submenu = submenu
+        parent.isEnabled = isEnabled
         return parent
     }
 
     private static func displayMetricMenuItem(
         state: AppPublishedState?,
-        target: AnyObject?
+        target: AnyObject?,
+        isEnabled: Bool
     ) -> NSMenuItem {
         let parent = NSMenuItem(title: "Menu Bar Shows", action: nil, keyEquivalent: "")
         let submenu = NSMenu(title: "Menu Bar Shows")
+        submenu.autoenablesItems = false
         for (metric, title) in [(DisplayMetric.tokens, "Tokens"), (.apiValue, "API Value")] {
             let item = actionItem(
                 title,
                 action: NSSelectorFromString("selectDisplayMetric:"),
-                target: target
+                target: target,
+                isEnabled: isEnabled
             )
             item.representedObject = metric.rawValue
             item.state = state?.selectedDisplayMetric == metric ? .on : .off
             submenu.addItem(item)
         }
         parent.submenu = submenu
+        parent.isEnabled = isEnabled
         return parent
     }
 
@@ -133,10 +155,12 @@ enum NativeMenuBuilder {
         _ title: String,
         action: Selector,
         target: AnyObject?,
-        keyEquivalent: String = ""
+        keyEquivalent: String = "",
+        isEnabled: Bool = true
     ) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: keyEquivalent)
         item.target = target
+        item.isEnabled = isEnabled
         return item
     }
 
@@ -168,16 +192,25 @@ final class MenuController: NSObject, NSMenuDelegate {
         startupError = nil
         super.init()
         stateObservation = model.$state
+            .combineLatest(model.$settingsState)
             .dropFirst()
-            .sink { [weak self] state in self?.rebuildMenu(state: state) }
-        rebuildMenu(state: model.state)
+            .sink { [weak self] state, settings in
+                self?.rebuildMenu(
+                    state: state,
+                    isRestoringDatabase: settings.isRestoringDatabase
+                )
+            }
+        rebuildMenu(
+            state: model.state,
+            isRestoringDatabase: model.settingsState.isRestoringDatabase
+        )
     }
 
     init(startupError: Error) {
         model = nil
         self.startupError = "Startup paused: \(String(describing: startupError))"
         super.init()
-        rebuildMenu(state: nil)
+        rebuildMenu(state: nil, isRestoringDatabase: false)
     }
 
     func menuWillOpen(_ menu: NSMenu) {
@@ -196,11 +229,15 @@ final class MenuController: NSObject, NSMenuDelegate {
     var renderedMenu: NSMenu? { statusItem.menu }
     var renderedStatusTitle: String? { statusItem.button?.title }
 
-    private func rebuildMenu(state: AppPublishedState?) {
+    private func rebuildMenu(
+        state: AppPublishedState?,
+        isRestoringDatabase: Bool
+    ) {
         let built = NativeMenuBuilder.makeMenu(
             state: state,
             startupError: startupError,
-            target: self
+            target: self,
+            isRestoringDatabase: isRestoringDatabase
         )
         built.menu.delegate = self
         statusItem.button?.title = built.statusTitle

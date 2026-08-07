@@ -219,6 +219,7 @@ extension AppModel {
     }
 
     func revealLocalData() {
+        guard !isDatabaseRestoreInProgress else { return }
         localDataRevealer.reveal([applicationPaths.root])
     }
 
@@ -243,13 +244,17 @@ extension AppModel {
     }
 
     func restoreLatestBackup() async {
+        guard let confirmedBackup = settingsState.recoveryBackups.first else { return }
+        await restoreBackup(confirmedBackup)
+    }
+
+    func restoreBackup(_ confirmedBackup: DatabaseBackup) async {
         if let restoreActivity {
             await restoreActivity.task.value
             return
         }
         guard case .recoveryRequired = state.health.database,
-              !settingsState.isRestoringDatabase,
-              let confirmedBackup = settingsState.recoveryBackups.first else { return }
+              !settingsState.isRestoringDatabase else { return }
         restoreActivityGeneration &+= 1
         let id = restoreActivityGeneration
         let task = Task { @MainActor [weak self] in
@@ -276,6 +281,16 @@ extension AppModel {
             nextSettings = settingsState
             nextSettings.isRestoringDatabase = false
             nextSettings.statusMessage = "Backup from \(backup.modificationDate.formatted(date: .abbreviated, time: .shortened)) restored and verified · Quit and reopen Tokenboard"
+            commitSettingsState(nextSettings)
+            publishStoppedState()
+        } catch let recoveryError as DatabaseRecoveryError
+            where recoveryError == .cleanupPending
+                || recoveryError == .restoreFailedCleanupPending {
+            nextSettings = settingsState
+            nextSettings.isRestoringDatabase = false
+            nextSettings.statusMessage = recoveryError == .cleanupPending
+                ? "Restore completed and verified · A recovery artifact was preserved for cleanup · Quit and reopen Tokenboard"
+                : "Original database rollback completed · A recovery artifact was preserved for cleanup · Quit or Reveal Data"
             commitSettingsState(nextSettings)
             publishStoppedState()
         } catch {
@@ -396,6 +411,7 @@ extension AppModel {
             }
         }
         guard !isWriterQuiescing,
+              !isDatabaseRestoreInProgress,
               state.lifecycle != .shuttingDown,
               state.lifecycle != .stopped else { return }
         settingsActivityGeneration &+= 1

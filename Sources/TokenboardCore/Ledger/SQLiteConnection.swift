@@ -20,12 +20,24 @@ public final class SQLiteConnection {
     let handle: OpaquePointer
     private var isClosed = false
 
-    public init(url: URL) throws {
+    public convenience init(url: URL) throws {
+        try self.init(
+            filename: url.path,
+            flags: SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX,
+            configureForLedger: true
+        )
+    }
+
+    private init(
+        filename: String,
+        flags: Int32,
+        configureForLedger: Bool
+    ) throws {
         var pointer: OpaquePointer?
         let result = sqlite3_open_v2(
-            url.path,
+            filename,
             &pointer,
-            SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX,
+            flags,
             nil
         )
         guard result == SQLITE_OK, let pointer else {
@@ -37,8 +49,78 @@ public final class SQLiteConnection {
         }
 
         handle = pointer
-        try execute("PRAGMA foreign_keys = ON;")
-        try execute("PRAGMA journal_mode = WAL;")
+        if configureForLedger {
+            try execute("PRAGMA foreign_keys = ON;")
+            try execute("PRAGMA journal_mode = WAL;")
+        }
+    }
+
+    static func recoveryConnection(serialized data: Data) throws -> SQLiteConnection {
+        var rollbackJournalData = data
+        guard rollbackJournalData.count >= 20 else {
+            throw SQLiteFailure(code: SQLITE_NOTADB, message: "database image is too small")
+        }
+        // sqlite3_deserialize cannot accept a WAL-mode image. A completed checkpoint
+        // makes the main file self-contained, so select rollback-journal mode in the
+        // private image before SQLite sees it.
+        rollbackJournalData[18] = 1
+        rollbackJournalData[19] = 1
+
+        let connection = try SQLiteConnection(
+            filename: ":memory:",
+            flags: SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX,
+            configureForLedger: false
+        )
+        let minimumCapacity = rollbackJournalData.count
+        let capacity = max(minimumCapacity * 2, minimumCapacity + 16 * 1_024 * 1_024)
+        guard let allocation = sqlite3_malloc64(sqlite3_uint64(capacity)) else {
+            try? connection.close()
+            throw SQLiteFailure(code: SQLITE_NOMEM, message: "unable to allocate recovery image")
+        }
+        rollbackJournalData.copyBytes(
+            to: allocation.assumingMemoryBound(to: UInt8.self),
+            count: rollbackJournalData.count
+        )
+        let result = sqlite3_deserialize(
+            connection.handle,
+            "main",
+            allocation.assumingMemoryBound(to: UInt8.self),
+            sqlite3_int64(rollbackJournalData.count),
+            sqlite3_int64(capacity),
+            UInt32(SQLITE_DESERIALIZE_FREEONCLOSE | SQLITE_DESERIALIZE_RESIZEABLE)
+        )
+        guard result == SQLITE_OK else {
+            // FREEONCLOSE transfers ownership even when sqlite3_deserialize fails.
+            try? connection.close()
+            throw SQLiteFailure(code: result, message: "unable to deserialize recovery image")
+        }
+        do {
+            try connection.execute("PRAGMA foreign_keys = ON;")
+            return connection
+        } catch {
+            try? connection.close()
+            throw error
+        }
+    }
+
+    static func immutableDescriptor(_ descriptor: Int32) throws -> SQLiteConnection {
+        try SQLiteConnection(
+            filename: "file:/dev/fd/\(descriptor)?immutable=1",
+            flags: SQLITE_OPEN_READONLY | SQLITE_OPEN_URI | SQLITE_OPEN_FULLMUTEX,
+            configureForLedger: false
+        )
+    }
+
+    func serializedDatabase() throws -> Data {
+        var size: sqlite3_int64 = 0
+        guard let bytes = sqlite3_serialize(handle, "main", &size, 0), size >= 0 else {
+            throw SQLiteFailure(
+                code: sqlite3_errcode(handle),
+                message: String(cString: sqlite3_errmsg(handle))
+            )
+        }
+        defer { sqlite3_free(bytes) }
+        return Data(bytes: bytes, count: Int(size))
     }
 
     deinit {
@@ -57,6 +139,34 @@ public final class SQLiteConnection {
             )
         }
         isClosed = true
+    }
+
+    public func checkpointWAL() throws {
+        var logFrames: Int32 = -1
+        var checkpointedFrames: Int32 = -1
+        let result = sqlite3_wal_checkpoint_v2(
+            handle,
+            nil,
+            SQLITE_CHECKPOINT_TRUNCATE,
+            &logFrames,
+            &checkpointedFrames
+        )
+        guard result == SQLITE_OK else {
+            throw SQLiteFailure(
+                code: result,
+                message: String(cString: sqlite3_errmsg(handle))
+            )
+        }
+        let noWAL = logFrames == -1 && checkpointedFrames == -1
+        let completeWAL = logFrames >= 0
+            && checkpointedFrames >= 0
+            && checkpointedFrames == logFrames
+        guard noWAL || completeWAL else {
+            throw SQLiteFailure(
+                code: SQLITE_BUSY,
+                message: "WAL checkpoint did not complete"
+            )
+        }
     }
 
     public func execute(_ sql: String) throws {

@@ -88,6 +88,8 @@ public actor PricingInbox {
     public static let temporaryCandidateFilename = "tokenboard-pricing.candidate.json.tmp"
     static let processingFilenamePrefix = ".candidate-processing-"
     static let processingFilenameSuffix = ".json"
+    static let appliedProcessingFilenamePrefix = ".candidate-processing-applied-"
+    static let rejectedProcessingFilenamePrefix = ".candidate-processing-rejected-"
 
     private let ledger: any LedgerStore
     private let applicationSupportDirectory: URL
@@ -500,7 +502,8 @@ public actor PricingInbox {
         var isolated = record
         switch record.location {
         case .candidate:
-            let processing = Self.processingFilename()
+            guard let resolution else { throw PricingInboxError.resolutionInProgress }
+            let processing = Self.processingFilename(for: resolution)
             do {
                 try fileSystem.moveInbox(from: Self.candidateFilename, to: processing, exclusive: true)
             } catch {
@@ -628,25 +631,45 @@ public actor PricingInbox {
                   let catalog = try? validate(opened.data) else {
                 continue
             }
-            if let latestApplied,
-               catalog.canonicalJSON == latestApplied.canonicalJSON {
+            switch Self.processingDisposition(of: name) {
+            case .rejected:
                 try installArchive(
-                    latestApplied.canonicalJSON,
-                    catalogID: latestApplied.catalogID,
-                    directory: .applied
+                    catalog.canonicalJSON,
+                    catalogID: catalog.catalogID,
+                    directory: .rejected
                 )
                 try fileSystem.removeInbox(name: name)
-            } else if !restoredUncommitted {
-                do {
-                    try fileSystem.moveInbox(from: name, to: Self.candidateFilename, exclusive: true)
-                    restoredUncommitted = true
-                } catch {
-                    if Self.completedMove(error, from: name, to: Self.candidateFilename) {
+            case .applied, .legacy:
+                if let latestApplied,
+                   catalog.canonicalJSON == latestApplied.canonicalJSON {
+                    try installArchive(
+                        latestApplied.canonicalJSON,
+                        catalogID: latestApplied.catalogID,
+                        directory: .applied
+                    )
+                    try fileSystem.removeInbox(name: name)
+                } else if !restoredUncommitted {
+                    do {
+                        try fileSystem.moveInbox(
+                            from: name,
+                            to: Self.candidateFilename,
+                            exclusive: true
+                        )
                         restoredUncommitted = true
-                    } else {
-                        continue
+                    } catch {
+                        if Self.completedMove(
+                            error,
+                            from: name,
+                            to: Self.candidateFilename
+                        ) {
+                            restoredUncommitted = true
+                        } else {
+                            continue
+                        }
                     }
                 }
+            case nil:
+                continue
             }
         }
     }
@@ -704,8 +727,12 @@ public actor PricingInbox {
         try PricingCatalogValidator().validate(PricingCatalogLoader().load(data))
     }
 
-    private static func processingFilename() -> String {
-        "\(processingFilenamePrefix)\(UUID().uuidString)\(processingFilenameSuffix)"
+    private static func processingFilename(for resolution: CandidateResolution) -> String {
+        let prefix = switch resolution {
+        case .applying: appliedProcessingFilenamePrefix
+        case .rejecting: rejectedProcessingFilenamePrefix
+        }
+        return "\(prefix)\(UUID().uuidString)\(processingFilenameSuffix)"
     }
 
     private static func completedMove(_ error: Error, from: String, to: String) -> Bool {
@@ -721,9 +748,26 @@ public actor PricingInbox {
     }
 
     private static func isProcessingFilename(_ name: String) -> Bool {
-        name.hasPrefix(processingFilenamePrefix)
-            && name.hasSuffix(processingFilenameSuffix)
-            && name.count > processingFilenamePrefix.count + processingFilenameSuffix.count
+        processingDisposition(of: name) != nil
+    }
+
+    private static func processingDisposition(
+        of name: String
+    ) -> ProcessingDisposition? {
+        guard name.hasSuffix(processingFilenameSuffix) else { return nil }
+        if name.hasPrefix(appliedProcessingFilenamePrefix),
+           name.count > appliedProcessingFilenamePrefix.count + processingFilenameSuffix.count {
+            return .applied
+        }
+        if name.hasPrefix(rejectedProcessingFilenamePrefix),
+           name.count > rejectedProcessingFilenamePrefix.count + processingFilenameSuffix.count {
+            return .rejected
+        }
+        if name.hasPrefix(processingFilenamePrefix),
+           name.count > processingFilenamePrefix.count + processingFilenameSuffix.count {
+            return .legacy
+        }
+        return nil
     }
 
     private static func invalidReason(for error: Error) -> PricingInboxInvalidReason {
@@ -801,6 +845,12 @@ private struct RejectedRecord: Sendable {
 private enum CandidateResolution: Sendable {
     case applying
     case rejecting
+}
+
+private enum ProcessingDisposition: Sendable {
+    case applied
+    case rejected
+    case legacy
 }
 
 private enum CandidateLocation: Sendable {

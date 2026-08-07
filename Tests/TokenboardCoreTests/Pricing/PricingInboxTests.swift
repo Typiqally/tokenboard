@@ -792,6 +792,111 @@ final class PricingInboxTests: XCTestCase {
         )
     }
 
+    func testRelaunchFinalizesRejectedDispositionWithoutPresentingOrApplyingIt() async throws {
+        let root = try makeRoot(label: "RejectedDispositionRelaunch")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let validated = try PricingCatalogValidator().validate(
+            PricingCatalogLoader().load(candidateData(id: "rejected-residue"))
+        )
+        let processingName = ".candidate-processing-rejected-relaunch.json"
+        try validated.canonicalJSON.write(
+            to: root.appending(path: "Pricing/Inbox/\(processingName)")
+        )
+        let ledger = PricingInboxTestLedger(latestApplied: nil)
+        let inbox = PricingInbox(
+            ledger: ledger,
+            applicationSupportDirectory: root,
+            bundledCatalogData: bundledData()
+        )
+
+        try await inbox.start()
+
+        let pending = await inbox.pendingCandidate()
+        let applyCalls = await ledger.applyCallCountValue()
+        XCTAssertNil(pending)
+        XCTAssertEqual(applyCalls, 0)
+        guard pending == nil, applyCalls == 0 else {
+            throw PricingResidueTestError.unexpectedRejectedState
+        }
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: root.appending(path: "Pricing/Inbox/\(processingName)").path
+        ))
+        XCTAssertEqual(
+            try Data(contentsOf: root.appending(path: "Pricing/Rejected/rejected-residue.json")),
+            validated.canonicalJSON
+        )
+        await assertInboxError(.noPendingCandidate) { try await inbox.applyPending() }
+    }
+
+    func testRelaunchRestoresUncommittedAppliedDispositionForExplicitRetry() async throws {
+        let root = try makeRoot(label: "AppliedDispositionPrecommitRelaunch")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let validated = try PricingCatalogValidator().validate(
+            PricingCatalogLoader().load(candidateData(id: "applied-precommit-residue"))
+        )
+        let processingName = ".candidate-processing-applied-relaunch.json"
+        try validated.canonicalJSON.write(
+            to: root.appending(path: "Pricing/Inbox/\(processingName)")
+        )
+        let ledger = PricingInboxTestLedger(latestApplied: nil)
+        let inbox = PricingInbox(
+            ledger: ledger,
+            applicationSupportDirectory: root,
+            bundledCatalogData: bundledData()
+        )
+
+        try await inbox.start()
+
+        let pending = await inbox.pendingCandidate()
+        let applyCalls = await ledger.applyCallCountValue()
+        XCTAssertEqual(pending?.catalog.catalogID, "applied-precommit-residue")
+        XCTAssertEqual(applyCalls, 0)
+        guard pending?.catalog.catalogID == "applied-precommit-residue", applyCalls == 0 else {
+            throw PricingResidueTestError.unexpectedAppliedState
+        }
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: root.appending(path: "Pricing/Inbox/\(processingName)").path
+        ))
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: root.appending(path: "Pricing/Inbox/\(PricingInbox.candidateFilename)").path
+        ))
+    }
+
+    func testRelaunchFinalizesCommittedAppliedDispositionWithoutReapplying() async throws {
+        let root = try makeRoot(label: "AppliedDispositionCommittedRelaunch")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let validated = try PricingCatalogValidator().validate(
+            PricingCatalogLoader().load(candidateData(id: "applied-committed-residue"))
+        )
+        let processingName = ".candidate-processing-applied-committed.json"
+        try validated.canonicalJSON.write(
+            to: root.appending(path: "Pricing/Inbox/\(processingName)")
+        )
+        let ledger = PricingInboxTestLedger(latestApplied: validated.canonicalJSON)
+        let inbox = PricingInbox(
+            ledger: ledger,
+            applicationSupportDirectory: root,
+            bundledCatalogData: bundledData()
+        )
+
+        try await inbox.start()
+
+        let pending = await inbox.pendingCandidate()
+        let applyCalls = await ledger.applyCallCountValue()
+        XCTAssertNil(pending)
+        XCTAssertEqual(applyCalls, 0)
+        guard pending == nil, applyCalls == 0 else {
+            throw PricingResidueTestError.unexpectedAppliedState
+        }
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: root.appending(path: "Pricing/Inbox/\(processingName)").path
+        ))
+        XCTAssertEqual(
+            try Data(contentsOf: root.appending(path: "Pricing/Applied/applied-committed-residue.json")),
+            validated.canonicalJSON
+        )
+    }
+
     func testRetainedDirectoriesDefeatParentPathSwap() async throws {
         let root = try makeRoot(label: "ParentSwap")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -1260,6 +1365,11 @@ private func assertInboxError(
     } catch {
         XCTFail("expected \(expected), got \(error)", file: file, line: line)
     }
+}
+
+private enum PricingResidueTestError: Error {
+    case unexpectedRejectedState
+    case unexpectedAppliedState
 }
 
 private func XCTAssertThrowsErrorAsync(

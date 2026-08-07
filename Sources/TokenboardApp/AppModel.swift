@@ -20,6 +20,9 @@ final class AppModel: ObservableObject {
     var lastUpdated: Date? { state.lastUpdated }
     var canStartHistoricalImport: Bool { state.canStartHistoricalImport }
     var isSourceMutationInProgress: Bool { sourceMutation != nil }
+    var isDatabaseRestoreInProgress: Bool {
+        restoreActivity != nil || settingsState.isRestoringDatabase
+    }
 
     let ledger: any AppLedgerRuntime
     let queryService: any AppUsageQuerying
@@ -141,6 +144,7 @@ final class AppModel: ObservableObject {
     }
 
     func refresh() async {
+        guard !isDatabaseRestoreInProgress else { return }
         guard state.health.database == .healthy else { return }
         guard await ensureReady(retryFailed: true) else { return }
         guard isReadyForSources else { return }
@@ -160,7 +164,8 @@ final class AppModel: ObservableObject {
     }
 
     func select(period: CalendarPeriod) async {
-        guard state.lifecycle != .stopped,
+        guard !isDatabaseRestoreInProgress,
+              state.lifecycle != .stopped,
               state.lifecycle != .shuttingDown else { return }
         preferences.selectedPeriod = period
         var next = state
@@ -170,7 +175,8 @@ final class AppModel: ObservableObject {
     }
 
     func select(displayMetric: DisplayMetric) async {
-        guard state.lifecycle != .stopped,
+        guard !isDatabaseRestoreInProgress,
+              state.lifecycle != .stopped,
               state.lifecycle != .shuttingDown else { return }
         preferences.selectedDisplayMetric = displayMetric
         var next = state
@@ -186,8 +192,15 @@ final class AppModel: ObservableObject {
         await startSourceMutation(.choose(provider))
     }
 
-    func openPricing() { onOpenPricing?() }
-    func openSettings() { onOpenSettings?() }
+    func openPricing() {
+        guard !isDatabaseRestoreInProgress else { return }
+        onOpenPricing?()
+    }
+
+    func openSettings() {
+        guard !isDatabaseRestoreInProgress else { return }
+        onOpenSettings?()
+    }
 
     @discardableResult
     func shutdown() async -> Bool {

@@ -38,6 +38,125 @@ final class SettingsTests: XCTestCase {
         XCTAssertTrue(setup.model.settingsState.statusMessage?.contains("restored and verified") == true)
     }
 
+    func testRestoreUsesTheExactBackupCapturedByConfirmationWhenListChanges() async throws {
+        let recoveryFiles = try await makeRecoveryBackup()
+        defer { try? FileManager.default.removeItem(at: recoveryFiles.root) }
+        let captured = recoveryFiles.backup
+        let backups = recoveryFiles.root.appending(path: "Backups", directoryHint: .isDirectory)
+        let newerURL = backups.appending(path: "ledger-v2-200.sqlite")
+        try Data("newer-backup".utf8).write(to: newerURL)
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 9_999)],
+            ofItemAtPath: newerURL.path
+        )
+        let listing = try await DatabaseRecoveryService(
+            databaseURL: recoveryFiles.root.appending(path: "ledger.sqlite"),
+            backupDirectory: backups
+        ).availableBackups()
+        let newer = try XCTUnwrap(listing.first { $0.id != captured.id })
+        let recovery = SettingsRecovery(backup: captured)
+        let setup = try makeSetup(candidate: nil, databaseRecovery: recovery)
+        defer { setup.cleanup() }
+        publishRecoveryRequired(in: setup.model)
+        await setup.model.refreshSettings()
+
+        await recovery.setAvailable([newer])
+        var refreshed = setup.model.settingsState
+        refreshed.recoveryBackups = [newer]
+        setup.model.commitSettingsState(refreshed)
+        await setup.model.restoreBackup(captured)
+
+        let received = await recovery.received()
+        XCTAssertEqual(received, [captured])
+        XCTAssertEqual(setup.model.state.lifecycle, .stopped)
+    }
+
+    func testRestoreDisablesAllConflictingRenderedActionsButShutdownStillAwaitsIt() async throws {
+        let recoveryFiles = try await makeRecoveryBackup()
+        defer { try? FileManager.default.removeItem(at: recoveryFiles.root) }
+        let gate = SettingsMutationGate()
+        let recovery = SettingsRecovery(backup: recoveryFiles.backup, stageGate: gate)
+        let setup = try makeSetup(candidate: nil, databaseRecovery: recovery)
+        defer { setup.cleanup() }
+        publishRecoveryRequired(in: setup.model)
+        await setup.model.refreshSettings()
+        let menu = MenuController(model: setup.model)
+        let login = LaunchAtLoginController(service: SettingsLoginService())
+        var openedPricing = false
+        setup.model.onOpenPricing = { openedPricing = true }
+
+        let restore = Task { await setup.model.restoreBackup(recoveryFiles.backup) }
+        await gate.waitUntilEntered()
+
+        XCTAssertFalse(SettingsView(model: setup.model, launchAtLogin: login).actionState.controlsEnabled)
+        XCTAssertEqual(
+            DatabaseRecoveryView(model: setup.model).actionState,
+            DatabaseRecoveryActionState(canReveal: false, canRestore: false, canQuit: false)
+        )
+        let actionable = menu.renderedMenu?.items.filter { $0.action != nil } ?? []
+        XCTAssertFalse(menu.renderedMenu?.autoenablesItems ?? true)
+        XCTAssertFalse(actionable.isEmpty)
+        XCTAssertTrue(actionable.allSatisfy { !$0.isEnabled })
+        XCTAssertTrue(menu.renderedMenu?.items
+            .flatMap { $0.submenu?.items ?? [] }
+            .filter { $0.action != nil }
+            .allSatisfy { !$0.isEnabled } == true)
+        XCTAssertTrue(menu.renderedMenu?.items
+            .compactMap(\.submenu)
+            .allSatisfy { !$0.autoenablesItems } == true)
+        setup.model.revealLocalData()
+        setup.model.openPricing()
+        XCTAssertEqual(setup.revealer.selections, [])
+        XCTAssertFalse(openedPricing)
+
+        let shutdownCompleted = SettingsCompletionFlag()
+        let shutdown = Task {
+            _ = await setup.model.shutdown()
+            await shutdownCompleted.markCompleted()
+        }
+        try? await Task.sleep(for: .milliseconds(20))
+        let completedEarly = await shutdownCompleted.isCompleted()
+        XCTAssertFalse(completedEarly)
+        await gate.release()
+        await restore.value
+        await shutdown.value
+        let completed = await shutdownCompleted.isCompleted()
+        XCTAssertTrue(completed)
+    }
+
+    func testCleanupPendingPublishesCompletedOutcomeAndReenablesQuitAndReveal() async throws {
+        let recoveryFiles = try await makeRecoveryBackup()
+        defer { try? FileManager.default.removeItem(at: recoveryFiles.root) }
+        let recovery = SettingsRecovery(
+            backup: recoveryFiles.backup,
+            restoreError: .cleanupPending
+        )
+        let setup = try makeSetup(candidate: nil, databaseRecovery: recovery)
+        defer { setup.cleanup() }
+        publishRecoveryRequired(in: setup.model)
+        await setup.model.refreshSettings()
+
+        await setup.model.restoreBackup(recoveryFiles.backup)
+
+        XCTAssertEqual(setup.model.state.lifecycle, .stopped)
+        XCTAssertFalse(setup.model.settingsState.isRestoringDatabase)
+        XCTAssertTrue(setup.model.settingsState.statusMessage?.contains("completed and verified") == true)
+        XCTAssertTrue(setup.model.settingsState.statusMessage?.contains("artifact was preserved") == true)
+        XCTAssertEqual(
+            DatabaseRecoveryView(model: setup.model).actionState,
+            DatabaseRecoveryActionState(canReveal: true, canRestore: true, canQuit: true)
+        )
+        setup.model.revealLocalData()
+        XCTAssertEqual(setup.revealer.selections, [[setup.paths.root]])
+        let built = NativeMenuBuilder.makeMenu(
+            state: setup.model.state,
+            startupError: nil,
+            target: nil,
+            isRestoringDatabase: setup.model.settingsState.isRestoringDatabase
+        )
+        XCTAssertTrue(built.menu.items.first { $0.title == "Quit Tokenboard" }?.isEnabled == true)
+    }
+
     private func makeRecoveryBackup() async throws -> (root: URL, backup: DatabaseBackup) {
         let root = FileManager.default.temporaryDirectory.resolvingSymlinksInPath().appending(
             path: "SettingsTests-recovery-\(UUID().uuidString)",
@@ -836,34 +955,46 @@ private enum SettingsError: Error { case injected }
 
 private actor SettingsRecovery: AppDatabaseRecovering {
     private let backup: DatabaseBackup
+    private var available: [DatabaseBackup]
+    private let restoreError: DatabaseRecoveryError?
     private var restores = 0
+    private var receivedBackups: [DatabaseBackup] = []
     private var shutdownAwaited = false
     private var mutations = 0
     private let stageGate: SettingsMutationGate?
 
-    init(backup: DatabaseBackup, stageGate: SettingsMutationGate? = nil) {
+    init(
+        backup: DatabaseBackup,
+        stageGate: SettingsMutationGate? = nil,
+        restoreError: DatabaseRecoveryError? = nil
+    ) {
         self.backup = backup
+        available = [backup]
         self.stageGate = stageGate
+        self.restoreError = restoreError
     }
 
-    func availableBackups() -> [DatabaseBackup] { [backup] }
+    func availableBackups() -> [DatabaseBackup] { available }
 
     func restore(
         _ confirmedBackup: DatabaseBackup,
         afterShutdown: @Sendable () async throws -> Void
     ) async throws -> DatabaseBackup {
-        guard confirmedBackup == backup else { throw SettingsError.injected }
+        receivedBackups.append(confirmedBackup)
         restores += 1
         try await afterShutdown()
         shutdownAwaited = true
         if let stageGate { await stageGate.suspend() }
         mutations += 1
+        if let restoreError { throw restoreError }
         return backup
     }
 
     func restoreCount() -> Int { restores }
     func didAwaitShutdown() -> Bool { shutdownAwaited }
     func mutationCount() -> Int { mutations }
+    func setAvailable(_ backups: [DatabaseBackup]) { available = backups }
+    func received() -> [DatabaseBackup] { receivedBackups }
 }
 
 private final class SettingsRecorder: @unchecked Sendable {

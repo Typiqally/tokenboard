@@ -42,6 +42,11 @@ public actor SQLiteLedger: LedgerStore {
         self.backupDirectory = backupDirectory
     }
 
+    init(recoveryConnection: SQLiteConnection, backupDirectory: URL) {
+        connection = recoveryConnection
+        self.backupDirectory = backupDirectory
+    }
+
     public func migrate() throws {
         try migrate(createPreMigrationBackup: true)
     }
@@ -72,11 +77,15 @@ public actor SQLiteLedger: LedgerStore {
         guard let openConnection = connection else {
             throw LedgerError.connectionClosed
         }
-        try openConnection.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+        try openConnection.checkpointWAL()
         try openConnection.close()
         privacyHasher = nil
         connection = nil
         isClosed = true
+    }
+
+    func serializedRecoveryDatabase() throws -> Data {
+        try requiredConnection().serializedDatabase()
     }
 
     public func skippedRecordCount() throws -> Int {

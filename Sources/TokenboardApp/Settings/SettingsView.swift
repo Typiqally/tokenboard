@@ -83,7 +83,14 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .frame(minWidth: 680, minHeight: 540)
-        .disabled(model.settingsState.isLoading)
+        .disabled(!actionState.controlsEnabled)
+    }
+
+    var actionState: SettingsActionState {
+        SettingsActionState(
+            controlsEnabled: !model.settingsState.isLoading
+                && !model.isDatabaseRestoreInProgress
+        )
     }
 
     private func databaseDescription(_ state: TokenboardHealth.DatabaseState) -> String {
@@ -92,6 +99,10 @@ struct SettingsView: View {
         case let .recoveryRequired(message): "Recovery required · \(message)"
         }
     }
+}
+
+struct SettingsActionState: Equatable {
+    let controlsEnabled: Bool
 }
 
 private extension Provider {

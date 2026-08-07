@@ -23,7 +23,7 @@ struct DatabaseRecoveryView: View {
                         : "Restore Latest Backup") {
                         confirmsRestore = true
                     }
-                    .disabled(model.settingsState.isRestoringDatabase)
+                    .disabled(model.isDatabaseRestoreInProgress)
                     Button("Quit") { quit() }
                 }
                 .alert(
@@ -32,12 +32,12 @@ struct DatabaseRecoveryView: View {
                 ) {
                     Button("Cancel", role: .cancel) {}
                     Button("Restore", role: .destructive) {
-                        Task { await model.restoreLatestBackup() }
+                        Task { await model.restoreBackup(backup) }
                     }
                 } message: {
                     Text("Tokenboard will stop local scanning and replace only ledger.sqlite after shutdown completes.")
                 }
-                .disabled(model.settingsState.isRestoringDatabase)
+                .disabled(model.isDatabaseRestoreInProgress)
             } else {
                 Text("No matching migration backup is available.")
                     .foregroundStyle(.secondary)
@@ -49,6 +49,15 @@ struct DatabaseRecoveryView: View {
         }
     }
 
+    var actionState: DatabaseRecoveryActionState {
+        let enabled = !model.isDatabaseRestoreInProgress
+        return DatabaseRecoveryActionState(
+            canReveal: enabled,
+            canRestore: enabled && !model.settingsState.recoveryBackups.isEmpty,
+            canQuit: enabled
+        )
+    }
+
     private var databaseMessage: String {
         switch model.health.database {
         case .healthy:
@@ -57,4 +66,10 @@ struct DatabaseRecoveryView: View {
             message
         }
     }
+}
+
+struct DatabaseRecoveryActionState: Equatable {
+    let canReveal: Bool
+    let canRestore: Bool
+    let canQuit: Bool
 }
