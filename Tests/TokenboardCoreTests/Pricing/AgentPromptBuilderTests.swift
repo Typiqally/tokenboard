@@ -29,6 +29,7 @@ final class AgentPromptBuilderTests: XCTestCase {
         XCTAssertTrue(prompt.contains("Use only this source"))
         XCTAssertTrue(!prompt.contains("platform.openai.com"))
         XCTAssertTrue(!prompt.contains("platform.claude.com"))
+        XCTAssertTrue(!prompt.contains("eurofxref-daily.xml"))
     }
 
     func testOfficialResearchPromptNamesOnlyValidatorAllowedOfficialHosts() {
@@ -43,6 +44,19 @@ final class AgentPromptBuilderTests: XCTestCase {
         }
         XCTAssertTrue(prompt.contains("Use only official pages on these exact hosts"))
         XCTAssertTrue(!prompt.contains("raw.githubusercontent.com"))
+    }
+
+    func testOfficialResearchPromptBuildsOneSchemaV2CandidateWithModelsAndExchangeRates() {
+        let prompt = AgentPromptBuilder().build(source: .officialResearch, paths: paths)
+
+        XCTAssertTrue(prompt.contains("schemaVersion 2"))
+        XCTAssertTrue(prompt.contains("one candidate"))
+        XCTAssertTrue(prompt.contains("model pricing and exchange rates"))
+        XCTAssertTrue(prompt.contains("https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml"))
+        XCTAssertTrue(prompt.contains("USD, EUR, JPY, GBP, and CNY"))
+        XCTAssertTrue(prompt.contains("units of target currency per 1 USD"))
+        XCTAssertTrue(prompt.contains("target-per-EUR divided by USD-per-EUR"))
+        XCTAssertTrue(prompt.contains("same ECB reference date"))
     }
 
     func testPromptDisclosesEachExactPathOnceAndNoAlternativeWriteLocation() {
