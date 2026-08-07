@@ -10,11 +10,17 @@ struct SourceSettingsState: Equatable, Sendable {
     let health: SourceHealth
 }
 
+struct ActiveModelPricingSummary: Equatable, Identifiable, Sendable {
+    let provider: Provider
+    let canonicalModelID: String
+    let rates: [UsageMetric: Decimal]
+
+    var id: String { "\(provider.rawValue)/\(canonicalModelID)" }
+}
+
 struct PricingSettingsState: Equatable, Sendable {
-    var activeCatalogIDs: [String]
-    var verificationDates: [String]
-    var provenanceURLs: [URL]
-    var unpricedModels: [String]
+    var activeModels: [ActiveModelPricingSummary]
+    var exchangeRates: ExchangeRateSnapshot?
     var pendingCandidate: PendingPricingCandidate?
     var preview: PricingPreview?
     var validationConflicts: [String]
@@ -43,10 +49,8 @@ struct PricingSettingsState: Equatable, Sendable {
     }
 
     static let empty = PricingSettingsState(
-        activeCatalogIDs: [],
-        verificationDates: [],
-        provenanceURLs: [],
-        unpricedModels: [],
+        activeModels: [],
+        exchangeRates: nil,
         pendingCandidate: nil,
         preview: nil,
         validationConflicts: [],

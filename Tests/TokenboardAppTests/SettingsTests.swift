@@ -44,7 +44,7 @@ final class SettingsTests: XCTestCase {
                 PricingPromptOption(
                     source: .tokenboardRepository,
                     buttonTitle: "Copy Catalog-Only Prompt",
-                    description: "Uses only Tokenboard’s published pricing catalog on GitHub."
+                    description: "Uses only Tokenboard’s published model prices and exchange rates on GitHub."
                 ),
                 PricingPromptOption(
                     source: .officialResearch,
@@ -687,7 +687,6 @@ final class SettingsTests: XCTestCase {
             Decimal(string: "0.20")
         )
         XCTAssertEqual(setup.model.settingsState.pricing.preview?.newlyPricedTokens, 100_000)
-        XCTAssertEqual(setup.model.settingsState.pricing.unpricedModels, ["codex/gpt-preview"])
         XCTAssertEqual(setup.model.settingsState.diagnostics.skippedRecordCount, 3)
         XCTAssertEqual(
             setup.model.settingsState.diagnostics.parserVersions,
@@ -767,7 +766,7 @@ final class SettingsTests: XCTestCase {
             "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml · checked 2026-08-07"
         )
         XCTAssertEqual(selection.content.currentKnownValue, "EUR unavailable")
-        XCTAssertEqual(selection.content.candidateKnownValue, "€0.18")
+        XCTAssertEqual(selection.content.candidateKnownValue, "≈ €0.18")
     }
 
     func testApplyRequiresConflictFreePreviewThenRefreshesTheSelectedSummary() async throws {

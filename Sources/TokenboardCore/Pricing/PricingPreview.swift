@@ -85,6 +85,8 @@ public struct PricingPreview: Equatable, Sendable {
     public let unresolvedGaps: [PricingGap]
     public let reviewAliases: [PricingAliasReview]
     public let reviewRates: [PricingRateReview]
+    public let currentExchangeRates: ExchangeRateSnapshot?
+    public let candidateExchangeRates: ExchangeRateSnapshot?
 
     public init(
         diff: CatalogDiff,
@@ -95,7 +97,9 @@ public struct PricingPreview: Equatable, Sendable {
         provenanceURLs: [URL],
         unresolvedGaps: [PricingGap],
         reviewAliases: [PricingAliasReview],
-        reviewRates: [PricingRateReview]
+        reviewRates: [PricingRateReview],
+        currentExchangeRates: ExchangeRateSnapshot? = nil,
+        candidateExchangeRates: ExchangeRateSnapshot? = nil
     ) {
         self.diff = diff
         self.currentKnownUSD = currentKnownUSD
@@ -106,6 +110,8 @@ public struct PricingPreview: Equatable, Sendable {
         self.unresolvedGaps = unresolvedGaps
         self.reviewAliases = reviewAliases
         self.reviewRates = reviewRates
+        self.currentExchangeRates = currentExchangeRates
+        self.candidateExchangeRates = candidateExchangeRates
     }
 
     public static func make(
@@ -171,6 +177,7 @@ public struct PricingPreview: Equatable, Sendable {
                 modelsAdded: comparison.modelsAdded,
                 aliasesAdded: comparison.aliasesAdded,
                 ratesAdded: comparison.ratesAdded,
+                exchangeRatesChanged: comparison.exchangeRatesChanged,
                 conflicts: Array(Set(conflicts)).sorted()
             ),
             currentKnownUSD: current.knownUSD,
@@ -179,7 +186,9 @@ public struct PricingPreview: Equatable, Sendable {
             remainingUnpricedTokens: candidateResolution.unpricedTokens,
             provenanceURLs: Array(Set(candidate.models.flatMap { model in
                 model.rates.map(\.provenanceURL)
-            })).sorted { $0.absoluteString < $1.absoluteString },
+            } + (candidate.exchangeRates.map { [$0.provenanceURL] } ?? []))).sorted {
+                $0.absoluteString < $1.absoluteString
+            },
             unresolvedGaps: unresolvedGaps,
             reviewAliases: candidate.models.flatMap { model in
                 model.aliases.map { alias in
@@ -213,7 +222,11 @@ public struct PricingPreview: Equatable, Sendable {
             }.sorted {
                 ($0.provider.rawValue, $0.canonicalModelID, $0.metric.rawValue, $0.effectiveFrom)
                     < ($1.provider.rawValue, $1.canonicalModelID, $1.metric.rawValue, $1.effectiveFrom)
-            }
+            },
+            currentExchangeRates: currentPricing.latestExchangeRates,
+            candidateExchangeRates: candidate.exchangeRates.map {
+                ExchangeRateSnapshot(catalogID: candidate.catalogID, validated: $0)
+            } ?? currentPricing.latestExchangeRates
         )
     }
 
@@ -273,7 +286,19 @@ public struct PricingPreview: Equatable, Sendable {
         if !catalogIDs.contains(candidate.catalogID) {
             catalogIDs.append(candidate.catalogID)
         }
-        return PricingSnapshot(catalogIDs: catalogIDs, rates: rates, aliases: aliases)
+        var exchangeRateSnapshots = current.exchangeRateSnapshots
+        if let exchangeRates = candidate.exchangeRates {
+            exchangeRateSnapshots.append(ExchangeRateSnapshot(
+                catalogID: candidate.catalogID,
+                validated: exchangeRates
+            ))
+        }
+        return PricingSnapshot(
+            catalogIDs: catalogIDs,
+            rates: rates,
+            aliases: aliases,
+            exchangeRateSnapshots: exchangeRateSnapshots
+        )
     }
 
     private static func conflictDescription(_ error: PriceResolverError) -> String {

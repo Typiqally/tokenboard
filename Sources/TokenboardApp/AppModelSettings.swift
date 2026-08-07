@@ -479,12 +479,11 @@ extension AppModel {
             commitSettingsState(AppSettingsState(
                 sources: sourceSettings(),
                 pricing: PricingSettingsState(
-                    activeCatalogIDs: pricing.catalogIDs.sorted(),
-                    verificationDates: Array(Set(pricing.rates.map(\.verifiedAt))).sorted(),
-                    provenanceURLs: Array(Set(pricing.rates.map(\.provenanceURL))).sorted {
-                        $0.absoluteString < $1.absoluteString
-                    },
-                    unpricedModels: try unpricedModels(rows: rows, pricing: pricing),
+                    activeModels: activeModelPricing(
+                        in: pricing,
+                        on: LocalDay(date: now(), calendar: calendar).value
+                    ),
+                    exchangeRates: pricing.latestExchangeRates,
                     pendingCandidate: pending,
                     preview: preview,
                     validationConflicts: [],
@@ -555,19 +554,34 @@ extension AppModel {
         })
     }
 
-    private func unpricedModels(
-        rows: [DailyUsageRow],
-        pricing: PricingSnapshot
-    ) throws -> [String] {
-        var values = Set<String>()
-        let resolver = PriceResolver()
-        for row in rows where row.aggregation == .additive {
-            let result = try resolver.resolve(rows: [row], pricing: pricing)
-            if result.unpricedTokens > 0 {
-                values.insert("\(row.provider.rawValue)/\(row.observedModelID)")
-            }
+    private func activeModelPricing(
+        in pricing: PricingSnapshot,
+        on day: String
+    ) -> [ActiveModelPricingSummary] {
+        struct Key: Hashable {
+            let provider: Provider
+            let modelID: String
         }
-        return values.sorted()
+        var active: [Key: [UsageMetric: StoredPriceRate]] = [:]
+        for rate in pricing.rates where rate.effectiveFrom <= day
+            && (rate.effectiveTo.map { day < $0 } ?? true) {
+            let key = Key(provider: rate.provider, modelID: rate.canonicalModelID)
+            if let existing = active[key]?[rate.metric],
+               existing.effectiveFrom >= rate.effectiveFrom {
+                continue
+            }
+            active[key, default: [:]][rate.metric] = rate
+        }
+        return active.map { key, rates in
+            ActiveModelPricingSummary(
+                provider: key.provider,
+                canonicalModelID: key.modelID,
+                rates: rates.mapValues(\.usdPerMillion)
+            )
+        }.sorted {
+            ($0.provider.rawValue, $0.canonicalModelID)
+                < ($1.provider.rawValue, $1.canonicalModelID)
+        }
     }
 
     private func setSettingsLoading(_ isLoading: Bool) {
