@@ -344,6 +344,8 @@ extension AppModel {
         }
 
         var next = state
+        var nextSourceHealth = next.sourceHealth
+        var nextSourceWarningIssues = next.sourceWarningIssues
         if let skippedCount {
             next.health = next.health.replacing(skippedRecordCount: skippedCount)
         }
@@ -363,27 +365,37 @@ extension AppModel {
                 }
                 if let successfulUpdate,
                    result.scope == .inventory
-                    || !Self.isWarning(next.sourceHealth[provider] ?? .notGranted) {
-                    next.sourceHealth[provider] = durableSkipped[provider, default: 0] > 0
+                    || !Self.isWarning(nextSourceHealth[provider] ?? .notGranted) {
+                    nextSourceHealth[provider] = durableSkipped[provider, default: 0] > 0
                         ? .warning(issue: .unknownFormats, message: TokenboardHealth.Issue.unknownFormats.message)
                         : .healthy(
                             fileCount: next.sourceFileCounts[provider, default: 0],
                             lastUpdated: successfulUpdate
                         )
+                    nextSourceWarningIssues[provider] = durableSkipped[provider, default: 0] > 0
+                        ? [.unknownFormats]
+                        : nil
                 }
             case let .attention(discoveredFiles, _):
                 if result.scope == .inventory {
                     next.sourceFileCounts[provider] = discoveredFiles
                 }
                 let issue = healthIssue(for: result.diagnostics[provider])
-                next.sourceHealth[provider] = .warning(
+                nextSourceHealth[provider] = .warning(
                     issue: issue,
                     message: issue.message
                 )
+                nextSourceWarningIssues[provider] = warningIssues(
+                    for: result.diagnostics[provider],
+                    hasDurableSkippedRecords: durableSkipped[provider, default: 0] > 0
+                )
             case .failure:
-                next.sourceHealth[provider] = .warning(issue: .importFailure, message: "Import failed")
+                nextSourceHealth[provider] = .warning(issue: .importFailure, message: "Import failed")
+                nextSourceWarningIssues[provider] = [.importFailure]
             }
         }
+        next.sourceHealth = nextSourceHealth
+        next.sourceWarningIssues = nextSourceWarningIssues
         if hasSuccessfulProvider {
             next.lastUpdated = successfulUpdate
         }
@@ -407,7 +419,7 @@ extension AppModel {
                 next.presentation = makePresentation(summary: lastSummary, state: next)
             }
         }
-        clearDismissalIfWarningsResolved(next.health)
+        reconcileWarningPresentation(&next)
         commitState(next)
     }
 
@@ -583,7 +595,7 @@ extension AppModel {
         next.sourceFileCounts[provider] = fileCount
         next.sourceHealth[provider] = .indexing(fileCount: fileCount)
         next.onboardingRequired = !preferences.historicalImportApproved || !hasEveryGrant
-        clearDismissalIfWarningsResolved(next.health)
+        reconcileWarningPresentation(&next)
         commitState(next)
     }
 
@@ -655,7 +667,7 @@ extension AppModel {
         state: AppPublishedState
     ) -> MenuPresentation {
         let promotesWarning = state.health.hasNonDismissibleDisplayIntegrityWarning
-            || hasUndismissedDismissibleWarning(state.health)
+            || hasUndismissedDismissibleWarning(state)
         return MenuPresentation(
             summary: summary,
             displayMetric: state.selectedDisplayMetric,
@@ -689,9 +701,7 @@ extension AppModel {
     func publishWarning(_ issue: TokenboardHealth.Issue, message: String) {
         var next = state
         next.sourceHealth = warningHealth(issue: issue, message: message)
-        if let lastSummary {
-            next.presentation = makePresentation(summary: lastSummary, state: next)
-        }
+        reconcileWarningPresentation(&next)
         commitState(next)
     }
 
@@ -736,6 +746,20 @@ extension AppModel {
             return healthIssue(for: attention)
         }
         return .unknownFormats
+    }
+
+    func warningIssues(
+        for diagnostics: ProviderIngestionDiagnostics?,
+        hasDurableSkippedRecords: Bool
+    ) -> Set<TokenboardHealth.Issue> {
+        var issues = Set(diagnostics?.attention.map(healthIssue(for:)) ?? [])
+        if hasDurableSkippedRecords || (diagnostics?.skippedRecordCount ?? 0) > 0 {
+            issues.insert(.unknownFormats)
+        }
+        if issues.isEmpty {
+            issues.insert(.unknownFormats)
+        }
+        return issues
     }
 
     private func healthIssue(for attention: ScanOutcome.Attention) -> TokenboardHealth.Issue {

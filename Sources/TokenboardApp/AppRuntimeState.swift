@@ -120,6 +120,7 @@ struct AppPublishedState: Equatable, Sendable {
     var selectedPeriod: CalendarPeriod
     var selectedDisplayMetric: DisplayMetric
     var health: TokenboardHealth
+    var sourceWarningIssues: [Provider: Set<TokenboardHealth.Issue>]
     var isImporting: Bool
 
     var sourceHealth: [Provider: SourceHealth] {
@@ -129,6 +130,11 @@ struct AppPublishedState: Equatable, Sendable {
                 claude: newValue[.claudeCode] ?? .notGranted,
                 codex: newValue[.codex] ?? .notGranted
             )
+            sourceWarningIssues = Dictionary(uniqueKeysWithValues: Provider.allCases.compactMap {
+                guard case let .warning(issue, _) = newValue[$0],
+                      issue.isDismissibleSourceWarning else { return nil }
+                return ($0, [issue])
+            })
         }
     }
 
@@ -164,6 +170,7 @@ struct AppPublishedState: Equatable, Sendable {
                 skippedRecordCount: 0,
                 unpricedTokens: 0
             ),
+            sourceWarningIssues: [:],
             isImporting: false
         )
     }

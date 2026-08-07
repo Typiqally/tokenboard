@@ -4,12 +4,18 @@ import Foundation
 public struct DismissibleWarningSignature: Equatable, Sendable {
     public let digest: String
 
-    public init?(health: TokenboardHealth) {
+    public init?(
+        health: TokenboardHealth,
+        sourceWarningIssues: [Provider: Set<TokenboardHealth.Issue>] = [:]
+    ) {
         var components: [String] = []
         for provider in Provider.allCases {
             guard case let .warning(issue, _) = health.source(provider),
                   issue.isDismissibleSourceWarning else { continue }
-            components.append("source|\(provider.rawValue)|\(issue.rawValue)")
+            let issues = sourceWarningIssues[provider, default: []].union([issue])
+            for identity in issues where identity.isDismissibleSourceWarning {
+                components.append("source|\(provider.rawValue)|\(identity.rawValue)")
+            }
         }
         if health.skippedRecordCount > 0 {
             components.append("skipped|\(health.skippedRecordCount)")

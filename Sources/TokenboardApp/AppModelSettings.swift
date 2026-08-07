@@ -176,7 +176,7 @@ extension AppModel {
             next.lastUpdated = next.lastSuccessfulScans.values.max()
             next.sourceHealth[provider] = .notGranted
             next.onboardingRequired = true
-            clearDismissalIfWarningsResolved(next.health)
+            reconcileWarningPresentation(&next)
             commitState(next)
             await querySelectedSummary()
             await performRefreshSettings(statusMessage: "Source access revoked · Committed totals retained")
@@ -473,6 +473,7 @@ extension AppModel {
                 unpricedTokens: resolution.unpricedTokens,
                 pricing: pricingHealth
             )
+            reconcileWarningPresentation(&published)
             commitState(published)
 
             commitSettingsState(AppSettingsState(

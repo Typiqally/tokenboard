@@ -20,7 +20,7 @@ final class AppModel: ObservableObject {
     var lastUpdated: Date? { state.lastUpdated }
     var canStartHistoricalImport: Bool { state.canStartHistoricalImport }
     var activeDismissibleWarningSignature: DismissibleWarningSignature? {
-        state.health.dismissibleWarningSignature
+        dismissibleWarningSignature(in: state)
     }
     var canDismissCurrentWarnings: Bool {
         guard state.presentation != nil,
@@ -143,8 +143,17 @@ final class AppModel: ObservableObject {
         settingsState = next
     }
 
-    func hasUndismissedDismissibleWarning(_ health: TokenboardHealth) -> Bool {
-        guard let active = health.dismissibleWarningSignature else { return false }
+    func dismissibleWarningSignature(
+        in state: AppPublishedState
+    ) -> DismissibleWarningSignature? {
+        DismissibleWarningSignature(
+            health: state.health,
+            sourceWarningIssues: state.sourceWarningIssues
+        )
+    }
+
+    func hasUndismissedDismissibleWarning(_ state: AppPublishedState) -> Bool {
+        guard let active = dismissibleWarningSignature(in: state) else { return false }
         return preferences.dismissedWarningSignature != active.digest
     }
 
@@ -158,9 +167,14 @@ final class AppModel: ObservableObject {
         commitState(next)
     }
 
-    func clearDismissalIfWarningsResolved(_ health: TokenboardHealth) {
-        guard health.dismissibleWarningSignature == nil else { return }
-        preferences.dismissedWarningSignature = nil
+    func reconcileWarningPresentation(_ state: inout AppPublishedState) {
+        if let dismissed = preferences.dismissedWarningSignature,
+           dismissibleWarningSignature(in: state)?.digest != dismissed {
+            preferences.dismissedWarningSignature = nil
+        }
+        if let lastSummary {
+            state.presentation = makePresentation(summary: lastSummary, state: state)
+        }
     }
 
     func start() async {
