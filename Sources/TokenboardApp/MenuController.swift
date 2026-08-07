@@ -15,7 +15,6 @@ enum NativeMenuBuilder {
         state: AppPublishedState?,
         startupError: String?,
         target: AnyObject?,
-        canDismissCurrentWarnings: Bool = false,
         isRestoringDatabase: Bool = false,
         requiresRelaunch: Bool = false,
         preservationRetryRequired: Bool = false,
@@ -53,13 +52,7 @@ enum NativeMenuBuilder {
         ))
         menu.addItem(.separator())
 
-        if let warningItem = warningMenuItem(
-            state: state,
-            target: target,
-            canDismissCurrentWarnings: canDismissCurrentWarnings && regularActionsEnabled
-        ) {
-            menu.addItem(warningItem)
-        } else if state == nil {
+        if state == nil {
             menu.addDisabledItem(startupError ?? "Sources unavailable")
         }
         let updatedItem = menu.addDisabledItem("Updated never")
@@ -178,50 +171,6 @@ enum NativeMenuBuilder {
         return item
     }
 
-    private static func warningMenuItem(
-        state: AppPublishedState?,
-        target: AnyObject?,
-        canDismissCurrentWarnings: Bool
-    ) -> NSMenuItem? {
-        guard let state else { return nil }
-        let warnings = [
-            warningTitle(state.health.claude, name: "Claude Code"),
-            warningTitle(state.health.codex, name: "Codex")
-        ].compactMap { $0 }
-        guard !warnings.isEmpty else { return nil }
-
-        let parent = NSMenuItem(
-            title: "Warnings (\(warnings.count))",
-            action: nil,
-            keyEquivalent: ""
-        )
-        let submenu = NSMenu(title: "Warnings")
-        submenu.autoenablesItems = false
-        warnings.forEach { submenu.addDisabledItem($0) }
-        if canDismissCurrentWarnings {
-            submenu.addItem(.separator())
-            submenu.addItem(actionItem(
-                "Dismiss Current Warnings",
-                action: NSSelectorFromString("dismissCurrentWarnings"),
-                target: target
-            ))
-        }
-        parent.submenu = submenu
-        parent.isEnabled = true
-        return parent
-    }
-
-    private static func warningTitle(_ health: SourceHealth, name: String) -> String? {
-        switch health {
-        case .notGranted:
-            "\(name): Access required"
-        case .indexing, .healthy:
-            nil
-        case let .warning(_, message):
-            "\(name): \(message)"
-        }
-    }
-
     private static func periodTitle(_ period: CalendarPeriod) -> String {
         switch period {
         case .today: "Today"
@@ -301,7 +250,6 @@ final class MenuController: NSObject, NSMenuDelegate {
             state: state,
             startupError: startupError,
             target: self,
-            canDismissCurrentWarnings: model?.canDismissCurrentWarnings == true,
             isRestoringDatabase: isRestoringDatabase,
             requiresRelaunch: disposition == .requiresRelaunch,
             preservationRetryRequired: disposition == .preservationRetryRequired,
@@ -316,10 +264,6 @@ final class MenuController: NSObject, NSMenuDelegate {
     @objc func refresh() {
         guard let model else { return }
         Task { await model.refresh() }
-    }
-
-    @objc func dismissCurrentWarnings() {
-        model?.dismissCurrentWarnings()
     }
 
     @objc func selectPeriod(_ sender: NSMenuItem) {
