@@ -1384,6 +1384,10 @@ final class IngestionCoordinatorTests: XCTestCase {
         }
         await clock.advancePastDebounce()
 
+        try await requireEventually("root fallback did not mark both providers dirty") {
+            let diagnostics = await coordinator.diagnostics()
+            return diagnostics.followUpDirtyProviderCount == 2
+        }
         let whileInventoryIsGated = await coordinator.diagnostics()
 
         await gate.release()

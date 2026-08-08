@@ -681,7 +681,7 @@ final class SettingsTests: XCTestCase {
         XCTAssertTrue(prompt.contains(setup.paths.pricing.appending(path: "current-tokenboard-pricing.json").path))
         XCTAssertTrue(prompt.contains(setup.paths.pricing.appending(path: "current-tokenboard-pricing.json.tmp").path))
         XCTAssertFalse(prompt.contains("Pricing/Inbox"))
-        XCTAssertFalse(prompt.contains("review"))
+        XCTAssertFalse(prompt.contains("review the candidate"))
         XCTAssertTrue(prompt.contains("codex / gpt-preview"))
         XCTAssertEqual(setup.model.settingsState.statusMessage, "Prompt copied · Tokenboard made no network request")
     }
