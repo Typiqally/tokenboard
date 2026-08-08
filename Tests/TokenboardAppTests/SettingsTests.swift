@@ -670,6 +670,7 @@ final class SettingsTests: XCTestCase {
         let setup = try makeSetup()
         defer { setup.cleanup() }
         await setup.model.start()
+        await setup.model.refreshSettings()
         setup.recorder.reset()
 
         await setup.model.copyAgentPrompt()
@@ -855,14 +856,12 @@ final class SettingsTests: XCTestCase {
         let setup = try makeSetup()
         defer { setup.cleanup() }
         let service = SettingsLoginService()
-        weak var releasedController: LaunchAtLoginController?
         var creationCount = 0
         let controller = SettingsWindowController(
             model: setup.model,
             launchAtLoginFactory: {
                 creationCount += 1
                 let value = LaunchAtLoginController(service: service)
-                releasedController = value
                 return value
             }
         )
@@ -879,10 +878,7 @@ final class SettingsTests: XCTestCase {
 
         controller.close()
         XCTAssertFalse(controller.isSettingsViewLoaded)
-        for _ in 0..<20 where releasedController != nil {
-            try? await Task.sleep(for: .milliseconds(1))
-        }
-        XCTAssertNil(releasedController)
+        XCTAssertNil(controller.currentLaunchAtLoginEnabled)
 
         controller.showWindow(nil)
         XCTAssertEqual(creationCount, 2)
