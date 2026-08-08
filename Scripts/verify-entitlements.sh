@@ -143,33 +143,45 @@ if (( ${#executable_files} != 1 )) \
     exit 70
 fi
 
-binary_minimum=$(/usr/bin/otool -l "$executable" | /usr/bin/awk '
-    $1 == "cmd" && $2 == "LC_BUILD_VERSION" { in_build = 1; next }
-    in_build && $1 == "minos" { print $2; exit }
-')
-if [[ "$binary_minimum" != "14.0" ]]; then
-    print -u2 "Mach-O minimum macOS version is not 14.0"
+typeset architecture_output binary_minimum linkage_output
+typeset -a binary_architectures linkage_lines
+if ! architecture_output=$(/usr/bin/lipo -archs "$executable"); then
+    print -u2 "Unable to read Mach-O architectures"
+    exit 71
+fi
+binary_architectures=("${(@s: :)architecture_output}")
+if (( ${#binary_architectures} < 1 )); then
+    print -u2 "Mach-O architecture set is empty"
     exit 71
 fi
 
-typeset linkage_output
-typeset -a linkage_lines
-if ! linkage_output=$(/usr/bin/otool -L "$executable"); then
-    print -u2 "Unable to read runtime dependencies"
-    exit 72
-fi
-linkage_lines=("${(@f)linkage_output}")
-if (( ${#linkage_lines} < 1 )) || [[ "$linkage_lines[1]" != "$executable:" ]]; then
-    print -u2 "Mach-O dependency header is invalid"
-    exit 72
-fi
-for (( index = 2; index <= ${#linkage_lines}; index++ )); do
-    linkage=$linkage_lines[$index]
-    linkage=${linkage#"${linkage%%[![:space:]]*}"}
-    if ! validate_linkage_line "$linkage"; then
-        print -u2 "Malformed, non-system, or non-canonical runtime dependency found"
+for binary_architecture in "${binary_architectures[@]}"; do
+    binary_minimum=$(/usr/bin/otool -l -arch "$binary_architecture" "$executable" | /usr/bin/awk '
+        $1 == "cmd" && $2 == "LC_BUILD_VERSION" { in_build = 1; next }
+        in_build && $1 == "minos" { print $2; exit }
+    ')
+    if [[ "$binary_minimum" != "14.0" ]]; then
+        print -u2 "Mach-O minimum macOS version is not 14.0"
+        exit 71
+    fi
+
+    if ! linkage_output=$(/usr/bin/otool -L -arch "$binary_architecture" "$executable"); then
+        print -u2 "Unable to read runtime dependencies"
         exit 72
     fi
+    linkage_lines=("${(@f)linkage_output}")
+    if (( ${#linkage_lines} < 1 )) || [[ "$linkage_lines[1]" != "$executable:" ]]; then
+        print -u2 "Mach-O dependency header is invalid"
+        exit 72
+    fi
+    for (( index = 2; index <= ${#linkage_lines}; index++ )); do
+        linkage=$linkage_lines[$index]
+        linkage=${linkage#"${linkage%%[![:space:]]*}"}
+        if ! validate_linkage_line "$linkage"; then
+            print -u2 "Malformed, non-system, or non-canonical runtime dependency found"
+            exit 72
+        fi
+    done
 done
 
 print "Tokenboard sandbox and single-process audit passed"

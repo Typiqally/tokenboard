@@ -18,7 +18,7 @@ jobs:
       - name: Run tests
         run: swift test
       - name: Build release app
-        run: Scripts/build-app.sh release
+        run: Scripts/build-app.sh release universal
       - name: Verify signed bundle
         run: Scripts/verify-entitlements.sh .build/release/Tokenboard.app
       - name: Check patch whitespace

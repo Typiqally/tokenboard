@@ -16,6 +16,18 @@ Pricing is effective-dated. Tokenboard keeps the historical pricing ledger, appl
 - Apple's Swift 6 toolchain and macOS SDK
 - No third-party runtime dependencies
 
+## Install with Homebrew
+
+Tokenboard is not Apple-notarized, so the Homebrew command explicitly opts out of macOS quarantine:
+
+```zsh
+brew install --cask --no-quarantine typiqally/tokenboard/tokenboard
+```
+
+This does not grant Tokenboard additional permissions. The app remains sandboxed and asks you to choose its read-only source folders on first launch. Upgrade it with `brew upgrade --cask tokenboard` and remove it with `brew uninstall --cask tokenboard`.
+
+## Build from source
+
 ```zsh
 swift test
 Scripts/build-app.sh release
@@ -23,7 +35,7 @@ Scripts/verify-entitlements.sh .build/release/Tokenboard.app
 open .build/release/Tokenboard.app
 ```
 
-`build-app.sh` creates a native `Tokenboard.app`. Local builds are ad-hoc signed unless `TOKENBOARD_SIGN_IDENTITY` names a signing identity. Official downloadable builds are intended to be Developer ID signed and notarized. A Homebrew Cask is later distribution work and is not part of v1.
+`build-app.sh` creates a native `Tokenboard.app`. Local builds are ad-hoc signed unless `TOKENBOARD_SIGN_IDENTITY` names a signing identity. Version tags publish an ad-hoc-signed universal app for the Homebrew Cask; Developer ID signing and notarization can be added later without changing the install command.
 
 ## First launch and local history
 
