@@ -151,7 +151,8 @@ public actor SQLiteLedger: LedgerStore {
         let checkpointMetrics = try encodedJSON(checkpoint.cumulativeMetrics)
         let adapterState = try encodedJSON(checkpoint.adapterState)
 
-        try transaction(using: connection) {
+        try connection.beginTransaction()
+        do {
             for row in groupedUsage {
                 try upsertUsage(row, using: connection)
             }
@@ -164,6 +165,10 @@ public actor SQLiteLedger: LedgerStore {
                 adapterState: adapterState,
                 using: connection
             )
+            try connection.commitTransaction()
+        } catch {
+            try? connection.rollbackTransaction()
+            throw error
         }
     }
 
@@ -297,7 +302,8 @@ public actor SQLiteLedger: LedgerStore {
             throw PricingLedgerError.invalidImportMetadata
         }
 
-        try transaction(using: connection) {
+        try connection.beginTransaction()
+        do {
             try connection.execute("""
             DELETE FROM fx_rates;
             DELETE FROM model_aliases;
@@ -335,6 +341,10 @@ public actor SQLiteLedger: LedgerStore {
                 validationSummary: validationSummary,
                 using: connection
             )
+            try connection.commitTransaction()
+        } catch {
+            try? connection.rollbackTransaction()
+            throw error
         }
     }
 
@@ -740,7 +750,8 @@ public actor SQLiteLedger: LedgerStore {
         }
 
         var storedSalt: Data?
-        try transaction(using: connection) {
+        try connection.beginTransaction()
+        do {
             if let salt = try privacySalt(using: connection) {
                 storedSalt = salt
             } else {
@@ -754,23 +765,13 @@ public actor SQLiteLedger: LedgerStore {
                 try stepDone(insert, using: connection)
                 storedSalt = salt
             }
+            try connection.commitTransaction()
+        } catch {
+            try? connection.rollbackTransaction()
+            throw error
         }
         guard let storedSalt else { throw LedgerError.corruptData("privacy salt is missing") }
         return PrivacyHasher(salt: storedSalt)
-    }
-
-    private func transaction(
-        using connection: SQLiteConnection,
-        _ body: () throws -> Void
-    ) throws {
-        try connection.execute("BEGIN IMMEDIATE;")
-        do {
-            try body()
-            try connection.execute("COMMIT;")
-        } catch {
-            try? connection.execute("ROLLBACK;")
-            throw error
-        }
     }
 
     private func privacySalt(using connection: SQLiteConnection) throws -> Data? {

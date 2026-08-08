@@ -244,14 +244,26 @@ public final class SQLiteConnection {
     }
 
     public func transaction(_ body: () throws -> Void) throws {
-        try execute("BEGIN IMMEDIATE;")
+        try beginTransaction()
         do {
             try body()
-            try execute("COMMIT;")
+            try commitTransaction()
         } catch {
-            try? execute("ROLLBACK;")
+            try? rollbackTransaction()
             throw error
         }
+    }
+
+    func beginTransaction() throws {
+        try execute("BEGIN IMMEDIATE;")
+    }
+
+    func commitTransaction() throws {
+        try execute("COMMIT;")
+    }
+
+    func rollbackTransaction() throws {
+        try execute("ROLLBACK;")
     }
 
     public func queryStrings(_ sql: String) throws -> [String] {
