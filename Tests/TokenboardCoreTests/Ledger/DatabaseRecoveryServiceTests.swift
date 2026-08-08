@@ -966,7 +966,7 @@ final class DatabaseRecoveryServiceTests: XCTestCase {
             backupDirectory: backups,
             stageHandler: { stage in
                 guard stage == .afterValidation else { return }
-                try self.mutateLastBytePreservingStat(at: setup.database)
+                try Self.mutateLastBytePreservingStat(at: setup.database)
             }
         )
         let available = try await service.availableBackups()
@@ -1006,7 +1006,7 @@ final class DatabaseRecoveryServiceTests: XCTestCase {
                     [.posixPermissions: NSNumber(value: S_IRUSR | S_IWUSR)],
                     ofItemAtPath: snapshot.path
                 )
-                try self.mutateLastBytePreservingStat(at: snapshot)
+                try Self.mutateLastBytePreservingStat(at: snapshot)
             }
         )
         let available = try await service.availableBackups()
@@ -1545,7 +1545,7 @@ final class DatabaseRecoveryServiceTests: XCTestCase {
             stageHandler: { stage in
                 if stage == .afterReplacement { throw RecoveryTestError.shutdownFailed }
                 if stage == .afterRollback {
-                    try self.mutateLastBytePreservingStat(at: setup.database)
+                    try Self.mutateLastBytePreservingStat(at: setup.database)
                 }
             }
         )
@@ -1624,7 +1624,7 @@ final class DatabaseRecoveryServiceTests: XCTestCase {
         try FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: url.path)
     }
 
-    private func mutateLastBytePreservingStat(at url: URL) throws {
+    private static func mutateLastBytePreservingStat(at url: URL) throws {
         let descriptor = Darwin.open(url.path, O_RDWR | O_CLOEXEC | O_NOFOLLOW)
         guard descriptor >= 0 else { throw RecoveryTestError.rollbackFailed }
         defer { Darwin.close(descriptor) }
