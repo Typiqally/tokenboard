@@ -151,7 +151,7 @@ public actor SQLiteLedger: LedgerStore {
         let checkpointMetrics = try encodedJSON(checkpoint.cumulativeMetrics)
         let adapterState = try encodedJSON(checkpoint.adapterState)
 
-        try connection.transaction {
+        try transaction(using: connection) {
             for row in groupedUsage {
                 try upsertUsage(row, using: connection)
             }
@@ -297,7 +297,7 @@ public actor SQLiteLedger: LedgerStore {
             throw PricingLedgerError.invalidImportMetadata
         }
 
-        try connection.transaction {
+        try transaction(using: connection) {
             try connection.execute("""
             DELETE FROM fx_rates;
             DELETE FROM model_aliases;
@@ -740,7 +740,7 @@ public actor SQLiteLedger: LedgerStore {
         }
 
         var storedSalt: Data?
-        try connection.transaction {
+        try transaction(using: connection) {
             if let salt = try privacySalt(using: connection) {
                 storedSalt = salt
             } else {
@@ -757,6 +757,20 @@ public actor SQLiteLedger: LedgerStore {
         }
         guard let storedSalt else { throw LedgerError.corruptData("privacy salt is missing") }
         return PrivacyHasher(salt: storedSalt)
+    }
+
+    private func transaction(
+        using connection: SQLiteConnection,
+        _ body: () throws -> Void
+    ) throws {
+        try connection.execute("BEGIN IMMEDIATE;")
+        do {
+            try body()
+            try connection.execute("COMMIT;")
+        } catch {
+            try? connection.execute("ROLLBACK;")
+            throw error
+        }
     }
 
     private func privacySalt(using connection: SQLiteConnection) throws -> Data? {

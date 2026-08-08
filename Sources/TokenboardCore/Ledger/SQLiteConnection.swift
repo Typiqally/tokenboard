@@ -243,10 +243,7 @@ public final class SQLiteConnection {
         }
     }
 
-    public func transaction(
-        isolation: isolated (any Actor)? = #isolation,
-        _ body: () throws -> Void
-    ) throws {
+    public func transaction(_ body: () throws -> Void) throws {
         try execute("BEGIN IMMEDIATE;")
         do {
             try body()
