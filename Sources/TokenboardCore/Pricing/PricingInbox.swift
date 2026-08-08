@@ -147,7 +147,8 @@ public actor PricingInbox {
             )
             source.setCancelHandler { Darwin.close(descriptor) }
             source.setEventHandler { [weak self] in
-                Task { await self?.requestDetection() }
+                guard let inbox = self else { return }
+                Task { await inbox.requestDetection() }
             }
             directorySource = source
             started = true
