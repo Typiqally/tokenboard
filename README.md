@@ -18,13 +18,14 @@ Pricing is effective-dated. Tokenboard keeps the historical pricing ledger, appl
 
 ## Install with Homebrew
 
-Tokenboard is not Apple-notarized, so the Homebrew command explicitly opts out of macOS quarantine:
+Tokenboard is not Apple-notarized. Homebrew downloads and verifies the release; the second command explicitly removes macOS's quarantine attribute from the installed app:
 
 ```zsh
-brew install --cask --no-quarantine typiqally/tokenboard/tokenboard
+brew install --cask typiqally/tokenboard/tokenboard
+xattr -dr com.apple.quarantine /Applications/Tokenboard.app
 ```
 
-This does not grant Tokenboard additional permissions. The app remains sandboxed and asks you to choose its read-only source folders on first launch. Upgrade it with `brew upgrade --cask tokenboard` and remove it with `brew uninstall --cask tokenboard`.
+The second command does not grant Tokenboard additional permissions. The app remains sandboxed and asks you to choose its read-only source folders on first launch. Upgrade it with `brew upgrade --cask tokenboard` and remove it with `brew uninstall --cask tokenboard`.
 
 ## Build from source
 
