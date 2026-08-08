@@ -94,7 +94,7 @@ final class NativePresentationTests: XCTestCase {
         ]
         state.presentation = setup.model.makePresentation(summary: summary, state: state)
         setup.model.commitState(state)
-        let controller = MenuController(model: setup.model)
+        let controller = MenuController(model: setup.model, statusItem: TestStatusItemHost())
 
         XCTAssertEqual(controller.renderedStatusTitle, "$3.00+")
         XCTAssertFalse(controller.renderedMenu?.items.contains {
@@ -135,7 +135,7 @@ final class NativePresentationTests: XCTestCase {
             rates: [.usd: 1, .eur: Decimal(string: "0.86")!]
         )
         setup.model.commitSettingsState(settings)
-        let controller = MenuController(model: setup.model)
+        let controller = MenuController(model: setup.model, statusItem: TestStatusItemHost())
         var emitted = AppPublishedState.initial(period: .thisWeek, displayMetric: .tokens)
         emitted.lifecycle = .ready
         emitted.presentation = MenuPresentation(

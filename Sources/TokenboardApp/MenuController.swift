@@ -10,6 +10,27 @@ struct BuiltNativeMenu {
 }
 
 @MainActor
+protocol StatusItemHosting: AnyObject {
+    var menu: NSMenu? { get set }
+    var title: String { get set }
+}
+
+@MainActor
+private final class SystemStatusItemHost: StatusItemHosting {
+    private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+
+    var menu: NSMenu? {
+        get { statusItem.menu }
+        set { statusItem.menu = newValue }
+    }
+
+    var title: String {
+        get { statusItem.button?.title ?? "" }
+        set { statusItem.button?.title = newValue }
+    }
+}
+
+@MainActor
 enum NativeMenuBuilder {
     static func makeMenu(
         state: AppPublishedState?,
@@ -227,13 +248,17 @@ enum NativeMenuBuilder {
 
 @MainActor
 final class MenuController: NSObject, NSMenuDelegate {
-    private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+    private let statusItem: any StatusItemHosting
     private let model: AppModel?
     private let startupError: String?
     private var stateObservation: AnyCancellable?
     private weak var updatedItem: NSMenuItem?
 
-    init(model: AppModel) {
+    init(
+        model: AppModel,
+        statusItem: any StatusItemHosting = SystemStatusItemHost()
+    ) {
+        self.statusItem = statusItem
         self.model = model
         startupError = nil
         super.init()
@@ -256,7 +281,11 @@ final class MenuController: NSObject, NSMenuDelegate {
         )
     }
 
-    init(startupError: Error) {
+    init(
+        startupError: Error,
+        statusItem: any StatusItemHosting = SystemStatusItemHost()
+    ) {
+        self.statusItem = statusItem
         model = nil
         self.startupError = "Startup paused: \(String(describing: startupError))"
         super.init()
@@ -282,7 +311,7 @@ final class MenuController: NSObject, NSMenuDelegate {
     }
 
     var renderedMenu: NSMenu? { statusItem.menu }
-    var renderedStatusTitle: String? { statusItem.button?.title }
+    var renderedStatusTitle: String? { statusItem.title }
 
     private func rebuildMenu(
         state: AppPublishedState?,
@@ -305,7 +334,7 @@ final class MenuController: NSObject, NSMenuDelegate {
             preservationFailed: disposition == .preservationFailed
         )
         built.menu.delegate = self
-        statusItem.button?.title = built.statusTitle
+        statusItem.title = built.statusTitle
         updatedItem = built.updatedItem
         statusItem.menu = built.menu
     }

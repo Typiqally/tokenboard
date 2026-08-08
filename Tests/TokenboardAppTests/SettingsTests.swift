@@ -234,7 +234,7 @@ final class SettingsTests: XCTestCase {
         defer { setup.cleanup() }
         publishRecoveryRequired(in: setup.model)
         await setup.model.refreshSettings()
-        let menu = MenuController(model: setup.model)
+        let menu = MenuController(model: setup.model, statusItem: TestStatusItemHost())
         let login = LaunchAtLoginController(service: SettingsLoginService())
         var openedPricing = false
         setup.model.onOpenPricing = { openedPricing = true }
