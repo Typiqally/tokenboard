@@ -34,6 +34,10 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     }
 }
 
+enum SettingsNavigationPresentation {
+    static let sections = SettingsSection.allCases
+}
+
 struct SettingsDiagnosticIssue: Equatable, Identifiable {
     let provider: Provider
     let message: String
@@ -57,19 +61,18 @@ struct SettingsDiagnosticIssue: Equatable, Identifiable {
 struct SettingsView: View {
     @ObservedObject var model: AppModel
     @ObservedObject var launchAtLogin: LaunchAtLoginController
-    @State private var selectedSection: SettingsSection? = .general
+    @State private var selectedSection: SettingsSection = .general
     @State private var technicalDetailsExpanded = false
 
     var body: some View {
-        NavigationSplitView {
-            List(SettingsSection.allCases, selection: $selectedSection) { section in
-                Label(section.title, systemImage: section.systemImage)
+        TabView(selection: $selectedSection) {
+            ForEach(SettingsNavigationPresentation.sections) { section in
+                settingsForm(for: section)
+                    .tabItem {
+                        Label(section.title, systemImage: section.systemImage)
+                    }
                     .tag(section)
             }
-            .listStyle(.sidebar)
-            .navigationSplitViewColumnWidth(min: 150, ideal: 170, max: 210)
-        } detail: {
-            settingsForm
         }
         .frame(minWidth: 940, minHeight: 600)
         .toolbarBackground(Color(nsColor: .windowBackgroundColor), for: .windowToolbar)
@@ -77,9 +80,9 @@ struct SettingsView: View {
         .disabled(model.settingsState.isLoading || model.isDatabaseRestoreInProgress)
     }
 
-    private var settingsForm: some View {
+    private func settingsForm(for section: SettingsSection) -> some View {
         Form {
-            switch selectedSection ?? .general {
+            switch section {
             case .general:
                 generalSection
             case .sources:
