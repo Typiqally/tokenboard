@@ -40,14 +40,11 @@ final class NativePresentationTests: XCTestCase {
         )
 
         XCTAssertEqual(topLevelTitles(built.menu), [
-            "842,198 tokens",
-            "≈ $7.42 API equivalent",
+            "Usage Summary",
             "—",
             "Period: This Month",
             "Currency: EUR",
             "Menu Bar: API Value",
-            "—",
-            "Updated never",
             "—",
             "Refresh Now",
             "Pricing (84K unpriced)",
@@ -56,21 +53,58 @@ final class NativePresentationTests: XCTestCase {
             "Quit Tokenboard"
         ])
         XCTAssertEqual(built.statusTitle, "$7.42+")
-        XCTAssertEqual(built.updatedItem.title, "Updated never")
+        XCTAssertIdentical(built.menu.items.first?.view, built.summaryView)
+        XCTAssertEqual(built.summaryView.content, MenuSummaryContent(
+            contextTitle: "This Month",
+            visualRecencyTitle: "Updated never",
+            accessibilityRecencyTitle: "Updated never",
+            tokenTitle: "842,198 tokens",
+            apiValueTitle: "≈ $7.42 API equivalent"
+        ))
 
-        let period = built.menu.items[3].submenu!.items
+        let period = built.menu.items[2].submenu!.items
         XCTAssertEqual(period.map(\.title), ["Today", "This Week", "This Month", "This Year", "All Time"])
         XCTAssertEqual(period.map(\.state), [.off, .off, .on, .off, .off])
-        let currencies = built.menu.items[4].submenu!.items
+        let currencies = built.menu.items[3].submenu!.items
         XCTAssertEqual(currencies.map(\.title), ["USD", "EUR", "JPY", "GBP", "CNY"])
         XCTAssertEqual(currencies.map(\.state), [.off, .on, .off, .off, .off])
         XCTAssertEqual(currencies.map(\.isEnabled), [true, true, false, true, false])
-        let metrics = built.menu.items[5].submenu!.items
+        let metrics = built.menu.items[4].submenu!.items
         XCTAssertEqual(metrics.map(\.title), ["Tokens", "API Value"])
         XCTAssertEqual(metrics.map(\.state), [.off, .on])
-        XCTAssertEqual(built.menu.items[9].keyEquivalent, "r")
-        XCTAssertEqual(built.menu.items[11].keyEquivalent, ",")
-        XCTAssertEqual(built.menu.items[13].keyEquivalent, "q")
+        XCTAssertEqual(built.menu.items[6].keyEquivalent, "r")
+        XCTAssertEqual(built.menu.items[8].keyEquivalent, ",")
+        XCTAssertEqual(built.menu.items[10].keyEquivalent, "q")
+    }
+
+    func testMenuBuilderPublishesExplicitStartingAndFailureSummaries() {
+        let starting = NativeMenuBuilder.makeMenu(
+            state: nil,
+            startupError: nil,
+            target: nil
+        )
+
+        XCTAssertEqual(starting.statusTitle, "…")
+        XCTAssertEqual(starting.summaryView.content, MenuSummaryContent(
+            contextTitle: "Starting",
+            visualRecencyTitle: "Updated never",
+            accessibilityRecencyTitle: "Updated never",
+            tokenTitle: "Token total unavailable",
+            apiValueTitle: "API equivalent unavailable"
+        ))
+        XCTAssertNotNil(starting.menu.item(withTitle: "Sources unavailable"))
+
+        let failed = NativeMenuBuilder.makeMenu(
+            state: nil,
+            startupError: "Startup paused: Synthetic failure",
+            target: nil
+        )
+
+        XCTAssertEqual(failed.statusTitle, "Unavailable")
+        XCTAssertEqual(failed.summaryView.content.contextTitle, "Unavailable")
+        XCTAssertEqual(failed.summaryView.content.tokenTitle, "Token total unavailable")
+        XCTAssertEqual(failed.summaryView.content.apiValueTitle, "API equivalent unavailable")
+        XCTAssertNotNil(failed.menu.item(withTitle: "Startup paused: Synthetic failure"))
     }
 
     func testDiagnosticIssuesDoNotChangeTheMenuStatus() throws {
@@ -150,7 +184,9 @@ final class NativePresentationTests: XCTestCase {
 
         setup.model.commitState(emitted)
 
-        XCTAssertEqual(controller.renderedMenu?.items.first?.title, "456 tokens")
+        let summaryView = controller.renderedMenu?.items.first?.view as? MenuSummaryView
+        XCTAssertEqual(summaryView?.content.tokenTitle, "456 tokens")
+        XCTAssertEqual(summaryView?.content.apiValueTitle, "≈ $0.00 API equivalent")
         XCTAssertEqual(controller.renderedStatusTitle, "456")
         let periodParent = controller.renderedMenu?.items.first(where: { $0.title == "Period: This Week" })
         let year = periodParent?.submenu?.items.first(where: { $0.title == "This Year" })
@@ -208,6 +244,39 @@ final class NativePresentationTests: XCTestCase {
         _ = controller.perform(NSSelectorFromString("openSettings"))
         XCTAssertTrue(openedPricing)
         XCTAssertTrue(openedSettings)
+    }
+
+    func testMenuOpenUpdatesVisualAndAccessibilityRecencyWithoutChangingSummaryValues() throws {
+        let setup = try makeModel()
+        defer { setup.cleanup() }
+        var state = AppPublishedState.initial(period: .today, displayMetric: .tokens)
+        state.lifecycle = .ready
+        state.lastUpdated = Date().addingTimeInterval(-90)
+        state.presentation = MenuPresentation(
+            summary: UsageSummary(
+                period: .today,
+                tokenTotal: 456,
+                knownAPIEquivalentUSD: Decimal(string: "1.25")!,
+                unpricedTokens: 0
+            ),
+            displayMetric: .tokens
+        )
+        setup.model.commitState(state)
+        let controller = MenuController(model: setup.model, statusItem: TestStatusItemHost())
+        guard let menu = controller.renderedMenu,
+              let summaryView = menu.items.first?.view as? MenuSummaryView else {
+            return XCTFail("missing menu summary view")
+        }
+
+        XCTAssertEqual(summaryView.content.visualRecencyTitle, "Updated never")
+        controller.menuWillOpen(menu)
+
+        XCTAssertTrue(summaryView.content.visualRecencyTitle.hasPrefix("Updated "))
+        XCTAssertNotEqual(summaryView.content.visualRecencyTitle, "Updated never")
+        XCTAssertTrue(summaryView.content.accessibilityRecencyTitle.hasPrefix("Updated "))
+        XCTAssertEqual(summaryView.content.tokenTitle, "456 tokens")
+        XCTAssertEqual(summaryView.content.apiValueTitle, "≈ $1.25 API equivalent")
+        XCTAssertEqual(summaryView.accessibilityLabel(), summaryView.content.accessibilitySummary)
     }
 
     func testOnboardingRenderedActionsRespectApprovalReadinessAndImportState() throws {
