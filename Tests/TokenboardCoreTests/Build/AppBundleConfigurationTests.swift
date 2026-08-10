@@ -49,5 +49,7 @@ final class AppBundleConfigurationTests: XCTestCase {
         XCTAssertEqual(plist["LSUIElement"] as? Bool, true)
         XCTAssertEqual(plist["LSMinimumSystemVersion"] as? String, "14.0")
         XCTAssertEqual(plist["CFBundleIdentifier"] as? String, BuildInfo.bundleIdentifier)
+        XCTAssertEqual(plist["CFBundleShortVersionString"] as? String, "0.3.2")
+        XCTAssertEqual(plist["CFBundleVersion"] as? String, "5")
     }
 }
