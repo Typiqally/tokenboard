@@ -8,6 +8,25 @@ final class AppBundleConfigurationTests: XCTestCase {
         XCTAssertEqual(BuildInfo.minimumMacOS, "14.0")
     }
 
+    func testBuildInfoFormatsTheReleaseAndBuildForSettings() {
+        XCTAssertEqual(
+            BuildInfo.versionDescription(shortVersion: "0.3.0", buildNumber: "3"),
+            "0.3.0 (3)"
+        )
+        XCTAssertEqual(
+            BuildInfo.versionDescription(shortVersion: "0.3.0", buildNumber: nil),
+            "0.3.0"
+        )
+        XCTAssertEqual(
+            BuildInfo.versionDescription(shortVersion: nil, buildNumber: "3"),
+            "Build 3"
+        )
+        XCTAssertEqual(
+            BuildInfo.versionDescription(shortVersion: nil, buildNumber: nil),
+            "Unknown"
+        )
+    }
+
     func testEntitlementsAreSandboxedReadOnlyAndOffline() throws {
         let url = TestRepository.root.appending(path: "Resources/Tokenboard.entitlements")
         let data = try Data(contentsOf: url)
