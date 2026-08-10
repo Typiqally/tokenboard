@@ -119,10 +119,22 @@ public actor PricingInbox {
 
             do {
                 if let opened = try fileSystem.readIfPresent(name: Self.currentCatalogFilename) {
-                    await applyCurrentFile(
-                        opened.data,
-                        force: requiresAuthoritativeRewrite
-                    )
+                    if let current = try? validate(opened.data),
+                       PricingCatalogUpgradePolicy.shouldReplaceRepositoryCatalog(
+                           current,
+                           with: fallback
+                       ) {
+                        try fileSystem.replaceCanonical(
+                            fallback.canonicalJSON,
+                            name: Self.currentCatalogFilename
+                        )
+                        publish(.current(catalogID: fallback.catalogID))
+                    } else {
+                        await applyCurrentFile(
+                            opened.data,
+                            force: requiresAuthoritativeRewrite
+                        )
+                    }
                 } else {
                     if requiresAuthoritativeRewrite {
                         await applyCurrentFile(fallback.canonicalJSON, force: true)

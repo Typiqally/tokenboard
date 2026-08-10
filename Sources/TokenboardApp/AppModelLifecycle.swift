@@ -192,9 +192,18 @@ extension AppModel {
     }
 
     func installBundledCatalogIfNeeded() async throws {
-        guard try await ledger.latestAppliedPricingCatalogJSON() == nil else { return }
-        let loaded = try PricingCatalogLoader().load(bundledCatalogData)
-        let validated = try PricingCatalogValidator().validate(loaded)
+        let loader = PricingCatalogLoader()
+        let validator = PricingCatalogValidator()
+        let loaded = try loader.load(bundledCatalogData)
+        let validated = try validator.validate(loaded)
+        if let currentData = try await ledger.latestAppliedPricingCatalogJSON(),
+           let current = try? validator.validate(loader.load(currentData)),
+           !PricingCatalogUpgradePolicy.shouldReplaceRepositoryCatalog(
+               current,
+               with: validated
+           ) {
+            return
+        }
         guard let validationSummary = PricingImportMetadata.validationSummary(
             for: validated.schemaVersion
         ) else {
