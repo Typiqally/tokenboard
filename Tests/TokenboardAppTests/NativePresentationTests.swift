@@ -140,7 +140,7 @@ final class NativePresentationTests: XCTestCase {
         XCTAssertEqual(loading.summaryView.content.tokenTitle, "Importing usage…")
         XCTAssertEqual(
             loading.summaryView.content.apiValueTitle,
-            "Totals will appear after the first records are processed"
+            "Waiting for usage records"
         )
 
         state.lastUpdated = Date(timeIntervalSinceReferenceDate: 1)

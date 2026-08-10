@@ -35,13 +35,21 @@ struct MenuRecencyPresentation: Equatable, Sendable {
 struct BuiltNativeMenu {
     let menu: NSMenu
     let statusTitle: String
+    let statusSystemImageName: String?
+    let statusAccessibilityLabel: String
     let summaryView: MenuSummaryView
 }
 
 @MainActor
 protocol StatusItemHosting: AnyObject {
     var menu: NSMenu? { get set }
-    var title: String { get set }
+    var title: String { get }
+
+    func updateStatus(
+        title: String,
+        systemImageName: String?,
+        accessibilityLabel: String
+    )
 }
 
 @MainActor
@@ -53,9 +61,29 @@ private final class SystemStatusItemHost: StatusItemHosting {
         set { statusItem.menu = newValue }
     }
 
-    var title: String {
-        get { statusItem.button?.title ?? "" }
-        set { statusItem.button?.title = newValue }
+    var title: String { statusItem.button?.title ?? "" }
+
+    func updateStatus(
+        title: String,
+        systemImageName: String?,
+        accessibilityLabel: String
+    ) {
+        guard let button = statusItem.button else { return }
+        button.title = title
+        button.setAccessibilityLabel(accessibilityLabel)
+
+        if let systemImageName {
+            let image = NSImage(
+                systemSymbolName: systemImageName,
+                accessibilityDescription: accessibilityLabel
+            )
+            image?.isTemplate = true
+            button.image = image
+            button.imagePosition = title.isEmpty ? .imageOnly : .imageLeading
+        } else {
+            button.image = nil
+            button.imagePosition = .noImage
+        }
     }
 }
 
@@ -74,10 +102,31 @@ enum NativeMenuBuilder {
         let menu = NSMenu()
         menu.autoenablesItems = false
         let statusTitle: String
+        let statusSystemImageName: String?
+        let statusAccessibilityLabel: String
         let summaryContent: MenuSummaryContent
 
-        if let state, let presentation = state.presentation {
+        let isAwaitingFirstUsage = state?.isImporting == true
+            && state?.lastUpdated == nil
+            && (state?.presentation?.tokenTotal ?? 0) == 0
+
+        if isAwaitingFirstUsage {
+            statusTitle = ""
+            statusSystemImageName = "hourglass"
+            statusAccessibilityLabel = "Tokenboard is importing usage"
+            summaryContent = MenuSummaryContent(
+                contextTitle: state.map {
+                    UsageSelectionPresentation.periodTitle($0.selectedPeriod)
+                } ?? "Importing",
+                visualRecencyTitle: "Updated never",
+                accessibilityRecencyTitle: "Updated never",
+                tokenTitle: "Importing usage…",
+                apiValueTitle: "Waiting for usage records"
+            )
+        } else if let state, let presentation = state.presentation {
             statusTitle = presentation.statusTitle
+            statusSystemImageName = nil
+            statusAccessibilityLabel = "Tokenboard, \(presentation.statusTitle)"
             summaryContent = MenuSummaryContent(
                 contextTitle: UsageSelectionPresentation.periodTitle(state.selectedPeriod),
                 visualRecencyTitle: "Updated never",
@@ -87,6 +136,10 @@ enum NativeMenuBuilder {
             )
         } else {
             statusTitle = startupError == nil ? "…" : "Unavailable"
+            statusSystemImageName = nil
+            statusAccessibilityLabel = startupError == nil
+                ? "Tokenboard is starting"
+                : "Tokenboard is unavailable"
             summaryContent = MenuSummaryContent(
                 contextTitle: startupError == nil ? "Starting" : "Unavailable",
                 visualRecencyTitle: "Updated never",
@@ -166,6 +219,8 @@ enum NativeMenuBuilder {
         return BuiltNativeMenu(
             menu: menu,
             statusTitle: statusTitle,
+            statusSystemImageName: statusSystemImageName,
+            statusAccessibilityLabel: statusAccessibilityLabel,
             summaryView: summaryView
         )
     }
@@ -373,7 +428,11 @@ final class MenuController: NSObject, NSMenuDelegate {
             preservationFailed: disposition == .preservationFailed
         )
         built.menu.delegate = self
-        statusItem.title = built.statusTitle
+        statusItem.updateStatus(
+            title: built.statusTitle,
+            systemImageName: built.statusSystemImageName,
+            accessibilityLabel: built.statusAccessibilityLabel
+        )
         summaryView = built.summaryView
         statusItem.menu = built.menu
     }

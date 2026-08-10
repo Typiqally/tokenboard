@@ -13,6 +13,7 @@ public enum SourceHealth: Equatable, Sendable {
 }
 
 public struct MenuPresentation: Equatable, Sendable {
+    public let tokenTotal: Int64
     public let statusTitle: String
     public let tokenTitle: String
     public let apiValueTitle: String
@@ -23,6 +24,7 @@ public struct MenuPresentation: Equatable, Sendable {
         displayMetric: DisplayMetric,
         displayCurrency: DisplayCurrency = .usd
     ) {
+        tokenTotal = summary.tokenTotal
         let compactTokens = ValueFormatter.compactTokens(summary.tokenTotal)
         tokenTitle = "\(ValueFormatter.exactTokens(summary.tokenTotal)) tokens"
         let converted = CurrencyConverter.convert(
