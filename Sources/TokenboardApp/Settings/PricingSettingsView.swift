@@ -225,11 +225,11 @@ private struct PricingProviderLedger: View {
             Divider()
 
             ScrollView(.horizontal) {
-                Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 0) {
+                Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 0) {
                     GridRow(alignment: .bottom) {
-                        ledgerHeader("Model", width: 220, alignment: .leading)
+                        ledgerHeader("Model", width: 210, alignment: .leading)
                         ForEach(metrics, id: \.rawValue) { metric in
-                            ledgerHeader(metricName(metric), width: 100, alignment: .trailing)
+                            ledgerHeader(metricName(metric), width: 80, alignment: .trailing)
                         }
                     }
                     .padding(.vertical, 6)
@@ -243,7 +243,7 @@ private struct PricingProviderLedger: View {
                                 .font(.subheadline.monospaced().weight(.medium))
                                 .lineLimit(1)
                                 .textSelection(.enabled)
-                                .frame(width: 220, alignment: .leading)
+                                .frame(width: 210, alignment: .leading)
 
                             ForEach(metrics, id: \.rawValue) { metric in
                                 rateCell(model.rates[metric], metric: metric)
@@ -281,14 +281,14 @@ private struct PricingProviderLedger: View {
         if let rate {
             Text(ValueFormatter.currency(rate, currency: .usd))
                 .font(.subheadline.monospacedDigit())
-                .frame(width: 100, alignment: .trailing)
+                .frame(width: 80, alignment: .trailing)
                 .accessibilityLabel(
                     "\(metricName(metric)), \(ValueFormatter.currency(rate, currency: .usd)) per million tokens"
                 )
         } else {
             Text("—")
                 .foregroundStyle(.tertiary)
-                .frame(width: 100, alignment: .trailing)
+                .frame(width: 80, alignment: .trailing)
                 .accessibilityLabel("\(metricName(metric)), unavailable")
         }
     }

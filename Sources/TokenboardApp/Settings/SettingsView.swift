@@ -71,7 +71,7 @@ struct SettingsView: View {
         } detail: {
             settingsForm
         }
-        .frame(minWidth: 760, minHeight: 540)
+        .frame(minWidth: 940, minHeight: 600)
         .disabled(model.settingsState.isLoading || model.isDatabaseRestoreInProgress)
     }
 
