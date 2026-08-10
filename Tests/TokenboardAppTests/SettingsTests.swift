@@ -923,7 +923,10 @@ final class SettingsTests: XCTestCase {
         XCTAssertTrue(controller.isSettingsViewLoaded)
         XCTAssertEqual(creationCount, 1)
         XCTAssertEqual(controller.currentLaunchAtLoginEnabled, false)
-        XCTAssertGreaterThanOrEqual(try XCTUnwrap(controller.window).minSize.width, 940)
+        let window = try XCTUnwrap(controller.window)
+        XCTAssertGreaterThanOrEqual(window.minSize.width, 940)
+        XCTAssertFalse(window.titlebarAppearsTransparent)
+        XCTAssertEqual(window.titlebarSeparatorStyle, .line)
 
         service.isEnabled = true
         controller.showWindow(nil)
