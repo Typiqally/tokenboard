@@ -41,6 +41,54 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(setup.access.stopCount, 1)
     }
 
+    func testStartupUpgradesAnOlderBundledRepositoryCatalog() async throws {
+        let bundledData = try bundledCatalogData()
+        let olderBundledData = try catalogData(
+            basedOn: bundledData,
+            catalogID: "older-bundled-catalog",
+            generatedAt: "2026-08-07T00:00:00Z",
+            originKind: "tokenboard_repository"
+        )
+        let setup = try makeSetup(
+            approved: false,
+            grantedProviders: [],
+            existingCatalogData: olderBundledData
+        )
+        defer { setup.cleanup() }
+
+        await setup.model.start()
+
+        let currentData = await setup.ledger.currentCatalogData()
+        let appliedData = try XCTUnwrap(currentData)
+        let applied = try PricingCatalogValidator().validate(PricingCatalogLoader().load(appliedData))
+        let bundled = try PricingCatalogValidator().validate(PricingCatalogLoader().load(bundledData))
+        XCTAssertEqual(applied.catalogID, bundled.catalogID)
+        XCTAssertTrue(setup.recorder.snapshot.contains("ledger.applyCatalog"))
+    }
+
+    func testStartupPreservesAnAgentManagedCatalogWhenBundledCatalogIsNewer() async throws {
+        let agentData = try catalogData(
+            basedOn: bundledCatalogData(),
+            catalogID: "agent-managed-catalog",
+            generatedAt: "2026-08-07T00:00:00Z",
+            originKind: "web_research"
+        )
+        let setup = try makeSetup(
+            approved: false,
+            grantedProviders: [],
+            existingCatalogData: agentData
+        )
+        defer { setup.cleanup() }
+
+        await setup.model.start()
+
+        let currentData = await setup.ledger.currentCatalogData()
+        let appliedData = try XCTUnwrap(currentData)
+        let applied = try PricingCatalogValidator().validate(PricingCatalogLoader().load(appliedData))
+        XCTAssertEqual(applied.catalogID, "agent-managed-catalog")
+        XCTAssertFalse(setup.recorder.snapshot.contains("ledger.applyCatalog"))
+    }
+
     func testExplicitImportHoldsBothScopesAndSelectionsNeverRescan() async throws {
         let setup = try makeSetup(approved: false, grantedProviders: Set(Provider.allCases))
         defer { setup.cleanup() }
@@ -89,7 +137,8 @@ final class AppModelTests: XCTestCase {
 
     private func makeSetup(
         approved: Bool,
-        grantedProviders: Set<Provider>
+        grantedProviders: Set<Provider>,
+        existingCatalogData: Data? = nil
     ) throws -> ModelSetup {
         let suiteName = "AppModelTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -105,7 +154,7 @@ final class AppModelTests: XCTestCase {
                 isDirectory: true
             )
         }
-        let ledger = RuntimeLedger(recorder: recorder)
+        let ledger = RuntimeLedger(recorder: recorder, appliedCatalog: existingCatalogData)
         let coordinator = RuntimeCoordinator(recorder: recorder)
         let model = AppModel(
             ledger: ledger,
@@ -123,6 +172,7 @@ final class AppModelTests: XCTestCase {
         )
         return ModelSetup(
             model: model,
+            ledger: ledger,
             preferences: preferences,
             coordinator: coordinator,
             access: access,
@@ -138,10 +188,31 @@ final class AppModelTests: XCTestCase {
             .deletingLastPathComponent()
         return try Data(contentsOf: repository.appending(path: "Resources/tokenboard-pricing.json"))
     }
+
+    private func catalogData(
+        basedOn data: Data,
+        catalogID: String,
+        generatedAt: String,
+        originKind: String
+    ) throws -> Data {
+        var object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+        object["catalogID"] = catalogID
+        object["generatedAt"] = generatedAt
+        var origin = try XCTUnwrap(object["origin"] as? [String: Any])
+        origin["kind"] = originKind
+        if originKind == "web_research" {
+            origin["url"] = "https://prices.example/catalog"
+        }
+        object["origin"] = origin
+        return try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+    }
 }
 
 private struct ModelSetup {
     let model: AppModel
+    let ledger: RuntimeLedger
     let preferences: AppPreferences
     let coordinator: RuntimeCoordinator
     let access: RuntimeBookmarkAccess
@@ -161,7 +232,10 @@ private actor RuntimeLedger: AppLedgerRuntime {
     let recorder: OrderedRecorder
     private var appliedCatalog: Data?
 
-    init(recorder: OrderedRecorder) { self.recorder = recorder }
+    init(recorder: OrderedRecorder, appliedCatalog: Data? = nil) {
+        self.recorder = recorder
+        self.appliedCatalog = appliedCatalog
+    }
 
     func migrate() { recorder.append("ledger.migrate") }
     func integrityCheck() { recorder.append("ledger.integrity") }
@@ -169,6 +243,7 @@ private actor RuntimeLedger: AppLedgerRuntime {
         recorder.append("ledger.latestCatalog")
         return appliedCatalog
     }
+    func currentCatalogData() -> Data? { appliedCatalog }
     func applyPricingCatalog(
         _ catalog: ValidatedPricingCatalog,
         canonicalJSON: Data,
