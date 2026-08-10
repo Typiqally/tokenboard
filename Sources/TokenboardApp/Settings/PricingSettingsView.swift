@@ -211,20 +211,16 @@ private struct PricingProviderLedger: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Image(systemName: group.provider == .claudeCode ? "sparkles" : "terminal")
-                    .foregroundStyle(accentColor)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .firstTextBaseline) {
                 Text(providerName)
-                    .font(.subheadline.weight(.semibold))
+                    .font(.headline)
                 Spacer()
                 Text(modelCount)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 9)
-            .background(accentColor.opacity(0.10))
+            .padding(.bottom, 7)
 
             Divider()
 
@@ -236,30 +232,24 @@ private struct PricingProviderLedger: View {
                             ledgerHeader(metricName(metric), width: 100, alignment: .trailing)
                         }
                     }
-                    .padding(.vertical, 8)
+                    .padding(.vertical, 6)
 
                     Divider()
                         .gridCellColumns(metrics.count + 1)
 
                     ForEach(Array(group.models.enumerated()), id: \.element.id) { index, model in
                         GridRow(alignment: .center) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(model.canonicalModelID)
-                                    .font(.body.monospaced().weight(.medium))
-                                    .lineLimit(1)
-                                    .textSelection(.enabled)
-                                Text("Current rate")
-                                    .font(.caption2.weight(.medium))
-                                    .foregroundStyle(.secondary)
-                            }
-                            .frame(width: 220, alignment: .leading)
+                            Text(model.canonicalModelID)
+                                .font(.subheadline.monospaced().weight(.medium))
+                                .lineLimit(1)
+                                .textSelection(.enabled)
+                                .frame(width: 220, alignment: .leading)
 
                             ForEach(metrics, id: \.rawValue) { metric in
                                 rateCell(model.rates[metric], metric: metric)
                             }
                         }
-                        .padding(.vertical, 9)
-                        .background(index.isMultiple(of: 2) ? Color.primary.opacity(0.025) : .clear)
+                        .padding(.vertical, 6)
 
                         if index < group.models.count - 1 {
                             Divider()
@@ -267,14 +257,7 @@ private struct PricingProviderLedger: View {
                         }
                     }
                 }
-                .padding(.horizontal, 12)
             }
-        }
-        .background(Color.primary.opacity(0.025))
-        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .stroke(Color.primary.opacity(0.12), lineWidth: 1)
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(providerName) pricing, \(modelCount)")
@@ -297,7 +280,7 @@ private struct PricingProviderLedger: View {
     private func rateCell(_ rate: Decimal?, metric: UsageMetric) -> some View {
         if let rate {
             Text(ValueFormatter.currency(rate, currency: .usd))
-                .font(.body.monospacedDigit())
+                .font(.subheadline.monospacedDigit())
                 .frame(width: 100, alignment: .trailing)
                 .accessibilityLabel(
                     "\(metricName(metric)), \(ValueFormatter.currency(rate, currency: .usd)) per million tokens"
@@ -319,13 +302,6 @@ private struct PricingProviderLedger: View {
 
     private var modelCount: String {
         "\(group.models.count) \(group.models.count == 1 ? "model" : "models")"
-    }
-
-    private var accentColor: Color {
-        switch group.provider {
-        case .claudeCode: .blue
-        case .codex: .orange
-        }
     }
 
     private func metricName(_ metric: UsageMetric) -> String {
