@@ -113,6 +113,35 @@ final class PricingInboxTests: XCTestCase {
         XCTAssertEqual(status, .current(catalogID: "authoritative"))
     }
 
+    func testNewerRepositoryFallbackReplacesAnOlderRepositoryCurrentFile() async throws {
+        let latest = repositoryCatalogData(
+            id: "bundled-new",
+            generatedAt: "2026-08-10T00:00:00Z"
+        )
+        let setup = try makeSetup(
+            latestApplied: latest,
+            storedCatalogIDs: ["bundled-new"],
+            bundledCatalogData: latest
+        )
+        try FileManager.default.createDirectory(
+            at: setup.currentURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try repositoryCatalogData(
+            id: "bundled-old",
+            generatedAt: "2026-08-07T00:00:00Z"
+        ).write(to: setup.currentURL)
+
+        try await setup.catalogStore.start()
+
+        let exported = try PricingCatalogLoader().load(Data(contentsOf: setup.currentURL))
+        let applyCalls = await setup.ledger.applyCallCount()
+        let status = await setup.catalogStore.status()
+        XCTAssertEqual(exported.catalogID, "bundled-new")
+        XCTAssertEqual(applyCalls, 0)
+        XCTAssertEqual(status, .current(catalogID: "bundled-new"))
+    }
+
     func testLegacyReviewDirectoriesAreNeverCreated() async throws {
         let setup = try makeSetup()
 
@@ -127,7 +156,8 @@ final class PricingInboxTests: XCTestCase {
 
     private func makeSetup(
         latestApplied: Data? = nil,
-        storedCatalogIDs: [String]? = nil
+        storedCatalogIDs: [String]? = nil,
+        bundledCatalogData: Data? = nil
     ) throws -> CatalogSetup {
         let root = FileManager.default.temporaryDirectory.appending(
             path: "TokenboardPricingCatalogTests-\(UUID().uuidString)",
@@ -144,7 +174,7 @@ final class PricingInboxTests: XCTestCase {
         let store = PricingInbox(
             ledger: ledger,
             applicationSupportDirectory: root,
-            bundledCatalogData: catalogData(id: "bundled-test")
+            bundledCatalogData: bundledCatalogData ?? catalogData(id: "bundled-test")
         )
         return CatalogSetup(root: root, ledger: ledger, catalogStore: store)
     }
@@ -155,6 +185,10 @@ final class PricingInboxTests: XCTestCase {
 
     private func catalogData(id: String) -> Data {
         Data(#"{"schemaVersion":1,"catalogID":"\#(id)","generatedAt":"2026-08-05T00:00:00Z","origin":{"kind":"web_research","url":"https://prices.example/catalog"},"models":[{"provider":"codex","canonicalModelID":"gpt-test","aliases":[{"observedModelID":"gpt-test","effectiveFrom":"2026-01-01","effectiveTo":null}],"rates":[{"effectiveFrom":"2026-01-01","effectiveTo":null,"prices":{"input_uncached":"5.00","output":"30.00"},"provenanceURL":"https://prices.example/model","verifiedAt":"2026-08-05"}]}]}"#.utf8)
+    }
+
+    private func repositoryCatalogData(id: String, generatedAt: String) -> Data {
+        Data(#"{"schemaVersion":1,"catalogID":"\#(id)","generatedAt":"\#(generatedAt)","origin":{"kind":"tokenboard_repository","url":"https://raw.githubusercontent.com/Typiqally/tokenboard/main/Resources/tokenboard-pricing.json"},"models":[{"provider":"codex","canonicalModelID":"gpt-test","aliases":[{"observedModelID":"gpt-test","effectiveFrom":"2026-01-01","effectiveTo":null}],"rates":[{"effectiveFrom":"2026-01-01","effectiveTo":null,"prices":{"input_uncached":"5.00","output":"30.00"},"provenanceURL":"https://prices.example/model","verifiedAt":"2026-08-05"}]}]}"#.utf8)
     }
 
 }
