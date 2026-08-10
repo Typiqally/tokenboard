@@ -286,6 +286,36 @@ final class NativePresentationTests: XCTestCase {
         XCTAssertEqual(summaryView.accessibilityLabel(), summaryView.content.accessibilitySummary)
     }
 
+    func testRecencyPresentationUsesAbbreviatedVisualAndFullAccessibilityStyles() {
+        let relativeTo = Date(timeIntervalSinceReferenceDate: 800_000_000)
+        let lastUpdated = relativeTo.addingTimeInterval(-2 * 60 * 60)
+
+        let abbreviatedFormatter = RelativeDateTimeFormatter()
+        abbreviatedFormatter.unitsStyle = .abbreviated
+        let expectedVisualRelative = abbreviatedFormatter.localizedString(
+            for: lastUpdated,
+            relativeTo: relativeTo
+        )
+        let expectedVisualTitle = "Updated \(expectedVisualRelative)"
+
+        let fullFormatter = RelativeDateTimeFormatter()
+        fullFormatter.unitsStyle = .full
+        let expectedAccessibilityRelative = fullFormatter.localizedString(
+            for: lastUpdated,
+            relativeTo: relativeTo
+        )
+        let expectedAccessibilityTitle = "Updated \(expectedAccessibilityRelative)"
+
+        XCTAssertNotEqual(expectedVisualTitle, expectedAccessibilityTitle)
+
+        let presentation = MenuRecencyPresentation(
+            lastUpdated: lastUpdated,
+            relativeTo: relativeTo
+        )
+        XCTAssertEqual(presentation.visualTitle, expectedVisualTitle)
+        XCTAssertEqual(presentation.accessibilityTitle, expectedAccessibilityTitle)
+    }
+
     func testOnboardingRenderedActionsRespectApprovalReadinessAndImportState() throws {
         let setup = try makeModel()
         defer { setup.cleanup() }

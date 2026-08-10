@@ -2,6 +2,35 @@ import AppKit
 import Combine
 import TokenboardCore
 
+struct MenuRecencyPresentation: Equatable, Sendable {
+    let visualTitle: String
+    let accessibilityTitle: String
+
+    init(lastUpdated: Date?, relativeTo: Date) {
+        guard let lastUpdated else {
+            visualTitle = "Updated never"
+            accessibilityTitle = "Updated never"
+            return
+        }
+
+        let visualFormatter = RelativeDateTimeFormatter()
+        visualFormatter.unitsStyle = .abbreviated
+        let visualRelative = visualFormatter.localizedString(
+            for: lastUpdated,
+            relativeTo: relativeTo
+        )
+        visualTitle = "Updated \(visualRelative)"
+
+        let accessibilityFormatter = RelativeDateTimeFormatter()
+        accessibilityFormatter.unitsStyle = .full
+        let accessibilityRelative = accessibilityFormatter.localizedString(
+            for: lastUpdated,
+            relativeTo: relativeTo
+        )
+        accessibilityTitle = "Updated \(accessibilityRelative)"
+    }
+}
+
 @MainActor
 struct BuiltNativeMenu {
     let menu: NSMenu
@@ -329,29 +358,13 @@ final class MenuController: NSObject, NSMenuDelegate {
 
     func menuWillOpen(_ menu: NSMenu) {
         guard let summaryView else { return }
-        let visualRelative: String
-        let accessibilityRelative: String
-        if let lastUpdated = model?.health.lastSuccessfulScan {
-            let visualFormatter = RelativeDateTimeFormatter()
-            visualFormatter.unitsStyle = .abbreviated
-            visualRelative = visualFormatter.localizedString(
-                for: lastUpdated,
-                relativeTo: Date()
-            )
-
-            let accessibilityFormatter = RelativeDateTimeFormatter()
-            accessibilityFormatter.unitsStyle = .full
-            accessibilityRelative = accessibilityFormatter.localizedString(
-                for: lastUpdated,
-                relativeTo: Date()
-            )
-        } else {
-            visualRelative = "never"
-            accessibilityRelative = "never"
-        }
+        let recency = MenuRecencyPresentation(
+            lastUpdated: model?.health.lastSuccessfulScan,
+            relativeTo: Date()
+        )
         summaryView.updateRecency(
-            visualTitle: "Updated \(visualRelative)",
-            accessibilityTitle: "Updated \(accessibilityRelative)"
+            visualTitle: recency.visualTitle,
+            accessibilityTitle: recency.accessibilityTitle
         )
     }
 

@@ -28,10 +28,10 @@ struct MenuSummaryContent: Equatable, Sendable {
 @MainActor
 final class MenuSummaryView: NSView {
     private enum Metrics {
-        static let width: CGFloat = 280
+        static let minimumWidth: CGFloat = 280
         static let height: CGFloat = 76
         static let horizontalInset: CGFloat = 14
-        static let verticalInset: CGFloat = 10
+        static let verticalInset: CGFloat = 9
         static let contextSpacing: CGFloat = 8
         static let lineSpacing: CGFloat = 5
     }
@@ -43,7 +43,7 @@ final class MenuSummaryView: NSView {
     private(set) var content: MenuSummaryContent
 
     override var intrinsicContentSize: NSSize {
-        NSSize(width: Metrics.width, height: Metrics.height)
+        NSSize(width: requiredWidth, height: Metrics.height)
     }
 
     init(content: MenuSummaryContent) {
@@ -51,9 +51,10 @@ final class MenuSummaryView: NSView {
         super.init(frame: NSRect(
             x: 0,
             y: 0,
-            width: Metrics.width,
+            width: Metrics.minimumWidth,
             height: Metrics.height
         ))
+        autoresizingMask = [.width]
         configureLayout()
         update(content: content)
     }
@@ -70,6 +71,7 @@ final class MenuSummaryView: NSView {
         tokenLabel.stringValue = content.tokenTitle
         apiValueLabel.stringValue = content.apiValueTitle
         setAccessibilityLabel(content.accessibilitySummary)
+        resizeToFitContent()
     }
 
     func updateRecency(visualTitle: String, accessibilityTitle: String) {
@@ -122,5 +124,29 @@ final class MenuSummaryView: NSView {
             stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Metrics.verticalInset),
             contextRow.widthAnchor.constraint(equalTo: stack.widthAnchor)
         ])
+    }
+
+    private var requiredWidth: CGFloat {
+        let contextRowWidth = contextLabel.intrinsicContentSize.width
+            + Metrics.contextSpacing
+            + recencyLabel.intrinsicContentSize.width
+        let widestContentWidth = max(
+            contextRowWidth,
+            max(
+                tokenLabel.intrinsicContentSize.width,
+                apiValueLabel.intrinsicContentSize.width
+            )
+        )
+        return ceil(max(
+            Metrics.minimumWidth,
+            widestContentWidth + (2 * Metrics.horizontalInset)
+        ))
+    }
+
+    private func resizeToFitContent() {
+        let width = requiredWidth
+        invalidateIntrinsicContentSize()
+        setFrameSize(NSSize(width: width, height: Metrics.height))
+        needsLayout = true
     }
 }
