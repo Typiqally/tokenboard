@@ -986,10 +986,12 @@ final class SettingsTests: XCTestCase {
         )
         let rows = [usageRow(quantity: 100_000)]
         let recorder = SettingsRecorder()
+        let bundledCatalog = try bundledCatalogData()
         let ledger = SettingsLedger(
             pricing: pricing,
             rows: rows,
             recorder: recorder,
+            appliedCatalog: bundledCatalog,
             shutdownError: ledgerShutdownError,
             shutdownGate: ledgerShutdownGate
         )
@@ -1010,7 +1012,7 @@ final class SettingsTests: XCTestCase {
             pricingInbox: inbox,
             grantStore: grantStore,
             preferences: preferences,
-            bundledCatalogData: Data([1]),
+            bundledCatalogData: bundledCatalog,
             applicationPaths: paths,
             sourcePicker: SettingsPicker(url: pickerURL),
             pasteboard: pasteboard,
@@ -1031,6 +1033,14 @@ final class SettingsTests: XCTestCase {
             recorder: recorder,
             cleanup: { defaults.removePersistentDomain(forName: suite) }
         )
+    }
+
+    private func bundledCatalogData() throws -> Data {
+        let repository = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        return try Data(contentsOf: repository.appending(path: "Resources/tokenboard-pricing.json"))
     }
 
     private func usageRow(quantity: Int64) -> DailyUsageRow {
@@ -1163,6 +1173,7 @@ private final class SettingsRecorder: @unchecked Sendable {
 
 private actor SettingsLedger: AppLedgerRuntime {
     private var pricing: PricingSnapshot
+    private var appliedCatalog: Data
     private let rows: [DailyUsageRow]
     private let recorder: SettingsRecorder
     private var shutdownFailuresRemaining: Int
@@ -1174,10 +1185,12 @@ private actor SettingsLedger: AppLedgerRuntime {
         pricing: PricingSnapshot,
         rows: [DailyUsageRow],
         recorder: SettingsRecorder,
+        appliedCatalog: Data,
         shutdownError: SettingsError?,
         shutdownGate: SettingsMutationGate? = nil
     ) {
         self.pricing = pricing
+        self.appliedCatalog = appliedCatalog
         self.rows = rows
         self.recorder = recorder
         self.shutdownGate = shutdownGate
@@ -1186,13 +1199,15 @@ private actor SettingsLedger: AppLedgerRuntime {
 
     func migrate() {}
     func integrityCheck() {}
-    func latestAppliedPricingCatalogJSON() -> Data? { Data([1]) }
+    func latestAppliedPricingCatalogJSON() -> Data? { appliedCatalog }
     func applyPricingCatalog(
         _ catalog: ValidatedPricingCatalog,
         canonicalJSON: Data,
         origin: String,
         validationSummary: String
-    ) {}
+    ) {
+        appliedCatalog = canonicalJSON
+    }
     func pricingSnapshot() -> PricingSnapshot { pricing }
     func usageRows(in interval: DateInterval?, calendar: Calendar) -> [DailyUsageRow] { rows }
     func skippedRecordCount() -> Int { currentSkippedRecordCount }
