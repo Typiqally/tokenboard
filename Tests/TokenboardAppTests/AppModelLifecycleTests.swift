@@ -1233,10 +1233,11 @@ final class AppModelLifecycleTests: XCTestCase {
             defaults.set(marker, forKey: "sourceBookmark.\(provider.rawValue)")
             access.roots[marker] = root
         }
+        let bundledCatalog = try bundledCatalogData()
         let ledger = LifecycleLedger(
             failure: failure,
             failureIsOneShot: failureIsOneShot,
-            catalogAlreadyApplied: catalogAlreadyApplied,
+            appliedCatalog: catalogAlreadyApplied ? bundledCatalog : nil,
             catalogCommitBeforeFailure: catalogCommitBeforeFailure,
             startupGate: startupGate,
             durableSkipped: durableSkipped,
@@ -1268,7 +1269,7 @@ final class AppModelLifecycleTests: XCTestCase {
             pricingInbox: inbox,
             grantStore: store,
             preferences: preferences,
-            bundledCatalogData: try bundledCatalogData(),
+            bundledCatalogData: bundledCatalog,
             applicationPaths: ApplicationPaths(
                 root: URL(fileURLWithPath: "/tmp/\(suite)-support", isDirectory: true)
             ),
@@ -1415,7 +1416,6 @@ private actor AsyncFlag {
 private actor LifecycleLedger: AppLedgerRuntime {
     private var failure: StartupFailurePoint?
     private let failureIsOneShot: Bool
-    private let catalogAlreadyApplied: Bool
     private let catalogCommitBeforeFailure: Bool
     private let startupGate: AsyncTestGate?
     private(set) var applyCount = 0
@@ -1430,7 +1430,7 @@ private actor LifecycleLedger: AppLedgerRuntime {
     init(
         failure: StartupFailurePoint?,
         failureIsOneShot: Bool,
-        catalogAlreadyApplied: Bool,
+        appliedCatalog: Data?,
         catalogCommitBeforeFailure: Bool,
         startupGate: AsyncTestGate?,
         durableSkipped: [Provider: Int],
@@ -1439,13 +1439,12 @@ private actor LifecycleLedger: AppLedgerRuntime {
     ) {
         self.failure = failure
         self.failureIsOneShot = failureIsOneShot
-        self.catalogAlreadyApplied = catalogAlreadyApplied
         self.catalogCommitBeforeFailure = catalogCommitBeforeFailure
         self.startupGate = startupGate
         self.durableSkipped = durableSkipped
         self.skippedCountGateCall = skippedCountGateCall
         self.skippedCountGate = skippedCountGate
-        appliedCatalog = catalogAlreadyApplied ? Data([1]) : nil
+        self.appliedCatalog = appliedCatalog
     }
 
     func migrate() async throws {
