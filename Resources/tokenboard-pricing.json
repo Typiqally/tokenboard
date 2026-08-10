@@ -1,12 +1,254 @@
 {
   "schemaVersion": 2,
-  "catalogID": "tokenboard-2026-08-10-1",
-  "generatedAt": "2026-08-10T16:46:43Z",
+  "catalogID": "tokenboard-2026-08-10-2",
+  "generatedAt": "2026-08-10T17:05:32Z",
   "origin": {
     "kind": "tokenboard_repository",
     "url": "https://raw.githubusercontent.com/Typiqally/tokenboard/main/Resources/tokenboard-pricing.json"
   },
   "models": [
+    {
+      "provider": "claude_code",
+      "canonicalModelID": "claude-3-opus-20240229",
+      "aliases": [
+        {"observedModelID":"claude-3-opus-20240229","effectiveFrom":"2024-03-04","effectiveTo":null}
+      ],
+      "rates": [
+        {
+          "effectiveFrom":"2024-03-04",
+          "effectiveTo":null,
+          "prices": {"input_uncached":"15.00","input_cache_read":"1.50","input_cache_write_5m":"18.75","input_cache_write_1h":"30.00","output":"75.00"},
+          "provenanceURL":"https://platform.claude.com/docs/en/about-claude/pricing?46f68bc1_page=4&835f38dd_page=2&e45d281a_page=4",
+          "verifiedAt":"2026-08-10"
+        }
+      ]
+    },
+    {
+      "provider": "claude_code",
+      "canonicalModelID": "claude-3-sonnet-20240229",
+      "aliases": [
+        {"observedModelID":"claude-3-sonnet-20240229","effectiveFrom":"2024-03-04","effectiveTo":null}
+      ],
+      "rates": [
+        {
+          "effectiveFrom":"2024-03-04",
+          "effectiveTo":null,
+          "prices": {"input_uncached":"3.00","input_cache_read":"0.30","input_cache_write_5m":"3.75","input_cache_write_1h":"6.00","output":"15.00"},
+          "provenanceURL":"https://www.anthropic.com/news/claude-3-family",
+          "verifiedAt":"2026-08-10"
+        }
+      ]
+    },
+    {
+      "provider": "claude_code",
+      "canonicalModelID": "claude-3-haiku-20240307",
+      "aliases": [
+        {"observedModelID":"claude-3-haiku-20240307","effectiveFrom":"2024-03-14","effectiveTo":null}
+      ],
+      "rates": [
+        {
+          "effectiveFrom":"2024-03-14",
+          "effectiveTo":null,
+          "prices": {"input_uncached":"0.25","input_cache_read":"0.03","input_cache_write_5m":"0.30","input_cache_write_1h":"0.50","output":"1.25"},
+          "provenanceURL":"https://platform.claude.com/docs/en/about-claude/pricing?46f68bc1_page=4&835f38dd_page=2&e45d281a_page=4",
+          "verifiedAt":"2026-08-10"
+        }
+      ]
+    },
+    {
+      "provider": "claude_code",
+      "canonicalModelID": "claude-3-5-sonnet-20240620",
+      "aliases": [
+        {"observedModelID":"claude-3-5-sonnet-20240620","effectiveFrom":"2024-06-20","effectiveTo":null}
+      ],
+      "rates": [
+        {
+          "effectiveFrom":"2024-06-20",
+          "effectiveTo":null,
+          "prices": {"input_uncached":"3.00","input_cache_read":"0.30","input_cache_write_5m":"3.75","input_cache_write_1h":"6.00","output":"15.00"},
+          "provenanceURL":"https://www.anthropic.com/news/claude-3-5-sonnet",
+          "verifiedAt":"2026-08-10"
+        }
+      ]
+    },
+    {
+      "provider": "claude_code",
+      "canonicalModelID": "claude-3-5-sonnet-20241022",
+      "aliases": [
+        {"observedModelID":"claude-3-5-sonnet-20241022","effectiveFrom":"2024-10-22","effectiveTo":null}
+      ],
+      "rates": [
+        {
+          "effectiveFrom":"2024-10-22",
+          "effectiveTo":null,
+          "prices": {"input_uncached":"3.00","input_cache_read":"0.30","input_cache_write_5m":"3.75","input_cache_write_1h":"6.00","output":"15.00"},
+          "provenanceURL":"https://www.anthropic.com/news/3-5-models-and-computer-use",
+          "verifiedAt":"2026-08-10"
+        }
+      ]
+    },
+    {
+      "provider": "claude_code",
+      "canonicalModelID": "claude-3-5-haiku-20241022",
+      "aliases": [
+        {"observedModelID":"claude-3-5-haiku-20241022","effectiveFrom":"2024-11-04","effectiveTo":null}
+      ],
+      "rates": [
+        {
+          "effectiveFrom":"2024-11-04",
+          "effectiveTo":null,
+          "prices": {"input_uncached":"0.80","input_cache_read":"0.08","input_cache_write_5m":"1.00","input_cache_write_1h":"1.60","output":"4.00"},
+          "provenanceURL":"https://platform.claude.com/docs/en/about-claude/pricing",
+          "verifiedAt":"2026-08-10"
+        }
+      ]
+    },
+    {
+      "provider": "claude_code",
+      "canonicalModelID": "claude-3-7-sonnet-20250219",
+      "aliases": [
+        {"observedModelID":"claude-3-7-sonnet-20250219","effectiveFrom":"2025-02-24","effectiveTo":null}
+      ],
+      "rates": [
+        {
+          "effectiveFrom":"2025-02-24",
+          "effectiveTo":null,
+          "prices": {"input_uncached":"3.00","input_cache_read":"0.30","input_cache_write_5m":"3.75","input_cache_write_1h":"6.00","output":"15.00"},
+          "provenanceURL":"https://platform.claude.com/docs/en/about-claude/pricing?46f68bc1_page=4&835f38dd_page=2&e45d281a_page=4",
+          "verifiedAt":"2026-08-10"
+        }
+      ]
+    },
+    {
+      "provider": "claude_code",
+      "canonicalModelID": "claude-opus-4-20250514",
+      "aliases": [
+        {"observedModelID":"claude-opus-4-20250514","effectiveFrom":"2025-05-22","effectiveTo":null}
+      ],
+      "rates": [
+        {
+          "effectiveFrom":"2025-05-22",
+          "effectiveTo":null,
+          "prices": {"input_uncached":"15.00","input_cache_read":"1.50","input_cache_write_5m":"18.75","input_cache_write_1h":"30.00","output":"75.00"},
+          "provenanceURL":"https://platform.claude.com/docs/en/about-claude/pricing",
+          "verifiedAt":"2026-08-10"
+        }
+      ]
+    },
+    {
+      "provider": "claude_code",
+      "canonicalModelID": "claude-sonnet-4-20250514",
+      "aliases": [
+        {"observedModelID":"claude-sonnet-4-20250514","effectiveFrom":"2025-05-22","effectiveTo":null}
+      ],
+      "rates": [
+        {
+          "effectiveFrom":"2025-05-22",
+          "effectiveTo":null,
+          "prices": {"input_uncached":"3.00","input_cache_read":"0.30","input_cache_write_5m":"3.75","input_cache_write_1h":"6.00","output":"15.00"},
+          "provenanceURL":"https://platform.claude.com/docs/en/about-claude/pricing",
+          "verifiedAt":"2026-08-10"
+        }
+      ]
+    },
+    {
+      "provider": "claude_code",
+      "canonicalModelID": "claude-opus-4-1-20250805",
+      "aliases": [
+        {"observedModelID":"claude-opus-4-1-20250805","effectiveFrom":"2025-08-05","effectiveTo":null}
+      ],
+      "rates": [
+        {
+          "effectiveFrom":"2025-08-05",
+          "effectiveTo":null,
+          "prices": {"input_uncached":"15.00","input_cache_read":"1.50","input_cache_write_5m":"18.75","input_cache_write_1h":"30.00","output":"75.00"},
+          "provenanceURL":"https://platform.claude.com/docs/en/about-claude/pricing",
+          "verifiedAt":"2026-08-10"
+        }
+      ]
+    },
+    {
+      "provider": "claude_code",
+      "canonicalModelID": "claude-sonnet-4-5-20250929",
+      "aliases": [
+        {"observedModelID":"claude-sonnet-4-5","effectiveFrom":"2025-09-29","effectiveTo":null},
+        {"observedModelID":"claude-sonnet-4-5-20250929","effectiveFrom":"2025-09-29","effectiveTo":null}
+      ],
+      "rates": [
+        {
+          "effectiveFrom":"2025-09-29",
+          "effectiveTo":null,
+          "prices": {"input_uncached":"3.00","input_cache_read":"0.30","input_cache_write_5m":"3.75","input_cache_write_1h":"6.00","output":"15.00"},
+          "provenanceURL":"https://platform.claude.com/docs/en/about-claude/pricing",
+          "verifiedAt":"2026-08-10"
+        }
+      ]
+    },
+    {
+      "provider": "claude_code",
+      "canonicalModelID": "claude-opus-4-5-20251101",
+      "aliases": [
+        {"observedModelID":"claude-opus-4-5","effectiveFrom":"2025-11-24","effectiveTo":null},
+        {"observedModelID":"claude-opus-4-5-20251101","effectiveFrom":"2025-11-24","effectiveTo":null}
+      ],
+      "rates": [
+        {
+          "effectiveFrom":"2025-11-24",
+          "effectiveTo":null,
+          "prices": {"input_uncached":"5.00","input_cache_read":"0.50","input_cache_write_5m":"6.25","input_cache_write_1h":"10.00","output":"25.00"},
+          "provenanceURL":"https://platform.claude.com/docs/en/about-claude/pricing",
+          "verifiedAt":"2026-08-10"
+        }
+      ]
+    },
+    {
+      "provider": "claude_code",
+      "canonicalModelID": "claude-opus-4-6",
+      "aliases": [
+        {"observedModelID":"claude-opus-4-6","effectiveFrom":"2026-02-05","effectiveTo":null}
+      ],
+      "rates": [
+        {
+          "effectiveFrom":"2026-02-05",
+          "effectiveTo":null,
+          "prices": {"input_uncached":"5.00","input_cache_read":"0.50","input_cache_write_5m":"6.25","input_cache_write_1h":"10.00","output":"25.00"},
+          "provenanceURL":"https://platform.claude.com/docs/en/about-claude/pricing",
+          "verifiedAt":"2026-08-10"
+        }
+      ]
+    },
+    {
+      "provider": "claude_code",
+      "canonicalModelID": "claude-sonnet-4-6",
+      "aliases": [
+        {"observedModelID":"claude-sonnet-4-6","effectiveFrom":"2026-02-17","effectiveTo":null}
+      ],
+      "rates": [
+        {
+          "effectiveFrom":"2026-02-17",
+          "effectiveTo":null,
+          "prices": {"input_uncached":"3.00","input_cache_read":"0.30","input_cache_write_5m":"3.75","input_cache_write_1h":"6.00","output":"15.00"},
+          "provenanceURL":"https://platform.claude.com/docs/en/about-claude/pricing",
+          "verifiedAt":"2026-08-10"
+        }
+      ]
+    },
+    {
+      "provider": "claude_code",
+      "canonicalModelID": "claude-opus-4-7",
+      "aliases": [
+        {"observedModelID":"claude-opus-4-7","effectiveFrom":"2026-04-16","effectiveTo":null}
+      ],
+      "rates": [
+        {
+          "effectiveFrom":"2026-04-16",
+          "effectiveTo":null,
+          "prices": {"input_uncached":"5.00","input_cache_read":"0.50","input_cache_write_5m":"6.25","input_cache_write_1h":"10.00","output":"25.00"},
+          "provenanceURL":"https://platform.claude.com/docs/en/about-claude/pricing",
+          "verifiedAt":"2026-08-10"
+        }
+      ]
+    },
     {
       "provider": "claude_code",
       "canonicalModelID": "claude-fable-5",
@@ -152,6 +394,171 @@
           "verifiedAt":"2026-08-10"
         }
       ]
+    },
+    {
+      "provider": "codex",
+      "canonicalModelID": "gpt-5",
+      "aliases": [
+        {"observedModelID":"gpt-5","effectiveFrom":"2025-08-07","effectiveTo":null},
+        {"observedModelID":"gpt-5-2025-08-07","effectiveFrom":"2025-08-07","effectiveTo":null}
+      ],
+      "rates": [{"effectiveFrom":"2025-08-07","effectiveTo":null,"prices":{"input_uncached":"1.25","input_cache_read":"0.125","output":"10.00"},"provenanceURL":"https://developers.openai.com/api/docs/models/gpt-5","verifiedAt":"2026-08-10"}]
+    },
+    {
+      "provider": "codex",
+      "canonicalModelID": "gpt-5-mini",
+      "aliases": [
+        {"observedModelID":"gpt-5-mini","effectiveFrom":"2025-08-07","effectiveTo":null},
+        {"observedModelID":"gpt-5-mini-2025-08-07","effectiveFrom":"2025-08-07","effectiveTo":null}
+      ],
+      "rates": [{"effectiveFrom":"2025-08-07","effectiveTo":null,"prices":{"input_uncached":"0.25","input_cache_read":"0.025","output":"2.00"},"provenanceURL":"https://developers.openai.com/api/docs/models/gpt-5-mini","verifiedAt":"2026-08-10"}]
+    },
+    {
+      "provider": "codex",
+      "canonicalModelID": "gpt-5-nano",
+      "aliases": [
+        {"observedModelID":"gpt-5-nano","effectiveFrom":"2025-08-07","effectiveTo":null},
+        {"observedModelID":"gpt-5-nano-2025-08-07","effectiveFrom":"2025-08-07","effectiveTo":null}
+      ],
+      "rates": [{"effectiveFrom":"2025-08-07","effectiveTo":null,"prices":{"input_uncached":"0.05","input_cache_read":"0.005","output":"0.40"},"provenanceURL":"https://developers.openai.com/api/docs/models/gpt-5-nano","verifiedAt":"2026-08-10"}]
+    },
+    {
+      "provider": "codex",
+      "canonicalModelID": "gpt-5-pro",
+      "aliases": [
+        {"observedModelID":"gpt-5-pro","effectiveFrom":"2025-10-06","effectiveTo":null},
+        {"observedModelID":"gpt-5-pro-2025-10-06","effectiveFrom":"2025-10-06","effectiveTo":null}
+      ],
+      "rates": [{"effectiveFrom":"2025-10-06","effectiveTo":null,"prices":{"input_uncached":"15.00","output":"120.00"},"provenanceURL":"https://developers.openai.com/api/docs/models/gpt-5-pro","verifiedAt":"2026-08-10"}]
+    },
+    {
+      "provider": "codex",
+      "canonicalModelID": "gpt-5-codex",
+      "aliases": [
+        {"observedModelID":"gpt-5-codex","effectiveFrom":"2025-09-15","effectiveTo":null}
+      ],
+      "rates": [{"effectiveFrom":"2025-09-15","effectiveTo":null,"prices":{"input_uncached":"1.25","input_cache_read":"0.125","output":"10.00"},"provenanceURL":"https://developers.openai.com/api/docs/models/gpt-5-codex","verifiedAt":"2026-08-10"}]
+    },
+    {
+      "provider": "codex",
+      "canonicalModelID": "gpt-5.1",
+      "aliases": [
+        {"observedModelID":"gpt-5.1","effectiveFrom":"2025-11-13","effectiveTo":null},
+        {"observedModelID":"gpt-5.1-2025-11-13","effectiveFrom":"2025-11-13","effectiveTo":null}
+      ],
+      "rates": [{"effectiveFrom":"2025-11-13","effectiveTo":null,"prices":{"input_uncached":"1.25","input_cache_read":"0.125","output":"10.00"},"provenanceURL":"https://developers.openai.com/api/docs/models/gpt-5.1","verifiedAt":"2026-08-10"}]
+    },
+    {
+      "provider": "codex",
+      "canonicalModelID": "gpt-5.1-codex",
+      "aliases": [
+        {"observedModelID":"gpt-5.1-codex","effectiveFrom":"2025-11-13","effectiveTo":null}
+      ],
+      "rates": [{"effectiveFrom":"2025-11-13","effectiveTo":null,"prices":{"input_uncached":"1.25","input_cache_read":"0.125","output":"10.00"},"provenanceURL":"https://developers.openai.com/api/docs/models/gpt-5.1-codex","verifiedAt":"2026-08-10"}]
+    },
+    {
+      "provider": "codex",
+      "canonicalModelID": "gpt-5.1-codex-max",
+      "aliases": [
+        {"observedModelID":"gpt-5.1-codex-max","effectiveFrom":"2025-11-18","effectiveTo":null}
+      ],
+      "rates": [{"effectiveFrom":"2025-11-18","effectiveTo":null,"prices":{"input_uncached":"1.25","input_cache_read":"0.125","output":"10.00"},"provenanceURL":"https://developers.openai.com/api/docs/models/gpt-5.1-codex-max","verifiedAt":"2026-08-10"}]
+    },
+    {
+      "provider": "codex",
+      "canonicalModelID": "gpt-5.1-codex-mini",
+      "aliases": [
+        {"observedModelID":"gpt-5.1-codex-mini","effectiveFrom":"2025-11-13","effectiveTo":null}
+      ],
+      "rates": [{"effectiveFrom":"2025-11-13","effectiveTo":null,"prices":{"input_uncached":"0.25","input_cache_read":"0.025","output":"2.00"},"provenanceURL":"https://developers.openai.com/api/docs/models/gpt-5.1-codex-mini","verifiedAt":"2026-08-10"}]
+    },
+    {
+      "provider": "codex",
+      "canonicalModelID": "gpt-5.2",
+      "aliases": [
+        {"observedModelID":"gpt-5.2","effectiveFrom":"2025-12-11","effectiveTo":null},
+        {"observedModelID":"gpt-5.2-2025-12-11","effectiveFrom":"2025-12-11","effectiveTo":null}
+      ],
+      "rates": [{"effectiveFrom":"2025-12-11","effectiveTo":null,"prices":{"input_uncached":"1.75","input_cache_read":"0.175","output":"14.00"},"provenanceURL":"https://developers.openai.com/api/docs/models/gpt-5.2","verifiedAt":"2026-08-10"}]
+    },
+    {
+      "provider": "codex",
+      "canonicalModelID": "gpt-5.2-pro",
+      "aliases": [
+        {"observedModelID":"gpt-5.2-pro","effectiveFrom":"2025-12-11","effectiveTo":null},
+        {"observedModelID":"gpt-5.2-pro-2025-12-11","effectiveFrom":"2025-12-11","effectiveTo":null}
+      ],
+      "rates": [{"effectiveFrom":"2025-12-11","effectiveTo":null,"prices":{"input_uncached":"21.00","output":"168.00"},"provenanceURL":"https://developers.openai.com/api/docs/models/gpt-5.2-pro","verifiedAt":"2026-08-10"}]
+    },
+    {
+      "provider": "codex",
+      "canonicalModelID": "gpt-5.2-codex",
+      "aliases": [
+        {"observedModelID":"gpt-5.2-codex","effectiveFrom":"2025-12-18","effectiveTo":null}
+      ],
+      "rates": [{"effectiveFrom":"2025-12-18","effectiveTo":null,"prices":{"input_uncached":"1.75","input_cache_read":"0.175","output":"14.00"},"provenanceURL":"https://developers.openai.com/api/docs/models/gpt-5.2-codex","verifiedAt":"2026-08-10"}]
+    },
+    {
+      "provider": "codex",
+      "canonicalModelID": "gpt-5.3-codex",
+      "aliases": [
+        {"observedModelID":"gpt-5.3-codex","effectiveFrom":"2026-02-05","effectiveTo":null}
+      ],
+      "rates": [{"effectiveFrom":"2026-02-05","effectiveTo":null,"prices":{"input_uncached":"1.75","input_cache_read":"0.175","output":"14.00"},"provenanceURL":"https://developers.openai.com/api/docs/models/gpt-5.3-codex","verifiedAt":"2026-08-10"}]
+    },
+    {
+      "provider": "codex",
+      "canonicalModelID": "gpt-5.4",
+      "aliases": [
+        {"observedModelID":"gpt-5.4","effectiveFrom":"2026-03-05","effectiveTo":null},
+        {"observedModelID":"gpt-5.4-2026-03-05","effectiveFrom":"2026-03-05","effectiveTo":null}
+      ],
+      "rates": [{"effectiveFrom":"2026-03-05","effectiveTo":null,"prices":{"input_uncached":"2.50","input_cache_read":"0.25","output":"15.00"},"provenanceURL":"https://developers.openai.com/api/docs/models/gpt-5.4","verifiedAt":"2026-08-10"}]
+    },
+    {
+      "provider": "codex",
+      "canonicalModelID": "gpt-5.4-mini",
+      "aliases": [
+        {"observedModelID":"gpt-5.4-mini","effectiveFrom":"2026-03-17","effectiveTo":null},
+        {"observedModelID":"gpt-5.4-mini-2026-03-17","effectiveFrom":"2026-03-17","effectiveTo":null}
+      ],
+      "rates": [{"effectiveFrom":"2026-03-17","effectiveTo":null,"prices":{"input_uncached":"0.75","input_cache_read":"0.075","output":"4.50"},"provenanceURL":"https://developers.openai.com/api/docs/models/gpt-5.4-mini","verifiedAt":"2026-08-10"}]
+    },
+    {
+      "provider": "codex",
+      "canonicalModelID": "gpt-5.4-nano",
+      "aliases": [
+        {"observedModelID":"gpt-5.4-nano","effectiveFrom":"2026-03-17","effectiveTo":null},
+        {"observedModelID":"gpt-5.4-nano-2026-03-17","effectiveFrom":"2026-03-17","effectiveTo":null}
+      ],
+      "rates": [{"effectiveFrom":"2026-03-17","effectiveTo":null,"prices":{"input_uncached":"0.20","input_cache_read":"0.02","output":"1.25"},"provenanceURL":"https://developers.openai.com/api/docs/models/gpt-5.4-nano","verifiedAt":"2026-08-10"}]
+    },
+    {
+      "provider": "codex",
+      "canonicalModelID": "gpt-5.4-pro",
+      "aliases": [
+        {"observedModelID":"gpt-5.4-pro","effectiveFrom":"2026-03-05","effectiveTo":null},
+        {"observedModelID":"gpt-5.4-pro-2026-03-05","effectiveFrom":"2026-03-05","effectiveTo":null}
+      ],
+      "rates": [{"effectiveFrom":"2026-03-05","effectiveTo":null,"prices":{"input_uncached":"30.00","output":"180.00"},"provenanceURL":"https://developers.openai.com/api/docs/models/gpt-5.4-pro","verifiedAt":"2026-08-10"}]
+    },
+    {
+      "provider": "codex",
+      "canonicalModelID": "gpt-5.5",
+      "aliases": [
+        {"observedModelID":"gpt-5.5","effectiveFrom":"2026-04-23","effectiveTo":null},
+        {"observedModelID":"gpt-5.5-2026-04-23","effectiveFrom":"2026-04-23","effectiveTo":null}
+      ],
+      "rates": [{"effectiveFrom":"2026-04-23","effectiveTo":null,"prices":{"input_uncached":"5.00","input_cache_read":"0.50","output":"30.00"},"provenanceURL":"https://developers.openai.com/api/docs/models/gpt-5.5","verifiedAt":"2026-08-10"}]
+    },
+    {
+      "provider": "codex",
+      "canonicalModelID": "gpt-5.5-pro",
+      "aliases": [
+        {"observedModelID":"gpt-5.5-pro","effectiveFrom":"2026-04-23","effectiveTo":null},
+        {"observedModelID":"gpt-5.5-pro-2026-04-23","effectiveFrom":"2026-04-23","effectiveTo":null}
+      ],
+      "rates": [{"effectiveFrom":"2026-04-23","effectiveTo":null,"prices":{"input_uncached":"30.00","output":"180.00"},"provenanceURL":"https://developers.openai.com/api/docs/models/gpt-5.5-pro","verifiedAt":"2026-08-10"}]
     },
     {
       "provider": "codex",
