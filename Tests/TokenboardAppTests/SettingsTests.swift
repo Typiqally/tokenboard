@@ -68,6 +68,42 @@ final class SettingsTests: XCTestCase {
         XCTAssertFalse(PricingOverviewCopy.visibleLabels.contains("Official provenance"))
     }
 
+    func testPricingPresentationGroupsProvidersAndSortsModelIdentifiers() {
+        let models = [
+            ActiveModelPricingSummary(
+                provider: .codex,
+                canonicalModelID: "gpt-z",
+                rates: [.output: 30]
+            ),
+            ActiveModelPricingSummary(
+                provider: .claudeCode,
+                canonicalModelID: "claude-b",
+                rates: [.inputUncached: 5]
+            ),
+            ActiveModelPricingSummary(
+                provider: .codex,
+                canonicalModelID: "gpt-a",
+                rates: [.inputUncached: 2]
+            )
+        ]
+
+        XCTAssertEqual(PricingSettingsPresentation.groups(for: models), [
+            PricingProviderGroup(provider: .claudeCode, models: [models[1]]),
+            PricingProviderGroup(provider: .codex, models: [models[2], models[0]])
+        ])
+        XCTAssertEqual(
+            PricingOverviewCopy.modelPricingHint,
+            "Choose a model to view its USD rates per million tokens."
+        )
+    }
+
+    func testSourcePresentationUsesOneOrderedProviderStack() {
+        XCTAssertEqual(
+            SourceSettingsPresentation.providerOrder,
+            [.claudeCode, .codex]
+        )
+    }
+
     func testPricingSummaryShowsActiveModelRatesAndLatestExchangeSnapshot() async throws {
         let exchangeRates = ExchangeRateSnapshot(
             catalogID: "current",
