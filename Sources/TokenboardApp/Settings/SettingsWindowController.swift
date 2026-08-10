@@ -56,12 +56,16 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             rootView: SettingsView(model: model, launchAtLogin: launchAtLogin)
         )
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 760, height: 620),
+            contentRect: NSRect(x: 0, y: 0, width: 940, height: 660),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
         window.title = "Tokenboard Settings"
+        window.minSize = NSSize(width: 940, height: 600)
+        window.titlebarAppearsTransparent = false
+        window.titlebarSeparatorStyle = .line
+        window.toolbarStyle = .unified
         window.contentViewController = hostingController
         window.isReleasedWhenClosed = false
         window.delegate = self

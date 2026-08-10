@@ -72,6 +72,8 @@ struct SettingsView: View {
             settingsForm
         }
         .frame(minWidth: 940, minHeight: 600)
+        .toolbarBackground(Color(nsColor: .windowBackgroundColor), for: .windowToolbar)
+        .toolbarBackground(.visible, for: .windowToolbar)
         .disabled(model.settingsState.isLoading || model.isDatabaseRestoreInProgress)
     }
 
