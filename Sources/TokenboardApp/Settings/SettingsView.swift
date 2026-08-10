@@ -105,6 +105,34 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var generalSection: some View {
+        Section("Menu Bar") {
+            Picker("Display", selection: Binding(
+                get: { model.selectedDisplayMetric },
+                set: { metric in
+                    Task { await model.select(displayMetric: metric) }
+                }
+            )) {
+                ForEach(UsageSelectionPresentation.displayMetrics, id: \.rawValue) { metric in
+                    Text(UsageSelectionPresentation.displayMetricTitle(metric))
+                        .tag(metric)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            Picker("Period", selection: Binding(
+                get: { model.selectedPeriod },
+                set: { period in
+                    Task { await model.select(period: period) }
+                }
+            )) {
+                ForEach(UsageSelectionPresentation.periods, id: \.rawValue) { period in
+                    Text(UsageSelectionPresentation.periodTitle(period))
+                        .tag(period)
+                }
+            }
+        }
+        .disabled(model.isDatabaseRecoveryActionLocked)
+
         Section("General") {
             Toggle("Launch at Login", isOn: Binding(
                 get: { launchAtLogin.isEnabled },

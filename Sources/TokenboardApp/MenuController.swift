@@ -79,7 +79,7 @@ enum NativeMenuBuilder {
         if let state, let presentation = state.presentation {
             statusTitle = presentation.statusTitle
             summaryContent = MenuSummaryContent(
-                contextTitle: periodTitle(state.selectedPeriod),
+                contextTitle: UsageSelectionPresentation.periodTitle(state.selectedPeriod),
                 visualRecencyTitle: "Updated never",
                 accessibilityRecencyTitle: "Updated never",
                 tokenTitle: presentation.tokenTitle,
@@ -175,7 +175,9 @@ enum NativeMenuBuilder {
         target: AnyObject?,
         isEnabled: Bool
     ) -> NSMenuItem {
-        let selectedTitle = state.map { periodTitle($0.selectedPeriod) }
+        let selectedTitle = state.map {
+            UsageSelectionPresentation.periodTitle($0.selectedPeriod)
+        }
         let parent = NSMenuItem(
             title: selectedTitle.map { "Period: \($0)" } ?? "Period",
             action: nil,
@@ -183,16 +185,9 @@ enum NativeMenuBuilder {
         )
         let submenu = NSMenu(title: "Period")
         submenu.autoenablesItems = false
-        let choices: [(CalendarPeriod, String)] = [
-            (.today, "Today"),
-            (.thisWeek, "This Week"),
-            (.thisMonth, "This Month"),
-            (.thisYear, "This Year"),
-            (.allTime, "All Time")
-        ]
-        for (period, title) in choices {
+        for period in UsageSelectionPresentation.periods {
             let item = actionItem(
-                title,
+                UsageSelectionPresentation.periodTitle(period),
                 action: NSSelectorFromString("selectPeriod:"),
                 target: target,
                 isEnabled: isEnabled
@@ -211,7 +206,9 @@ enum NativeMenuBuilder {
         target: AnyObject?,
         isEnabled: Bool
     ) -> NSMenuItem {
-        let selectedTitle = state.map { displayMetricTitle($0.selectedDisplayMetric) }
+        let selectedTitle = state.map {
+            UsageSelectionPresentation.displayMetricTitle($0.selectedDisplayMetric)
+        }
         let parent = NSMenuItem(
             title: selectedTitle.map { "Menu Bar: \($0)" } ?? "Menu Bar",
             action: nil,
@@ -219,9 +216,9 @@ enum NativeMenuBuilder {
         )
         let submenu = NSMenu(title: "Menu Bar")
         submenu.autoenablesItems = false
-        for (metric, title) in [(DisplayMetric.tokens, "Tokens"), (.apiValue, "API Value")] {
+        for metric in UsageSelectionPresentation.displayMetrics {
             let item = actionItem(
-                title,
+                UsageSelectionPresentation.displayMetricTitle(metric),
                 action: NSSelectorFromString("selectDisplayMetric:"),
                 target: target,
                 isEnabled: isEnabled
@@ -287,22 +284,6 @@ enum NativeMenuBuilder {
         return item
     }
 
-    private static func periodTitle(_ period: CalendarPeriod) -> String {
-        switch period {
-        case .today: "Today"
-        case .thisWeek: "This Week"
-        case .thisMonth: "This Month"
-        case .thisYear: "This Year"
-        case .allTime: "All Time"
-        }
-    }
-
-    private static func displayMetricTitle(_ metric: DisplayMetric) -> String {
-        switch metric {
-        case .tokens: "Tokens"
-        case .apiValue: "API Value"
-        }
-    }
 }
 
 @MainActor
