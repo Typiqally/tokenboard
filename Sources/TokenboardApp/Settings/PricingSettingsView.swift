@@ -5,8 +5,30 @@ enum PricingOverviewCopy {
     static let displayCurrency = "Display currency"
     static let unpricedUsage = "Unpriced usage"
     static let modelPricing = "Model pricing"
+    static let modelPricingHint = "Choose a model to view its USD rates per million tokens."
     static let exchangeRates = "Exchange rates"
     static let visibleLabels = [displayCurrency, unpricedUsage, modelPricing, exchangeRates]
+}
+
+struct PricingProviderGroup: Equatable, Identifiable {
+    let provider: Provider
+    let models: [ActiveModelPricingSummary]
+
+    var id: Provider { provider }
+}
+
+enum PricingSettingsPresentation {
+    static func groups(
+        for models: [ActiveModelPricingSummary]
+    ) -> [PricingProviderGroup] {
+        Provider.allCases.compactMap { provider in
+            let providerModels = models
+                .filter { $0.provider == provider }
+                .sorted { $0.canonicalModelID < $1.canonicalModelID }
+            guard !providerModels.isEmpty else { return nil }
+            return PricingProviderGroup(provider: provider, models: providerModels)
+        }
+    }
 }
 
 enum PricingUpdateCopy {
@@ -84,17 +106,44 @@ struct PricingSettingsView: View {
                 Text("No active model rates. Update pricing to add them.")
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(pricing.activeModels) { modelPricing in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("\(Self.providerName(modelPricing.provider)) · \(modelPricing.canonicalModelID)")
-                            .fontWeight(.medium)
-                            .textSelection(.enabled)
-                        ForEach(UsageMetric.allCases, id: \.rawValue) { metric in
-                            if let rate = modelPricing.rates[metric] {
-                                LabeledContent(Self.metricName(metric)) {
-                                    Text("\(ValueFormatter.currency(rate, currency: .usd)) / 1M")
-                                }
+                Text(PricingOverviewCopy.modelPricingHint)
+                    .foregroundStyle(.secondary)
+                let groups = PricingSettingsPresentation.groups(for: pricing.activeModels)
+                ForEach(Array(groups.enumerated()), id: \.element.id) { groupIndex, group in
+                    if groupIndex > 0 {
+                        Divider()
+                    }
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(Self.providerName(group.provider))
+                                .font(.subheadline.weight(.semibold))
+                            Spacer()
+                            Text("\(group.models.count) \(group.models.count == 1 ? "model" : "models")")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        ForEach(Array(group.models.enumerated()), id: \.element.id) { modelIndex, modelPricing in
+                            if modelIndex > 0 {
+                                Divider()
                             }
+                            DisclosureGroup {
+                                VStack(alignment: .leading, spacing: 5) {
+                                    ForEach(UsageMetric.allCases, id: \.rawValue) { metric in
+                                        if let rate = modelPricing.rates[metric] {
+                                            LabeledContent(Self.metricName(metric)) {
+                                                Text("\(ValueFormatter.currency(rate, currency: .usd)) / 1M")
+                                                    .monospacedDigit()
+                                            }
+                                        }
+                                    }
+                                }
+                                .padding(.top, 5)
+                            } label: {
+                                Text(modelPricing.canonicalModelID)
+                                    .font(.body.monospaced())
+                                    .textSelection(.enabled)
+                            }
+                            .padding(.vertical, 3)
                         }
                     }
                 }

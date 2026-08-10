@@ -57,6 +57,8 @@ struct SourceSettingsView: View {
 }
 
 enum SourceSettingsPresentation {
+    static let providerOrder: [Provider] = [.claudeCode, .codex]
+
     static func status(for health: SourceHealth) -> String? {
         switch health {
         case .notGranted, .healthy, .warning:

@@ -123,9 +123,17 @@ struct SettingsView: View {
 
     private var sourcesSection: some View {
         Section("Sources") {
-            SourceSettingsView(model: model, provider: .claudeCode)
-            Divider()
-            SourceSettingsView(model: model, provider: .codex)
+            VStack(alignment: .leading, spacing: 16) {
+                ForEach(
+                    Array(SourceSettingsPresentation.providerOrder.enumerated()),
+                    id: \.element
+                ) { index, provider in
+                    if index > 0 {
+                        Divider()
+                    }
+                    SourceSettingsView(model: model, provider: provider)
+                }
+            }
         }
         .disabled(model.isDatabaseRecoveryActionLocked)
     }
