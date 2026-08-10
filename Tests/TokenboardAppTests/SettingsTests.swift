@@ -17,6 +17,21 @@ final class SettingsTests: XCTestCase {
         )
     }
 
+    func testGeneralSettingsUsesTheExistingMenuBarChoicesInStableOrder() {
+        XCTAssertEqual(
+            UsageSelectionPresentation.displayMetrics.map(
+                UsageSelectionPresentation.displayMetricTitle
+            ),
+            ["Tokens", "API Value"]
+        )
+        XCTAssertEqual(
+            UsageSelectionPresentation.periods.map(
+                UsageSelectionPresentation.periodTitle
+            ),
+            ["Today", "This Week", "This Month", "This Year", "All Time"]
+        )
+    }
+
     func testDiagnosticsCollectsCurrentSourceIssuesBehindTechnicalDetails() {
         let health = TokenboardHealth(
             claude: .warning(issue: .truncatedLog, message: "Imported log was truncated"),
