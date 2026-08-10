@@ -6,13 +6,13 @@ import TokenboardCore
 
 @MainActor
 final class SettingsTests: XCTestCase {
-    func testSettingsSidebarUsesFourFocusedDestinations() {
+    func testSettingsUsesFourFocusedTabsInStableOrder() {
         XCTAssertEqual(
-            SettingsSection.allCases.map(\.title),
+            SettingsNavigationPresentation.sections.map(\.title),
             ["General", "Sources", "Pricing", "Diagnostics"]
         )
         XCTAssertEqual(
-            SettingsSection.allCases.map(\.systemImage),
+            SettingsNavigationPresentation.sections.map(\.systemImage),
             ["gearshape", "folder", "dollarsign.circle", "wrench.and.screwdriver"]
         )
     }
