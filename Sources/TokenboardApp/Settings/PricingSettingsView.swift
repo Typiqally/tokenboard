@@ -17,6 +17,13 @@ struct PricingProviderGroup: Equatable, Identifiable {
     var id: Provider { provider }
 }
 
+struct PricingExchangeRateRow: Equatable, Identifiable {
+    let currency: DisplayCurrency
+    let formattedRate: String
+
+    var id: DisplayCurrency { currency }
+}
+
 enum PricingSettingsPresentation {
     static func groups(
         for models: [ActiveModelPricingSummary]
@@ -33,6 +40,32 @@ enum PricingSettingsPresentation {
     static func metrics(for group: PricingProviderGroup) -> [UsageMetric] {
         UsageMetric.allCases.filter { metric in
             group.models.contains { $0.rates[metric] != nil }
+        }
+    }
+
+    static func exchangeRateRows(
+        for snapshot: ExchangeRateSnapshot
+    ) -> [PricingExchangeRateRow] {
+        DisplayCurrency.allCases.compactMap { currency in
+            guard currency != .usd, let rate = snapshot.rates[currency] else {
+                return nil
+            }
+            let formatter = NumberFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.numberStyle = .decimal
+            formatter.usesGroupingSeparator = false
+            let precision = currency == .jpy ? 2 : 4
+            formatter.minimumFractionDigits = precision
+            formatter.maximumFractionDigits = precision
+            guard let formattedRate = formatter.string(
+                from: NSDecimalNumber(decimal: rate)
+            ) else {
+                return nil
+            }
+            return PricingExchangeRateRow(
+                currency: currency,
+                formattedRate: formattedRate
+            )
         }
     }
 }
@@ -127,12 +160,24 @@ struct PricingSettingsView: View {
             Text(PricingOverviewCopy.exchangeRates)
                 .font(.headline)
             if let exchangeRates = pricing.exchangeRates {
-                Text("Checked \(exchangeRates.verifiedAt)")
-                    .foregroundStyle(.secondary)
-                ForEach(DisplayCurrency.allCases, id: \.rawValue) { currency in
-                    if let rate = exchangeRates.rates[currency] {
-                        LabeledContent("1 USD") {
-                            Text("\(Self.decimal(rate)) \(currency.rawValue)")
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Checked \(exchangeRates.verifiedAt)")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text("1 USD equals")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.secondary)
+                }
+                VStack(alignment: .leading, spacing: 7) {
+                    ForEach(PricingSettingsPresentation.exchangeRateRows(for: exchangeRates)) { row in
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(Self.currencyDisplayName(row.currency))
+                            Spacer()
+                            Text(row.formattedRate)
+                                .monospacedDigit()
+                            Text(row.currency.rawValue)
+                                .foregroundStyle(.secondary)
+                                .frame(width: 32, alignment: .leading)
                         }
                     }
                 }
@@ -198,8 +243,14 @@ struct PricingSettingsView: View {
         }
     }
 
-    private static func decimal(_ value: Decimal) -> String {
-        NSDecimalNumber(decimal: value).stringValue
+    private static func currencyDisplayName(_ currency: DisplayCurrency) -> String {
+        switch currency {
+        case .usd: "US Dollar"
+        case .eur: "Euro"
+        case .jpy: "Japanese Yen"
+        case .gbp: "British Pound"
+        case .cny: "Chinese Yuan"
+        }
     }
 }
 
