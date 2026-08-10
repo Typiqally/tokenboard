@@ -75,6 +75,13 @@ final class NativePresentationTests: XCTestCase {
         XCTAssertEqual(built.menu.items[6].keyEquivalent, "r")
         XCTAssertEqual(built.menu.items[8].keyEquivalent, ",")
         XCTAssertEqual(built.menu.items[10].keyEquivalent, "q")
+        assertSystemSymbol("arrow.clockwise", on: built.menu.item(withTitle: "Refresh Now"))
+        assertSystemSymbol("banknote", on: built.menu.item(withTitle: "Pricing (84K unpriced)"))
+        assertSystemSymbol("gearshape", on: built.menu.item(withTitle: "Settings"))
+        XCTAssertNil(built.menu.item(withTitle: "Period: This Month")?.image)
+        XCTAssertNil(built.menu.item(withTitle: "Currency: EUR")?.image)
+        XCTAssertNil(built.menu.item(withTitle: "Menu Bar: API Value")?.image)
+        XCTAssertNil(built.menu.item(withTitle: "Quit Tokenboard")?.image)
     }
 
     func testMenuBuilderPublishesExplicitStartingAndFailureSummaries() {
@@ -307,6 +314,26 @@ final class NativePresentationTests: XCTestCase {
 
     private func topLevelTitles(_ menu: NSMenu) -> [String] {
         menu.items.map { $0.isSeparatorItem ? "—" : $0.title }
+    }
+
+    private func assertSystemSymbol(
+        _ symbolName: String,
+        on item: NSMenuItem?,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let expected = NSImage(
+            systemSymbolName: symbolName,
+            accessibilityDescription: nil
+        )
+        XCTAssertNotNil(item?.image, file: file, line: line)
+        XCTAssertEqual(
+            item?.image?.tiffRepresentation,
+            expected?.tiffRepresentation,
+            file: file,
+            line: line
+        )
+        XCTAssertTrue(item?.image?.isTemplate == true, file: file, line: line)
     }
 
     private func waitUntil(_ condition: @escaping @MainActor () -> Bool) async {

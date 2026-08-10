@@ -104,6 +104,7 @@ enum NativeMenuBuilder {
             action: NSSelectorFromString("refresh"),
             target: target,
             keyEquivalent: "r",
+            systemSymbolName: "arrow.clockwise",
             isEnabled: regularActionsEnabled
         ))
         var pricingTitle = "Pricing"
@@ -114,6 +115,7 @@ enum NativeMenuBuilder {
             pricingTitle,
             action: NSSelectorFromString("openPricing"),
             target: target,
+            systemSymbolName: "banknote",
             isEnabled: regularActionsEnabled
         ))
         menu.addItem(actionItem(
@@ -121,6 +123,7 @@ enum NativeMenuBuilder {
             action: NSSelectorFromString("openSettings"),
             target: target,
             keyEquivalent: ",",
+            systemSymbolName: "gearshape",
             isEnabled: !isRestoringDatabase
         ))
         menu.addItem(.separator())
@@ -238,11 +241,20 @@ enum NativeMenuBuilder {
         action: Selector,
         target: AnyObject?,
         keyEquivalent: String = "",
+        systemSymbolName: String? = nil,
         isEnabled: Bool = true
     ) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: keyEquivalent)
         item.target = target
         item.isEnabled = isEnabled
+        if let systemSymbolName,
+           let image = NSImage(
+               systemSymbolName: systemSymbolName,
+               accessibilityDescription: nil
+           ) {
+            image.isTemplate = true
+            item.image = image
+        }
         return item
     }
 
