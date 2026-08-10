@@ -8,7 +8,7 @@ final class BundledCatalogTests: XCTestCase {
         let catalog = try PricingCatalogValidator().validate(PricingCatalogLoader().load(data))
 
         XCTAssertEqual(catalog.schemaVersion, 2)
-        XCTAssertEqual(catalog.catalogID, "tokenboard-2026-08-10-2")
+        XCTAssertEqual(catalog.catalogID, "tokenboard-2026-08-10-3")
         let latestAliases: Set<String> = [
                 "claude-fable-5",
                 "claude-haiku-4-5",
@@ -17,6 +17,7 @@ final class BundledCatalogTests: XCTestCase {
                 "claude-opus-4-8",
                 "claude-opus-5",
                 "claude-sonnet-5",
+                "codex-auto-review",
                 "gpt-5.6",
                 "gpt-5.6-luna",
                 "gpt-5.6-sol",
@@ -91,7 +92,7 @@ final class BundledCatalogTests: XCTestCase {
             in: catalog,
             modelID: "gpt-5.6-terra",
             from: "2026-07-09",
-            to: "2026-07-29",
+            to: "2026-07-30",
             prices: openAIPrices(input: "2.5", cacheRead: "0.25", cacheWrite: "3.125", output: "15"),
             provenance: openAIChangelog
         )
@@ -106,7 +107,7 @@ final class BundledCatalogTests: XCTestCase {
             in: catalog,
             modelID: "gpt-5.6-luna",
             from: "2026-07-09",
-            to: "2026-07-29",
+            to: "2026-07-30",
             prices: openAIPrices(input: "1", cacheRead: "0.1", cacheWrite: "1.25", output: "6"),
             provenance: openAIChangelog
         )
@@ -117,6 +118,16 @@ final class BundledCatalogTests: XCTestCase {
             prices: openAIPrices(input: "0.2", cacheRead: "0.02", cacheWrite: "0.25", output: "1.2"),
             provenance: openAIPricing
         )
+        let luna = try model(in: catalog, named: "gpt-5.6-luna")
+        XCTAssertEqual(
+            Set(luna.aliases.map(\.observedModelID)),
+            ["codex-auto-review", "gpt-5.6-luna"]
+        )
+        let autoReviewAlias = try XCTUnwrap(
+            luna.aliases.first(where: { $0.observedModelID == "codex-auto-review" })
+        )
+        XCTAssertEqual(autoReviewAlias.effectiveFrom, "2026-07-28")
+        XCTAssertNil(autoReviewAlias.effectiveTo)
 
         let exchangeRates = try XCTUnwrap(catalog.exchangeRates)
         XCTAssertEqual(exchangeRates.baseCurrency, .usd)
