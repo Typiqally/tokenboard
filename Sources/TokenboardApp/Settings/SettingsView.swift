@@ -103,6 +103,7 @@ struct SettingsView: View {
         .formStyle(.grouped)
     }
 
+    @ViewBuilder
     private var generalSection: some View {
         Section("General") {
             Toggle("Launch at Login", isOn: Binding(
@@ -124,6 +125,14 @@ struct SettingsView: View {
             }
         }
         .disabled(model.isDatabaseRecoveryActionLocked)
+
+        Section("About") {
+            LabeledContent("Version") {
+                Text(BuildInfo.currentVersionDescription)
+                    .monospacedDigit()
+                    .textSelection(.enabled)
+            }
+        }
     }
 
     private var sourcesSection: some View {
