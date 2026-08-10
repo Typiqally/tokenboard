@@ -93,7 +93,23 @@ final class SettingsTests: XCTestCase {
         ])
         XCTAssertEqual(
             PricingOverviewCopy.modelPricingHint,
-            "Choose a model to view its USD rates per million tokens."
+            "USD per million tokens. All current catalog rates are shown."
+        )
+        let claudeMetrics: [UsageMetric] = [.inputUncached]
+        XCTAssertEqual(
+            PricingSettingsPresentation.metrics(for: PricingProviderGroup(
+                provider: .claudeCode,
+                models: [models[1]]
+            )),
+            claudeMetrics
+        )
+        let codexMetrics: [UsageMetric] = [.inputUncached, .output]
+        XCTAssertEqual(
+            PricingSettingsPresentation.metrics(for: PricingProviderGroup(
+                provider: .codex,
+                models: [models[2], models[0]]
+            )),
+            codexMetrics
         )
     }
 
