@@ -244,15 +244,15 @@
   ],
   "exchangeRates": {
     "baseCurrency": "USD",
-    "effectiveDate": "2026-08-07",
-    "verifiedAt": "2026-08-07",
+    "effectiveDate": "2026-08-10",
+    "verifiedAt": "2026-08-10",
     "provenanceURL": "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml",
     "rates": {
       "USD": "1",
-      "EUR": "0.866926745",
-      "JPY": "158.33550065",
-      "GBP": "0.743519723",
-      "CNY": "6.747637625"
+      "EUR": "0.865426222",
+      "JPY": "158.641280831",
+      "GBP": "0.740501947",
+      "CNY": "6.744353094"
     }
   }
 }
