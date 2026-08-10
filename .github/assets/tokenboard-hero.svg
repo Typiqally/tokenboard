@@ -27,7 +27,6 @@
 
   <rect width="1200" height="420" rx="24" fill="url(#background)"/>
   <rect width="1200" height="420" rx="24" fill="url(#glow)"/>
-  <path d="M0 419.5H1200" stroke="#FFFFFF" stroke-opacity="0.06"/>
 
   <g font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', Arial, sans-serif">
     <rect x="64" y="62" width="3" height="31" rx="1.5" fill="#AAB7C9"/>
@@ -68,8 +67,8 @@
       <path d="M777 279.5H1101" stroke="#FFFFFF" stroke-opacity="0.11"/>
       <path d="M777 358.5H1101" stroke="#FFFFFF" stroke-opacity="0.11"/>
 
-      <text x="780" y="112" fill="#7F8998" font-size="10" font-weight="700" letter-spacing="0.9">THIS MONTH</text>
-      <text x="1098" y="112" text-anchor="end" fill="#7F8998" font-size="10" font-weight="700" letter-spacing="0.65">UPDATED 1 MIN. AGO</text>
+      <text x="780" y="112" fill="#AEB8C6" font-size="11.5" font-weight="700" letter-spacing="0.8">THIS MONTH</text>
+      <text x="1098" y="112" text-anchor="end" fill="#AEB8C6" font-size="11.5" font-weight="700" letter-spacing="0.55">UPDATED 1 MIN. AGO</text>
       <text x="780" y="145" fill="#F3F5F8" font-size="21" font-weight="650">1,284,930 tokens</text>
       <text x="780" y="171" fill="#B2BBC8" font-size="13" font-weight="500">≈ €4.68 API equivalent</text>
 
@@ -96,7 +95,7 @@
         <circle cx="795" cy="321" r="2"/>
         <path d="M790 319h-2M802 323h2"/>
         <circle cx="795" cy="345" r="3.2"/>
-        <path d="M795 338v2M795 350v2M788 345h2M800 345h2M790.1 340.1l1.4 1.4M798.5 348.5l1.4 1.4M799.9 340.1l-1.4 1.4M791.5 348.5l-1.4-1.4"/>
+        <path d="M795 338v2M795 350v2M788 345h2M800 345h2M790.1 340.1l1.4 1.4M798.5 348.5l1.4 1.4M799.9 340.1l-1.4 1.4M791.5 348.5l-1.4 1.4"/>
       </g>
       <g fill="#737E8E" font-size="12" font-weight="500">
         <text x="1098" y="305" text-anchor="end">⌘ R</text>

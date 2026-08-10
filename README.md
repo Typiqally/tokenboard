@@ -2,20 +2,18 @@
 
 A fully native macOS menu-bar app for private, local Claude Code and Codex usage totals.
 
-![Tokenboard native macOS menu-bar preview with sample usage data](.github/assets/tokenboard-hero.svg)
+![Tokenboard native macOS menu-bar preview with sample data: the compact menu-bar status shows 1.28M, while the open menu shows This Month, 1,284,930 tokens, and ≈ €4.68 API-equivalent.](.github/assets/tokenboard-hero.svg)
 
 *Product preview with sample data.*
 
 ## Install
 
-Install Tokenboard with Homebrew:
+Install Tokenboard with Homebrew. Tokenboard is not Apple-notarized; Homebrew downloads and verifies the release. The second command explicitly removes macOS's quarantine attribute from the installed app. It does not grant additional permissions: Tokenboard remains sandboxed and asks you to choose its read-only source folders on first launch.
 
 ```zsh
 brew install --cask typiqally/tokenboard/tokenboard
 xattr -dr com.apple.quarantine /Applications/Tokenboard.app
 ```
-
-Tokenboard is not Apple-notarized. Homebrew downloads and verifies the release; the second command explicitly removes macOS's quarantine attribute from the installed app. It does not grant additional permissions: Tokenboard remains sandboxed and asks you to choose its read-only source folders on first launch.
 
 Upgrade with `brew upgrade --cask tokenboard`. Uninstall with `brew uninstall --cask tokenboard`.
 
@@ -23,7 +21,7 @@ Upgrade with `brew upgrade --cask tokenboard`. Uninstall with `brew uninstall --
 
 - **Exact local totals.** Tokenboard reduces supported Claude Code and Codex usage logs into durable daily token totals.
 - **Honest estimates.** API-equivalent values use public list prices, effective dates, and explicit unpriced coverage. They are estimates, never a bill.
-- **Useful ranges.** Read Today, This Week, This Month, This Year, or All Time in tokens or a supported display currency: USD, EUR, JPY, GBP, or CNY.
+- **Useful ranges.** Read Today, This Week (Monday through the current day), This Month, This Year, or All Time in tokens or a supported display currency: USD, EUR, JPY, GBP, or CNY.
 
 ## Private by construction
 
@@ -39,7 +37,7 @@ See [PRIVACY.md](PRIVACY.md) for the exact local-data and retention boundary.
 
 1. Choose the Claude Code and Codex roots through the native folder picker.
 2. Approve the optional historical import for the logs currently available.
-3. Read exact totals or API-equivalent estimates from the menu bar while Tokenboard follows future filesystem events.
+3. Read a compact status in the menu bar, then open the menu for exact totals and API-equivalent estimates while Tokenboard follows future filesystem events.
 
 Committed daily aggregates survive later source-log deletion, and recreating an already imported log does not add it again. Tokenboard cannot recover logs that were unavailable or deleted before the first successful import.
 
