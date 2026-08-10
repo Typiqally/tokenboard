@@ -6,7 +6,7 @@ import TokenboardCore
 struct BuiltNativeMenu {
     let menu: NSMenu
     let statusTitle: String
-    let updatedItem: NSMenuItem
+    let summaryView: MenuSummaryView
 }
 
 @MainActor
@@ -45,17 +45,33 @@ enum NativeMenuBuilder {
         let menu = NSMenu()
         menu.autoenablesItems = false
         let statusTitle: String
+        let summaryContent: MenuSummaryContent
 
-        if let presentation = state?.presentation {
+        if let state, let presentation = state.presentation {
             statusTitle = presentation.statusTitle
-            menu.addDisabledItem(presentation.tokenTitle)
-            menu.addDisabledItem(presentation.apiValueTitle)
+            summaryContent = MenuSummaryContent(
+                contextTitle: periodTitle(state.selectedPeriod),
+                visualRecencyTitle: "Updated never",
+                accessibilityRecencyTitle: "Updated never",
+                tokenTitle: presentation.tokenTitle,
+                apiValueTitle: presentation.apiValueTitle
+            )
         } else {
             statusTitle = startupError == nil ? "…" : "Unavailable"
-            menu.addDisabledItem("Token total unavailable")
-            menu.addDisabledItem("API equivalent unavailable")
+            summaryContent = MenuSummaryContent(
+                contextTitle: startupError == nil ? "Starting" : "Unavailable",
+                visualRecencyTitle: "Updated never",
+                accessibilityRecencyTitle: "Updated never",
+                tokenTitle: "Token total unavailable",
+                apiValueTitle: "API equivalent unavailable"
+            )
         }
 
+        let summaryView = MenuSummaryView(content: summaryContent)
+        let summaryItem = NSMenuItem(title: "Usage Summary", action: nil, keyEquivalent: "")
+        summaryItem.isEnabled = false
+        summaryItem.view = summaryView
+        menu.addItem(summaryItem)
         menu.addItem(.separator())
         let regularActionsEnabled = !isRestoringDatabase
             && !requiresRelaunch
@@ -81,10 +97,8 @@ enum NativeMenuBuilder {
 
         if state == nil {
             menu.addDisabledItem(startupError ?? "Sources unavailable")
+            menu.addItem(.separator())
         }
-        let updatedItem = menu.addDisabledItem("Updated never")
-
-        menu.addItem(.separator())
         menu.addItem(actionItem(
             "Refresh Now",
             action: NSSelectorFromString("refresh"),
@@ -117,7 +131,11 @@ enum NativeMenuBuilder {
             keyEquivalent: "q",
             isEnabled: !isRestoringDatabase && !preservationRetryRequired
         ))
-        return BuiltNativeMenu(menu: menu, statusTitle: statusTitle, updatedItem: updatedItem)
+        return BuiltNativeMenu(
+            menu: menu,
+            statusTitle: statusTitle,
+            summaryView: summaryView
+        )
     }
 
     private static func periodMenuItem(
@@ -252,7 +270,7 @@ final class MenuController: NSObject, NSMenuDelegate {
     private let model: AppModel?
     private let startupError: String?
     private var stateObservation: AnyCancellable?
-    private weak var updatedItem: NSMenuItem?
+    private weak var summaryView: MenuSummaryView?
 
     init(
         model: AppModel,
@@ -298,16 +316,31 @@ final class MenuController: NSObject, NSMenuDelegate {
     }
 
     func menuWillOpen(_ menu: NSMenu) {
-        guard let updatedItem else { return }
-        let relative: String
+        guard let summaryView else { return }
+        let visualRelative: String
+        let accessibilityRelative: String
         if let lastUpdated = model?.health.lastSuccessfulScan {
-            let formatter = RelativeDateTimeFormatter()
-            formatter.unitsStyle = .full
-            relative = formatter.localizedString(for: lastUpdated, relativeTo: Date())
+            let visualFormatter = RelativeDateTimeFormatter()
+            visualFormatter.unitsStyle = .abbreviated
+            visualRelative = visualFormatter.localizedString(
+                for: lastUpdated,
+                relativeTo: Date()
+            )
+
+            let accessibilityFormatter = RelativeDateTimeFormatter()
+            accessibilityFormatter.unitsStyle = .full
+            accessibilityRelative = accessibilityFormatter.localizedString(
+                for: lastUpdated,
+                relativeTo: Date()
+            )
         } else {
-            relative = "never"
+            visualRelative = "never"
+            accessibilityRelative = "never"
         }
-        updatedItem.title = "Updated \(relative)"
+        summaryView.updateRecency(
+            visualTitle: "Updated \(visualRelative)",
+            accessibilityTitle: "Updated \(accessibilityRelative)"
+        )
     }
 
     var renderedMenu: NSMenu? { statusItem.menu }
@@ -335,7 +368,7 @@ final class MenuController: NSObject, NSMenuDelegate {
         )
         built.menu.delegate = self
         statusItem.title = built.statusTitle
-        updatedItem = built.updatedItem
+        summaryView = built.summaryView
         statusItem.menu = built.menu
     }
 
