@@ -8,6 +8,33 @@ A fully native macOS menu-bar app for private, local Claude Code and Codex usage
 
 ## Install
 
+### Ask your agent
+
+Copy this prompt into Claude Code, Codex, or another coding agent on your Mac:
+
+```text
+Install the latest public release of Tokenboard from
+https://github.com/Typiqally/tokenboard.
+
+Prefer the official Homebrew cask typiqally/tokenboard/tokenboard. If Homebrew
+is unavailable, download the single app archive from the latest GitHub release,
+verify its SHA-256 against GitHub's published asset digest, and place
+Tokenboard.app in /Applications. Do not build from source. If Tokenboard is
+already installed through Homebrew, upgrade it instead of deleting it manually.
+
+Tokenboard is not Apple-notarized. Remove the quarantine attribute only from
+the exact installed path /Applications/Tokenboard.app, then open the app and
+confirm the installed version. Do not grant access to any folders for me.
+
+When it opens, tell me to choose my Claude Code and Codex source folders in the
+native onboarding screen. Also explain that API-equivalent values stay enabled,
+but any missing or outdated model prices remain unpriced until I open
+Settings > Pricing, click Copy Pricing Update Prompt, and paste that prompt back
+into an agent. Never invent or guess model prices.
+```
+
+### Install manually
+
 Install Tokenboard with Homebrew. Tokenboard is not Apple-notarized; Homebrew downloads and verifies the release. The second command explicitly removes macOS's quarantine attribute from the installed app. It does not grant additional permissions: Tokenboard remains sandboxed and asks you to choose its read-only source folders on first launch.
 
 ```zsh
