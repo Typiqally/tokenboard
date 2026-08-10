@@ -114,6 +114,72 @@ final class NativePresentationTests: XCTestCase {
         XCTAssertNotNil(failed.menu.item(withTitle: "Startup paused: Synthetic failure"))
     }
 
+    func testInitialZeroImportUsesLoadingStatusUntilTheFirstSuccessfulScan() {
+        var state = AppPublishedState.initial(period: .today, displayMetric: .tokens)
+        state.lifecycle = .ready
+        state.isImporting = true
+        state.presentation = MenuPresentation(
+            summary: UsageSummary(
+                period: .today,
+                tokenTotal: 0,
+                knownAPIEquivalentUSD: 0,
+                unpricedTokens: 0
+            ),
+            displayMetric: .tokens
+        )
+
+        let loading = NativeMenuBuilder.makeMenu(
+            state: state,
+            startupError: nil,
+            target: nil
+        )
+
+        XCTAssertEqual(loading.statusTitle, "")
+        XCTAssertEqual(loading.statusSystemImageName, "hourglass")
+        XCTAssertEqual(loading.statusAccessibilityLabel, "Tokenboard is importing usage")
+        XCTAssertEqual(loading.summaryView.content.tokenTitle, "Importing usage…")
+        XCTAssertEqual(
+            loading.summaryView.content.apiValueTitle,
+            "Totals will appear after the first records are processed"
+        )
+
+        state.lastUpdated = Date(timeIntervalSinceReferenceDate: 1)
+        let completedZero = NativeMenuBuilder.makeMenu(
+            state: state,
+            startupError: nil,
+            target: nil
+        )
+
+        XCTAssertEqual(completedZero.statusTitle, "0")
+        XCTAssertNil(completedZero.statusSystemImageName)
+        XCTAssertEqual(completedZero.summaryView.content.tokenTitle, "0 tokens")
+    }
+
+    func testRefreshKeepsAnEstablishedNonzeroTotalVisible() {
+        var state = AppPublishedState.initial(period: .today, displayMetric: .tokens)
+        state.lifecycle = .ready
+        state.isImporting = true
+        state.presentation = MenuPresentation(
+            summary: UsageSummary(
+                period: .today,
+                tokenTotal: 456,
+                knownAPIEquivalentUSD: 0,
+                unpricedTokens: 0
+            ),
+            displayMetric: .tokens
+        )
+
+        let built = NativeMenuBuilder.makeMenu(
+            state: state,
+            startupError: nil,
+            target: nil
+        )
+
+        XCTAssertEqual(built.statusTitle, "456")
+        XCTAssertNil(built.statusSystemImageName)
+        XCTAssertEqual(built.summaryView.content.tokenTitle, "456 tokens")
+    }
+
     func testDiagnosticIssuesDoNotChangeTheMenuStatus() throws {
         let setup = try makeModel()
         defer { setup.cleanup() }

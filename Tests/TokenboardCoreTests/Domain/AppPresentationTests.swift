@@ -17,6 +17,7 @@ final class AppPresentationTests: XCTestCase {
         )
 
         XCTAssertEqual(view.statusTitle, "842K")
+        XCTAssertEqual(view.tokenTotal, 842_198)
         XCTAssertEqual(view.tokenTitle, "842,198 tokens")
         XCTAssertEqual(view.apiValueTitle, "≈ $7.42 API equivalent")
         XCTAssertNil(view.unpricedTitle)
