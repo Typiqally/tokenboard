@@ -5,7 +5,7 @@ enum PricingOverviewCopy {
     static let displayCurrency = "Display currency"
     static let unpricedUsage = "Unpriced usage"
     static let modelPricing = "Model pricing"
-    static let modelPricingHint = "Choose a model to view its USD rates per million tokens."
+    static let modelPricingHint = "USD per million tokens. All current catalog rates are shown."
     static let exchangeRates = "Exchange rates"
     static let visibleLabels = [displayCurrency, unpricedUsage, modelPricing, exchangeRates]
 }
@@ -27,6 +27,12 @@ enum PricingSettingsPresentation {
                 .sorted { $0.canonicalModelID < $1.canonicalModelID }
             guard !providerModels.isEmpty else { return nil }
             return PricingProviderGroup(provider: provider, models: providerModels)
+        }
+    }
+
+    static func metrics(for group: PricingProviderGroup) -> [UsageMetric] {
+        UsageMetric.allCases.filter { metric in
+            group.models.contains { $0.rates[metric] != nil }
         }
     }
 }
@@ -109,42 +115,9 @@ struct PricingSettingsView: View {
                 Text(PricingOverviewCopy.modelPricingHint)
                     .foregroundStyle(.secondary)
                 let groups = PricingSettingsPresentation.groups(for: pricing.activeModels)
-                ForEach(Array(groups.enumerated()), id: \.element.id) { groupIndex, group in
-                    if groupIndex > 0 {
-                        Divider()
-                    }
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack(alignment: .firstTextBaseline) {
-                            Text(Self.providerName(group.provider))
-                                .font(.subheadline.weight(.semibold))
-                            Spacer()
-                            Text("\(group.models.count) \(group.models.count == 1 ? "model" : "models")")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        ForEach(Array(group.models.enumerated()), id: \.element.id) { modelIndex, modelPricing in
-                            if modelIndex > 0 {
-                                Divider()
-                            }
-                            DisclosureGroup {
-                                VStack(alignment: .leading, spacing: 5) {
-                                    ForEach(UsageMetric.allCases, id: \.rawValue) { metric in
-                                        if let rate = modelPricing.rates[metric] {
-                                            LabeledContent(Self.metricName(metric)) {
-                                                Text("\(ValueFormatter.currency(rate, currency: .usd)) / 1M")
-                                                    .monospacedDigit()
-                                            }
-                                        }
-                                    }
-                                }
-                                .padding(.top, 5)
-                            } label: {
-                                Text(modelPricing.canonicalModelID)
-                                    .font(.body.monospaced())
-                                    .textSelection(.enabled)
-                            }
-                            .padding(.vertical, 3)
-                        }
+                VStack(alignment: .leading, spacing: 16) {
+                    ForEach(groups) { group in
+                        PricingProviderLedger(group: group)
                     }
                 }
             }
@@ -206,19 +179,6 @@ struct PricingSettingsView: View {
         }
     }
 
-    private static func metricName(_ metric: UsageMetric) -> String {
-        switch metric {
-        case .inputUncached: "Input"
-        case .inputCacheRead: "Cached input"
-        case .inputCacheWrite: "Cache write"
-        case .inputCacheWrite5m: "Cache write · 5m"
-        case .inputCacheWrite1h: "Cache write · 1h"
-        case .inputUnclassified: "Unclassified input"
-        case .output: "Output"
-        case .detailReasoningOutput: "Reasoning detail"
-        }
-    }
-
     private static func unpricedReason(_ usage: UnpricedUsageGroup) -> String {
         switch usage.reason {
         case .opaqueModel: "Unknown model identifier"
@@ -240,5 +200,144 @@ struct PricingSettingsView: View {
 
     private static func decimal(_ value: Decimal) -> String {
         NSDecimalNumber(decimal: value).stringValue
+    }
+}
+
+private struct PricingProviderLedger: View {
+    let group: PricingProviderGroup
+
+    private var metrics: [UsageMetric] {
+        PricingSettingsPresentation.metrics(for: group)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Image(systemName: group.provider == .claudeCode ? "sparkles" : "terminal")
+                    .foregroundStyle(accentColor)
+                Text(providerName)
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Text(modelCount)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .background(accentColor.opacity(0.10))
+
+            Divider()
+
+            ScrollView(.horizontal) {
+                Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 0) {
+                    GridRow(alignment: .bottom) {
+                        ledgerHeader("Model", width: 220, alignment: .leading)
+                        ForEach(metrics, id: \.rawValue) { metric in
+                            ledgerHeader(metricName(metric), width: 100, alignment: .trailing)
+                        }
+                    }
+                    .padding(.vertical, 8)
+
+                    Divider()
+                        .gridCellColumns(metrics.count + 1)
+
+                    ForEach(Array(group.models.enumerated()), id: \.element.id) { index, model in
+                        GridRow(alignment: .center) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(model.canonicalModelID)
+                                    .font(.body.monospaced().weight(.medium))
+                                    .lineLimit(1)
+                                    .textSelection(.enabled)
+                                Text("Current rate")
+                                    .font(.caption2.weight(.medium))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(width: 220, alignment: .leading)
+
+                            ForEach(metrics, id: \.rawValue) { metric in
+                                rateCell(model.rates[metric], metric: metric)
+                            }
+                        }
+                        .padding(.vertical, 9)
+                        .background(index.isMultiple(of: 2) ? Color.primary.opacity(0.025) : .clear)
+
+                        if index < group.models.count - 1 {
+                            Divider()
+                                .gridCellColumns(metrics.count + 1)
+                        }
+                    }
+                }
+                .padding(.horizontal, 12)
+            }
+        }
+        .background(Color.primary.opacity(0.025))
+        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .stroke(Color.primary.opacity(0.12), lineWidth: 1)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("\(providerName) pricing, \(modelCount)")
+    }
+
+    private func ledgerHeader(
+        _ title: String,
+        width: CGFloat,
+        alignment: Alignment
+    ) -> some View {
+        Text(title)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .textCase(.uppercase)
+            .lineLimit(2)
+            .frame(width: width, alignment: alignment)
+    }
+
+    @ViewBuilder
+    private func rateCell(_ rate: Decimal?, metric: UsageMetric) -> some View {
+        if let rate {
+            Text(ValueFormatter.currency(rate, currency: .usd))
+                .font(.body.monospacedDigit())
+                .frame(width: 100, alignment: .trailing)
+                .accessibilityLabel(
+                    "\(metricName(metric)), \(ValueFormatter.currency(rate, currency: .usd)) per million tokens"
+                )
+        } else {
+            Text("—")
+                .foregroundStyle(.tertiary)
+                .frame(width: 100, alignment: .trailing)
+                .accessibilityLabel("\(metricName(metric)), unavailable")
+        }
+    }
+
+    private var providerName: String {
+        switch group.provider {
+        case .claudeCode: "Claude Code"
+        case .codex: "Codex"
+        }
+    }
+
+    private var modelCount: String {
+        "\(group.models.count) \(group.models.count == 1 ? "model" : "models")"
+    }
+
+    private var accentColor: Color {
+        switch group.provider {
+        case .claudeCode: .blue
+        case .codex: .orange
+        }
+    }
+
+    private func metricName(_ metric: UsageMetric) -> String {
+        switch metric {
+        case .inputUncached: "Input"
+        case .inputCacheRead: "Cached"
+        case .inputCacheWrite: "Cache write"
+        case .inputCacheWrite5m: "Write · 5m"
+        case .inputCacheWrite1h: "Write · 1h"
+        case .inputUnclassified: "Unclassified"
+        case .output: "Output"
+        case .detailReasoningOutput: "Reasoning"
+        }
     }
 }
