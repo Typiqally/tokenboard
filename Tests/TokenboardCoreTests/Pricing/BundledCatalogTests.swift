@@ -122,17 +122,17 @@ final class BundledCatalogTests: XCTestCase {
 
         let exchangeRates = try XCTUnwrap(catalog.exchangeRates)
         XCTAssertEqual(exchangeRates.baseCurrency, .usd)
-        XCTAssertEqual(exchangeRates.effectiveDate, "2026-08-07")
-        XCTAssertEqual(exchangeRates.verifiedAt, "2026-08-07")
+        XCTAssertEqual(exchangeRates.effectiveDate, "2026-08-10")
+        XCTAssertEqual(exchangeRates.verifiedAt, "2026-08-10")
         XCTAssertEqual(
             exchangeRates.provenanceURL.absoluteString,
             "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml"
         )
         XCTAssertEqual(exchangeRates.rates[.usd], 1)
-        XCTAssertEqual(exchangeRates.rates[.eur], Decimal(string: "0.866926745"))
-        XCTAssertEqual(exchangeRates.rates[.jpy], Decimal(string: "158.33550065"))
-        XCTAssertEqual(exchangeRates.rates[.gbp], Decimal(string: "0.743519723"))
-        XCTAssertEqual(exchangeRates.rates[.cny], Decimal(string: "6.747637625"))
+        XCTAssertEqual(exchangeRates.rates[.eur], Decimal(string: "0.865426222"))
+        XCTAssertEqual(exchangeRates.rates[.jpy], Decimal(string: "158.641280831"))
+        XCTAssertEqual(exchangeRates.rates[.gbp], Decimal(string: "0.740501947"))
+        XCTAssertEqual(exchangeRates.rates[.cny], Decimal(string: "6.744353094"))
     }
 
     private func model(
