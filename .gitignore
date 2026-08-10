@@ -1,7 +1,10 @@
 .worktrees/
+
+# Agent planning artifacts
 .superpowers/
-docs/
+superpowers/
 **/superpowers/
+docs/
 .build/
 .build-strict/
 .DS_Store
