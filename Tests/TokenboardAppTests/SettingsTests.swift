@@ -153,6 +153,30 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(setup.model.settingsState.pricing.exchangeRates, exchangeRates)
     }
 
+    func testExchangeRatePresentationOmitsUSDAndUsesReadablePrecision() {
+        let exchangeRates = ExchangeRateSnapshot(
+            catalogID: "current",
+            effectiveDate: "2026-08-10",
+            verifiedAt: "2026-08-10",
+            provenanceURL: URL(string: "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml")!,
+            rates: [
+                .usd: 1,
+                .eur: Decimal(string: "0.865426222")!,
+                .jpy: Decimal(string: "158.641280831")!,
+                .gbp: Decimal(string: "0.740501947")!,
+                .cny: Decimal(string: "6.744353094")!
+            ]
+        )
+
+        let rows = PricingSettingsPresentation.exchangeRateRows(for: exchangeRates)
+        XCTAssertEqual(rows.map(\.currency), [
+            DisplayCurrency.eur, .jpy, .gbp, .cny
+        ])
+        XCTAssertEqual(rows.map(\.formattedRate), [
+            "0.8654", "158.64", "0.7405", "6.7444"
+        ])
+    }
+
     func testPricingSummaryPublishesModelLevelUnpricedUsageForTheSelectedPeriod() async throws {
         let setup = try makeSetup()
         defer { setup.cleanup() }
