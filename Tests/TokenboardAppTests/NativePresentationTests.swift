@@ -42,6 +42,39 @@ final class NativePresentationTests: XCTestCase {
         XCTAssertEqual(activationCount, 1)
     }
 
+    func testPopoverClickAwayDismissalClosesForGlobalMouseDownAndStopsAfterClose() {
+        let monitorToken = NSObject()
+        var registeredMask: NSEvent.EventTypeMask = []
+        var registeredClick: (() -> Void)?
+        var removedToken: Any?
+        let monitor = GlobalMouseDownMonitor(
+            install: { mask, click in
+                registeredMask = mask
+                registeredClick = click
+                return monitorToken
+            },
+            remove: { removedToken = $0 }
+        )
+        var dismissalCount = 0
+        let dismissal = PopoverClickAwayDismissal(
+            monitor: monitor,
+            dismiss: { dismissalCount += 1 }
+        )
+
+        dismissal.popoverDidShow()
+
+        XCTAssertEqual(registeredMask, [.leftMouseDown, .rightMouseDown])
+        XCTAssertNotNil(registeredClick)
+
+        registeredClick?()
+
+        XCTAssertEqual(dismissalCount, 1)
+
+        dismissal.popoverDidClose()
+
+        XCTAssertIdentical(removedToken as AnyObject, monitorToken)
+    }
+
     func testStartupFailurePopoverUsesTheSameStableDismissalConfiguration() {
         let controller = RichPopoverController(startupError: SyntheticStartupError())
 
