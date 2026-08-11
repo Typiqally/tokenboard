@@ -17,52 +17,11 @@ extension Provider {
         case .codex: "chevron.left.forwardslash.chevron.right"
         }
     }
-
-    var symbolColor: Color {
-        switch self {
-        case .claudeCode: Color(red: 0.77, green: 0.34, blue: 0.18)
-        case .codex: Color(nsColor: .labelColor)
-        }
-    }
 }
 
 enum TokenboardVisualStyle {
     static let pageInset: CGFloat = 20
-    static let compactSpacing: CGFloat = 8
-    static let sectionSpacing: CGFloat = 14
-    static let dividerOpacity = 0.55
-}
-
-struct SurfaceEyebrow: View {
-    let title: String
-
-    var body: some View {
-        Text(title.uppercased())
-            .font(.system(size: 11, weight: .semibold))
-            .tracking(0.6)
-            .foregroundStyle(.secondary)
-    }
-}
-
-struct ProviderGlyph: View {
-    let provider: Provider
-    var size: CGFloat = 34
-
-    var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: size * 0.26, style: .continuous)
-                .fill(provider == .claudeCode ? provider.symbolColor : Color(nsColor: .controlBackgroundColor))
-                .overlay {
-                    RoundedRectangle(cornerRadius: size * 0.26, style: .continuous)
-                        .strokeBorder(.white.opacity(provider == .claudeCode ? 0.18 : 0.08))
-                }
-            Image(systemName: provider.symbolName)
-                .font(.system(size: size * 0.42, weight: .semibold))
-                .foregroundStyle(provider == .claudeCode ? .white : Color(nsColor: .labelColor))
-        }
-        .frame(width: size, height: size)
-        .accessibilityHidden(true)
-    }
+    static let sectionSpacing: CGFloat = 16
 }
 
 struct UsageRangePicker: View {
@@ -92,27 +51,25 @@ struct UsageTrendChart: View {
                     x: .value("Day", point.localDay.value),
                     y: .value("Tokens", point.tokenTotal)
                 )
-                .foregroundStyle(
-                    selectedDay == nil || selectedDay == point.localDay.value
-                        ? Color(nsColor: .secondaryLabelColor)
-                        : Color(nsColor: .tertiaryLabelColor).opacity(0.45)
-                )
+                .foregroundStyle(barColor(for: point.localDay.value))
                 .cornerRadius(2)
             }
             .chartXAxis(.hidden)
             .chartYAxis {
                 AxisMarks(position: .leading, values: .automatic(desiredCount: compact ? 2 : 4)) {
-                    AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5, dash: [2, 3]))
-                        .foregroundStyle(Color(nsColor: .separatorColor))
+                    AxisGridLine()
+                        .foregroundStyle(Color(nsColor: .separatorColor).opacity(0.65))
                     if !compact {
                         AxisValueLabel()
-                            .font(.caption2)
+                            .font(.caption)
                             .foregroundStyle(.tertiary)
                     }
                 }
             }
             .chartXSelection(value: $selectedDay)
-            .accessibilityLabel("Daily token usage for (UsageHistoryPresentation.rangeDescription(snapshot.range))")
+            .accessibilityLabel(
+                UsageHistoryPresentation.chartAccessibilityLabel(for: snapshot.range)
+            )
 
             HStack {
                 Text(UsageHistoryPresentation.shortDate(snapshot.points.first?.localDay))
@@ -126,6 +83,15 @@ struct UsageTrendChart: View {
             .monospacedDigit()
         }
     }
+
+    private func barColor(for day: String) -> Color {
+        guard let selectedDay else {
+            return Color(nsColor: .secondaryLabelColor)
+        }
+        return selectedDay == day
+            ? Color.accentColor
+            : Color(nsColor: .tertiaryLabelColor).opacity(0.45)
+    }
 }
 
 struct ProviderShareRow: View {
@@ -134,22 +100,23 @@ struct ProviderShareRow: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 11) {
-                ProviderGlyph(provider: row.provider)
+            HStack(spacing: 10) {
+                Image(systemName: row.provider.symbolName)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18)
+                    .accessibilityHidden(true)
                 Text(row.provider.displayName)
-                    .font(.system(size: 14, weight: .medium))
-                    .frame(width: 92, alignment: .leading)
-                ProgressView(value: Double(row.percentage), total: 100)
-                    .progressViewStyle(.linear)
-                    .tint(Color(nsColor: .secondaryLabelColor))
+                    .font(.body)
+                Spacer(minLength: 12)
                 Text("\(row.percentage)%")
-                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                    .font(.body)
+                    .foregroundStyle(.secondary)
                     .monospacedDigit()
-                    .frame(width: 38, alignment: .trailing)
                 Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
+                    .font(.caption)
                     .foregroundStyle(.tertiary)
             }
+            .padding(.vertical, 4)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

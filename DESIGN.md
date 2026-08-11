@@ -4,7 +4,7 @@
 
 Tokenboard should feel simple, transparent, beautiful, native, and lightweight. The menu-bar value earns attention by being useful at a glance; every deeper surface explains where its number came from without turning the app into an analytics dashboard.
 
-The approved visual direction is the **rich popover**. Its companion History window uses the same typography, spacing, charts, dividers, glyphs, and language at a wider scale. See the durable [surface-family mockup](docs/design/rich-popover-family.svg).
+The approved information architecture is the **rich popover**, expressed with a fully native macOS visual vocabulary. Its companion History window uses the same semantic typography, spacing, charts, dividers, SF Symbols, and language at a wider scale. See the durable [surface-family mockup](docs/design/rich-popover-family.svg).
 
 ## Surface model
 
@@ -37,14 +37,14 @@ The approved visual direction is the **rich popover**. Its companion History win
 
 | Element | Popover | History |
 | --- | --- | --- |
-| Eyebrow | 11 pt semibold uppercase, quiet tracking | Same |
-| Primary number | Rounded system face, semibold, tabular digits | Same face at a larger working-window scale |
-| Secondary value | 14 pt secondary label | Same |
+| Context | Native headline plus secondary callout where needed | Same semantic hierarchy |
+| Primary number | Semantic system title, semibold, tabular digits | Same role at the standard working-window scale |
+| Secondary value | Native callout in secondary label color | Same |
 | Range control | Native segmented picker | Same component |
-| Chart | Neutral native bars and subtle dashed grid | Same component with selectable bars and axis labels |
+| Chart | Neutral native bars and system grid | Same component with selectable accent bar and axis labels |
 | Separation | System dividers | Same |
-| Provider identity | Local SF Symbol glyph in a compact rounded square | Same glyph and name |
-| Color | Meaning only: selection, positive/negative comparison, warnings | Same |
+| Provider identity | Plain SF Symbol, name, percentage, and disclosure chevron | Same glyph and name in breakdowns |
+| Color | Selection, focus, and warnings only; comparison direction also uses an icon and text | Same |
 
 System appearance, increased contrast, reduced motion, Dynamic Type behavior, keyboard focus, and VoiceOver semantics take precedence over a pixel-perfect screenshot match.
 
@@ -81,4 +81,6 @@ System appearance, increased contrast, reduced motion, Dynamic Type behavior, ke
 - Do not add network access, telemetry, accounts, or cloud sync to make a surface easier to populate.
 - Do not turn the popover into a settings panel; durable preferences belong in Settings.
 - Do not add decorative cards, gradients, animation, or accent colors without semantic purpose.
+- Do not add custom provider tiles, dashboard progress bars, tracked uppercase labels, or a decorative material layer over the native popover surface.
+- Prefer semantic system type styles and standard control behavior over fixed display sizes or web-shaped chrome.
 - Do not hide scope, pricing coverage, loading, empty, or failure states for visual cleanliness.

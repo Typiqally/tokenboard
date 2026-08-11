@@ -159,14 +159,16 @@ struct UsageHistoryView: View {
         breakdown: UsageBreakdown
     ) -> some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: TokenboardVisualStyle.sectionSpacing) {
                 HStack(alignment: .firstTextBaseline) {
                     VStack(alignment: .leading, spacing: 4) {
-                        SurfaceEyebrow(title: viewModel.request.provider.map {
-                            "History · \($0.displayName)"
+                        Text(viewModel.request.provider.map {
+                            "History — \($0.displayName)"
                         } ?? "History")
+                        .font(.headline)
                         Text(viewModel.contextTitle)
-                            .font(.title3.weight(.semibold))
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
                     }
                     Spacer()
                     UsageRangePicker(selection: Binding(
@@ -178,7 +180,7 @@ struct UsageHistoryView: View {
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text("\(ValueFormatter.exactTokens(breakdown.tokenTotal)) tokens")
-                        .font(.system(size: 36, weight: .semibold, design: .rounded))
+                        .font(.title.weight(.semibold))
                         .monospacedDigit()
                     Text(UsageHistoryPresentation.apiEquivalentTitle(
                         for: breakdown,
@@ -195,23 +197,26 @@ struct UsageHistoryView: View {
                 .frame(height: 190)
 
                 HStack {
-                    Text(UsageHistoryPresentation.comparisonTitle(
+                    let comparison = UsageHistoryPresentation.comparison(
                         snapshot.comparison,
                         range: snapshot.range
-                    ))
-                    .foregroundStyle(comparisonColor(snapshot.comparison))
+                    )
+                    Label(comparison.title, systemImage: comparison.systemImageName)
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel(comparison.accessibilityTitle)
                     if viewModel.selectedDay != nil {
                         Spacer()
                         Button("Show whole range") { viewModel.clearDaySelection() }
                             .buttonStyle(.link)
                     }
                 }
-                .font(.callout.weight(.medium))
+                .font(.callout)
 
                 Divider()
 
                 VStack(alignment: .leading, spacing: 6) {
-                    SurfaceEyebrow(title: "Why this number?")
+                    Text("Why this number?")
+                        .font(.headline)
                     Text("Tokenboard totals additive usage from local logs. Reasoning output is already included in output tokens and is never counted twice.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
@@ -265,11 +270,6 @@ struct UsageHistoryView: View {
         }
     }
 
-    private func comparisonColor(_ comparison: UsageComparison) -> Color {
-        if comparison.tokenDelta > 0 { return .green }
-        if comparison.tokenDelta < 0 { return .orange }
-        return .secondary
-    }
 }
 
 @MainActor

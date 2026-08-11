@@ -22,6 +22,12 @@ struct ProviderSharePresentation: Equatable, Identifiable, Sendable {
     var id: Provider { provider }
 }
 
+struct UsageComparisonPresentation: Equatable, Sendable {
+    let title: String
+    let systemImageName: String
+    let accessibilityTitle: String
+}
+
 struct RichPopoverPresentation: Equatable, Sendable {
     let contentState: RichPopoverContentState
     let statusTitle: String
@@ -34,7 +40,7 @@ struct RichPopoverPresentation: Equatable, Sendable {
     let apiValueTitle: String
     let trendRangeTitle: String
     let snapshot: UsageHistorySnapshot?
-    let comparisonTitle: String?
+    let comparison: UsageComparisonPresentation?
     let providerRows: [ProviderSharePresentation]
     let emptyMessage: String?
 
@@ -100,7 +106,9 @@ struct RichPopoverPresentation: Equatable, Sendable {
             apiValueTitle: apiValueTitle,
             trendRangeTitle: UsageHistoryPresentation.rangeTitle(state.selectedHistoryRange),
             snapshot: snapshot,
-            comparisonTitle: snapshot.map { UsageHistoryPresentation.comparisonTitle($0.comparison, range: $0.range) },
+            comparison: snapshot.map {
+                UsageHistoryPresentation.comparison($0.comparison, range: $0.range)
+            },
             providerRows: providerRows(in: snapshot),
             emptyMessage: snapshot?.breakdown.tokenTotal == 0
                 ? "No usage recorded in this range"
@@ -140,20 +148,50 @@ enum UsageHistoryPresentation {
         }
     }
 
-    static func comparisonTitle(
+    static func comparison(
         _ comparison: UsageComparison,
         range: UsageHistoryRange
-    ) -> String {
-        let suffix = "vs previous \(range.dayCount) days"
+    ) -> UsageComparisonPresentation {
+        let visualSuffix = "from previous \(range.dayCount) days"
+        let spokenSuffix = "from the previous \(range.dayCount) days"
         guard let percent = comparison.percentChange else {
-            return comparison.currentTokenTotal == 0
-                ? "No change \(suffix)"
-                : "New activity \(suffix)"
+            if comparison.currentTokenTotal == 0 {
+                return UsageComparisonPresentation(
+                    title: "No change \(visualSuffix)",
+                    systemImageName: "minus",
+                    accessibilityTitle: "No usage change \(spokenSuffix)"
+                )
+            }
+            return UsageComparisonPresentation(
+                title: "New activity in this range",
+                systemImageName: "sparkles",
+                accessibilityTitle: "New usage activity \(spokenSuffix)"
+            )
         }
         let rounded = Int(NSDecimalNumber(decimal: percent).doubleValue.rounded())
-        if rounded > 0 { return "↑ +\(rounded)% \(suffix)" }
-        if rounded < 0 { return "↓ −\(abs(rounded))% \(suffix)" }
-        return "→ 0% \(suffix)"
+        if rounded > 0 {
+            return UsageComparisonPresentation(
+                title: "+\(rounded)% \(visualSuffix)",
+                systemImageName: "arrow.up.right",
+                accessibilityTitle: "Usage increased \(rounded) percent \(spokenSuffix)"
+            )
+        }
+        if rounded < 0 {
+            return UsageComparisonPresentation(
+                title: "−\(abs(rounded))% \(visualSuffix)",
+                systemImageName: "arrow.down.right",
+                accessibilityTitle: "Usage decreased \(abs(rounded)) percent \(spokenSuffix)"
+            )
+        }
+        return UsageComparisonPresentation(
+            title: "No change \(visualSuffix)",
+            systemImageName: "minus",
+            accessibilityTitle: "No usage change \(spokenSuffix)"
+        )
+    }
+
+    static func chartAccessibilityLabel(for range: UsageHistoryRange) -> String {
+        "Daily token usage for the \(rangeDescription(range).lowercased())"
     }
 
     static func modelTitle(for observedModelID: String) -> String {
