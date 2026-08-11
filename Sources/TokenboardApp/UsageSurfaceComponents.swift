@@ -118,18 +118,18 @@ struct UsageRangePicker: NSViewRepresentable {
 
 struct UsageTrendChart: View {
     let snapshot: UsageHistorySnapshot
-    @Binding var selectedDay: String?
+    @Binding var selectedPointID: String?
     var compact = false
 
     var body: some View {
         VStack(spacing: 7) {
-            Chart(snapshot.points, id: \.localDay.value) { point in
+            Chart(snapshot.points, id: \.selectionID) { point in
                 BarMark(
-                    x: .value("Day", point.localDay.value),
+                    x: .value(snapshot.range == .today ? "Hour" : "Day", point.selectionID),
                     y: .value("Tokens", point.tokenTotal)
                 )
                 .foregroundStyle(
-                    selectedDay == nil || selectedDay == point.localDay.value
+                    selectedPointID == nil || selectedPointID == point.selectionID
                         ? Color(nsColor: .secondaryLabelColor)
                         : Color(nsColor: .tertiaryLabelColor).opacity(0.45)
                 )
@@ -149,17 +149,26 @@ struct UsageTrendChart: View {
                     }
                 }
             }
-            .chartXSelection(value: $selectedDay)
+            .chartXSelection(value: $selectedPointID)
             .accessibilityLabel(
                 UsageHistoryPresentation.chartAccessibilityLabel(for: snapshot.range)
             )
 
             HStack {
-                Text(UsageHistoryPresentation.shortDate(snapshot.points.first?.localDay))
+                Text(UsageHistoryPresentation.axisLabel(
+                    snapshot.points.first,
+                    range: snapshot.range
+                ))
                 Spacer()
-                Text(UsageHistoryPresentation.shortDate(snapshot.points[safe: snapshot.points.count / 2]?.localDay))
+                Text(UsageHistoryPresentation.axisLabel(
+                    snapshot.points[safe: snapshot.points.count / 2],
+                    range: snapshot.range
+                ))
                 Spacer()
-                Text(UsageHistoryPresentation.shortDate(snapshot.points.last?.localDay))
+                Text(UsageHistoryPresentation.axisLabel(
+                    snapshot.points.last,
+                    range: snapshot.range
+                ))
             }
             .font(.caption)
             .foregroundStyle(.secondary)
@@ -225,6 +234,19 @@ struct BreakdownRow: View {
 }
 
 extension UsageHistoryPresentation {
+    static func axisLabel(_ point: UsageHistoryPoint?, range: UsageHistoryRange) -> String {
+        guard let point else { return "—" }
+        guard range == .today, let hourStart = point.hourStart else {
+            return shortDate(point.localDay)
+        }
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: point.localDay.timeZoneIdentifier)
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: hourStart)
+    }
+
     static func shortDate(_ day: LocalDay?) -> String {
         guard let day else { return "—" }
         let components = day.value.split(separator: "-")

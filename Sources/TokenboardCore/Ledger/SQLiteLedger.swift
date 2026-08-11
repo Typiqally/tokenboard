@@ -148,6 +148,7 @@ public actor SQLiteLedger: LedgerStore {
         let connection = try requiredConnection()
         try validateStorageBoundary(usage: usage, skipped: skipped, checkpoint: checkpoint)
         let groupedUsage = try grouped(usage, calendar: calendar)
+        let groupedHourlyUsage = try groupedHourly(usage, calendar: calendar)
         let checkpointMetrics = try encodedJSON(checkpoint.cumulativeMetrics)
         let adapterState = try encodedJSON(checkpoint.adapterState)
 
@@ -155,6 +156,9 @@ public actor SQLiteLedger: LedgerStore {
         do {
             for row in groupedUsage {
                 try upsertUsage(row, using: connection)
+            }
+            for row in groupedHourlyUsage {
+                try upsertHourlyUsage(row, using: connection)
             }
             for record in skipped {
                 try insertSkippedRecord(record, using: connection)
@@ -210,6 +214,52 @@ public actor SQLiteLedger: LedgerStore {
             switch result {
             case SQLITE_ROW:
                 rows.append(try usageRow(from: statement))
+            case SQLITE_DONE:
+                return rows
+            default:
+                throw failure(result, using: connection)
+            }
+        }
+    }
+
+    public func hourlyUsageRows(
+        in interval: DateInterval?,
+        calendar: Calendar
+    ) async throws -> [HourlyUsageRow] {
+        let connection = try requiredConnection()
+        let statement: OpaquePointer
+        if let interval {
+            statement = try prepare(
+                """
+                SELECT hour_start, local_day, time_zone, provider, observed_model_id,
+                       metric, aggregation, quantity
+                FROM hourly_usage
+                WHERE hour_start >= ? AND hour_start < ?
+                ORDER BY hour_start, time_zone, provider, observed_model_id, metric;
+                """,
+                using: connection
+            )
+            try bind(epochSeconds(interval.start), to: statement, at: 1, using: connection)
+            try bind(epochSeconds(interval.end), to: statement, at: 2, using: connection)
+        } else {
+            statement = try prepare(
+                """
+                SELECT hour_start, local_day, time_zone, provider, observed_model_id,
+                       metric, aggregation, quantity
+                FROM hourly_usage
+                ORDER BY hour_start, time_zone, provider, observed_model_id, metric;
+                """,
+                using: connection
+            )
+        }
+        defer { sqlite3_finalize(statement) }
+
+        var rows: [HourlyUsageRow] = []
+        while true {
+            let result = sqlite3_step(statement)
+            switch result {
+            case SQLITE_ROW:
+                rows.append(try hourlyUsageRow(from: statement))
             case SQLITE_DONE:
                 return rows
             default:
@@ -872,6 +922,43 @@ public actor SQLiteLedger: LedgerStore {
         }
     }
 
+    private func groupedHourly(
+        _ usage: [NormalizedUsage],
+        calendar: Calendar
+    ) throws -> [HourlyUsageRow] {
+        var quantities: [HourlyUsageKey: Int64] = [:]
+        for entry in usage {
+            guard let hourStart = calendar.dateInterval(of: .hour, for: entry.timestamp)?.start else {
+                throw LedgerError.corruptData("could not calculate local usage hour")
+            }
+            let localDay = LocalDay(date: entry.timestamp, calendar: calendar)
+            for (metric, quantity) in entry.metrics {
+                let key = HourlyUsageKey(
+                    hourStart: hourStart,
+                    localDay: localDay,
+                    provider: entry.provider,
+                    observedModelID: entry.observedModelID,
+                    metric: metric
+                )
+                let current = quantities[key, default: 0]
+                let (total, overflow) = current.addingReportingOverflow(quantity)
+                guard !overflow else { throw LedgerError.quantityOverflow }
+                quantities[key] = total
+            }
+        }
+        return quantities.map { key, quantity in
+            HourlyUsageRow(
+                hourStart: key.hourStart,
+                localDay: key.localDay,
+                provider: key.provider,
+                observedModelID: key.observedModelID,
+                metric: key.metric,
+                aggregation: key.metric.aggregation,
+                quantity: quantity
+            )
+        }
+    }
+
     private func upsertUsage(_ row: DailyUsageRow, using connection: SQLiteConnection) throws {
         let statement = try prepare(
             """
@@ -890,6 +977,33 @@ public actor SQLiteLedger: LedgerStore {
         try bind(row.metric.rawValue, to: statement, at: 5, using: connection)
         try bind(row.aggregation.rawValue, to: statement, at: 6, using: connection)
         try bind(row.quantity, to: statement, at: 7, using: connection)
+        try stepDone(statement, using: connection)
+    }
+
+    private func upsertHourlyUsage(
+        _ row: HourlyUsageRow,
+        using connection: SQLiteConnection
+    ) throws {
+        let statement = try prepare(
+            """
+            INSERT INTO hourly_usage(
+              hour_start, local_day, time_zone, provider, observed_model_id,
+              metric, aggregation, quantity
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(hour_start, time_zone, provider, observed_model_id, metric)
+            DO UPDATE SET quantity = quantity + excluded.quantity;
+            """,
+            using: connection
+        )
+        defer { sqlite3_finalize(statement) }
+        try bind(epochSeconds(row.hourStart), to: statement, at: 1, using: connection)
+        try bind(row.localDay.value, to: statement, at: 2, using: connection)
+        try bind(row.localDay.timeZoneIdentifier, to: statement, at: 3, using: connection)
+        try bind(row.provider.rawValue, to: statement, at: 4, using: connection)
+        try bind(row.observedModelID, to: statement, at: 5, using: connection)
+        try bind(row.metric.rawValue, to: statement, at: 6, using: connection)
+        try bind(row.aggregation.rawValue, to: statement, at: 7, using: connection)
+        try bind(row.quantity, to: statement, at: 8, using: connection)
         try stepDone(statement, using: connection)
     }
 
@@ -968,6 +1082,25 @@ public actor SQLiteLedger: LedgerStore {
         )
     }
 
+    private func hourlyUsageRow(from statement: OpaquePointer) throws -> HourlyUsageRow {
+        let localDay = try requiredText(statement, at: 1)
+        let timeZone = try requiredText(statement, at: 2)
+        guard let provider = Provider(rawValue: try requiredText(statement, at: 3)),
+              let metric = UsageMetric(rawValue: try requiredText(statement, at: 5)),
+              let aggregation = MetricAggregation(rawValue: try requiredText(statement, at: 6)) else {
+            throw LedgerError.corruptData("hourly usage enum value is invalid")
+        }
+        return HourlyUsageRow(
+            hourStart: Date(timeIntervalSince1970: TimeInterval(sqlite3_column_int64(statement, 0))),
+            localDay: try decodedLocalDay(value: localDay, timeZoneIdentifier: timeZone),
+            provider: provider,
+            observedModelID: try requiredText(statement, at: 4),
+            metric: metric,
+            aggregation: aggregation,
+            quantity: sqlite3_column_int64(statement, 7)
+        )
+    }
+
     private func decodedCheckpoint(from statement: OpaquePointer) throws -> SourceCheckpoint {
         guard let provider = Provider(rawValue: try requiredText(statement, at: 1)) else {
             throw LedgerError.corruptData("checkpoint provider is invalid")
@@ -1021,6 +1154,10 @@ public actor SQLiteLedger: LedgerStore {
 
     private func encodeDate(_ date: Date) -> String {
         String(date.timeIntervalSince1970)
+    }
+
+    private func epochSeconds(_ date: Date) -> Int64 {
+        Int64(date.timeIntervalSince1970.rounded())
     }
 
     private func decodeDate(_ value: String) throws -> Date {
@@ -1089,6 +1226,14 @@ private struct StoredExchangeRateAccumulator {
 }
 
 private struct UsageKey: Hashable {
+    let localDay: LocalDay
+    let provider: Provider
+    let observedModelID: String
+    let metric: UsageMetric
+}
+
+private struct HourlyUsageKey: Hashable {
+    let hourStart: Date
     let localDay: LocalDay
     let provider: Provider
     let observedModelID: String

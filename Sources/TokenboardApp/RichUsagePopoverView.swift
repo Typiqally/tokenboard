@@ -251,7 +251,7 @@ struct RichUsagePopoverView: View {
             } else {
                 UsageTrendChart(
                     snapshot: snapshot,
-                    selectedDay: .constant(nil),
+                    selectedPointID: .constant(nil),
                     compact: true
                 )
             }

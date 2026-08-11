@@ -1,6 +1,7 @@
 import Foundation
 
 public enum UsageHistoryRange: Int, CaseIterable, Codable, Sendable {
+    case today = 1
     case sevenDays = 7
     case thirtyDays = 30
     case ninetyDays = 90
@@ -16,17 +17,27 @@ public enum UsageTokenCategory: String, CaseIterable, Codable, Sendable {
 
 public struct UsageHistoryPoint: Equatable, Sendable {
     public let localDay: LocalDay
+    public let hourStart: Date?
     public let tokenTotal: Int64
     public let breakdown: UsageBreakdown?
 
     public init(
         localDay: LocalDay,
+        hourStart: Date? = nil,
         tokenTotal: Int64,
         breakdown: UsageBreakdown? = nil
     ) {
         self.localDay = localDay
+        self.hourStart = hourStart
         self.tokenTotal = tokenTotal
         self.breakdown = breakdown
+    }
+
+    public var selectionID: String {
+        if let hourStart {
+            return "hour:\(Int64(hourStart.timeIntervalSince1970.rounded()))"
+        }
+        return "day:\(localDay.value)"
     }
 }
 

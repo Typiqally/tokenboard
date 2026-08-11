@@ -115,5 +115,36 @@ public enum Migrations {
         """
     )
 
-    public static let all = [v1, v2, v3]
+    public static let v4 = Migration(
+        version: 4,
+        name: "store hourly usage progression",
+        sql: """
+        CREATE TABLE hourly_usage(
+          hour_start INTEGER NOT NULL,
+          local_day TEXT NOT NULL,
+          time_zone TEXT NOT NULL,
+          provider TEXT NOT NULL,
+          observed_model_id TEXT NOT NULL,
+          metric TEXT NOT NULL,
+          aggregation TEXT NOT NULL,
+          quantity INTEGER NOT NULL CHECK(quantity >= 0),
+          PRIMARY KEY(hour_start, time_zone, provider, observed_model_id, metric)
+        );
+        CREATE INDEX hourly_usage_range_idx ON hourly_usage(hour_start, provider);
+        CREATE TRIGGER hourly_usage_quantity_integer_insert
+        BEFORE INSERT ON hourly_usage
+        FOR EACH ROW WHEN typeof(NEW.quantity) <> 'integer'
+        BEGIN
+          SELECT RAISE(ABORT, 'hourly_usage.quantity must be INTEGER');
+        END;
+        CREATE TRIGGER hourly_usage_quantity_integer_update
+        BEFORE UPDATE OF quantity ON hourly_usage
+        FOR EACH ROW WHEN typeof(NEW.quantity) <> 'integer'
+        BEGIN
+          SELECT RAISE(ABORT, 'hourly_usage.quantity must be INTEGER');
+        END;
+        """
+    )
+
+    public static let all = [v1, v2, v3, v4]
 }

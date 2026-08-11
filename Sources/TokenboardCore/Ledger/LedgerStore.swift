@@ -25,6 +25,34 @@ public struct DailyUsageRow: Equatable, Sendable {
     }
 }
 
+public struct HourlyUsageRow: Equatable, Sendable {
+    public let hourStart: Date
+    public let localDay: LocalDay
+    public let provider: Provider
+    public let observedModelID: String
+    public let metric: UsageMetric
+    public let aggregation: MetricAggregation
+    public let quantity: Int64
+
+    public init(
+        hourStart: Date,
+        localDay: LocalDay,
+        provider: Provider,
+        observedModelID: String,
+        metric: UsageMetric,
+        aggregation: MetricAggregation,
+        quantity: Int64
+    ) {
+        self.hourStart = hourStart
+        self.localDay = localDay
+        self.provider = provider
+        self.observedModelID = observedModelID
+        self.metric = metric
+        self.aggregation = aggregation
+        self.quantity = quantity
+    }
+}
+
 public struct SkippedRecord: Equatable, Sendable {
     public let sourceFingerprint: String
     public let byteOffset: Int64
@@ -56,6 +84,10 @@ public protocol LedgerStore: Sendable {
         calendar: Calendar
     ) async throws
     func usageRows(in interval: DateInterval?, calendar: Calendar) async throws -> [DailyUsageRow]
+    func hourlyUsageRows(
+        in interval: DateInterval?,
+        calendar: Calendar
+    ) async throws -> [HourlyUsageRow]
     func checkpoint(for fingerprint: String) async throws -> SourceCheckpoint?
     func sourceFingerprint(provider: Provider, stableID: String) async throws -> String
     func recordIdentityHash(_ value: String) async throws -> String
@@ -67,4 +99,13 @@ public protocol LedgerStore: Sendable {
         origin: String,
         validationSummary: String
     ) async throws
+}
+
+public extension LedgerStore {
+    func hourlyUsageRows(
+        in interval: DateInterval?,
+        calendar: Calendar
+    ) async throws -> [HourlyUsageRow] {
+        []
+    }
 }

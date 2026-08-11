@@ -208,6 +208,7 @@ struct RichPopoverPresentation: Equatable, Sendable {
 enum UsageHistoryPresentation {
     static func rangeTitle(_ range: UsageHistoryRange) -> String {
         switch range {
+        case .today: "TODAY"
         case .sevenDays: "7D"
         case .thirtyDays: "30D"
         case .ninetyDays: "90D"
@@ -216,6 +217,7 @@ enum UsageHistoryPresentation {
 
     static func rangeDescription(_ range: UsageHistoryRange) -> String {
         switch range {
+        case .today: "Today"
         case .sevenDays: "Last 7 days"
         case .thirtyDays: "Last 30 days"
         case .ninetyDays: "Last 90 days"
@@ -226,8 +228,12 @@ enum UsageHistoryPresentation {
         _ comparison: UsageComparison,
         range: UsageHistoryRange
     ) -> UsageComparisonPresentation {
-        let visualSuffix = "vs previous \(range.dayCount) days"
-        let spokenSuffix = "from the previous \(range.dayCount) days"
+        let visualSuffix = range == .today
+            ? "vs yesterday"
+            : "vs previous \(range.dayCount) days"
+        let spokenSuffix = range == .today
+            ? "from yesterday"
+            : "from the previous \(range.dayCount) days"
         guard let percent = comparison.percentChange else {
             if comparison.currentTokenTotal == 0 {
                 return UsageComparisonPresentation(
@@ -265,7 +271,8 @@ enum UsageHistoryPresentation {
     }
 
     static func chartAccessibilityLabel(for range: UsageHistoryRange) -> String {
-        "Daily token usage for the \(rangeDescription(range).lowercased())"
+        if range == .today { return "Hourly token usage for today" }
+        return "Daily token usage for the \(rangeDescription(range).lowercased())"
     }
 
     static func axisTitle(_ tokenTotal: Int64) -> String {

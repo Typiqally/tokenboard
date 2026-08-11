@@ -13,7 +13,7 @@ final class HistoryViewModel: ObservableObject {
     @Published private(set) var snapshot: UsageHistorySnapshot?
     @Published private(set) var isLoading = false
     @Published private(set) var errorMessage: String?
-    @Published var selectedDay: String?
+    @Published var selectedPointID: String?
 
     private weak var model: AppModel?
     private var loadTask: Task<Void, Never>?
@@ -31,8 +31,8 @@ final class HistoryViewModel: ObservableObject {
 
     var displayedBreakdown: UsageBreakdown? {
         guard let snapshot else { return nil }
-        guard let selectedDay else { return snapshot.breakdown }
-        return snapshot.points.first { $0.localDay.value == selectedDay }?.breakdown
+        guard let selectedPointID else { return snapshot.breakdown }
+        return snapshot.points.first { $0.selectionID == selectedPointID }?.breakdown
             ?? UsageBreakdown(
                 tokenTotal: 0,
                 knownAPIEquivalentUSD: 0,
@@ -47,9 +47,9 @@ final class HistoryViewModel: ObservableObject {
     }
 
     var contextTitle: String {
-        if let selectedDay,
-           let point = snapshot?.points.first(where: { $0.localDay.value == selectedDay }) {
-            return UsageHistoryPresentation.shortDate(point.localDay)
+        if let selectedPointID,
+           let point = snapshot?.points.first(where: { $0.selectionID == selectedPointID }) {
+            return UsageHistoryPresentation.axisLabel(point, range: request.range)
         }
         return UsageHistoryPresentation.rangeDescription(request.range)
     }
@@ -64,7 +64,7 @@ final class HistoryViewModel: ObservableObject {
     }
 
     func clearDaySelection() {
-        selectedDay = nil
+        selectedPointID = nil
     }
 
     func cancel() {
@@ -74,7 +74,7 @@ final class HistoryViewModel: ObservableObject {
 
     func load(_ request: HistoryOpenRequest, ignoreCache: Bool = false) {
         self.request = request
-        selectedDay = nil
+        selectedPointID = nil
         errorMessage = nil
         loadTask?.cancel()
         loadGeneration &+= 1
@@ -200,7 +200,7 @@ struct UsageHistoryView: View {
 
                 UsageTrendChart(
                     snapshot: snapshot,
-                    selectedDay: $viewModel.selectedDay
+                    selectedPointID: $viewModel.selectedPointID
                 )
                 .frame(height: 155)
 
@@ -212,7 +212,7 @@ struct UsageHistoryView: View {
                     Label(comparison.title, systemImage: comparison.systemImageName)
                         .foregroundStyle(snapshot.comparison.trendColor)
                         .accessibilityLabel(comparison.accessibilityTitle)
-                    if viewModel.selectedDay != nil {
+                    if viewModel.selectedPointID != nil {
                         Spacer()
                         Button("Show whole range") { viewModel.clearDaySelection() }
                             .buttonStyle(.link)

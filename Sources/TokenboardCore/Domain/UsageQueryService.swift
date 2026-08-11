@@ -63,17 +63,37 @@ public struct UsageQueryService: Sendable {
             Decimal(delta) * 100 / Decimal(previousTotal)
         }
 
+        let points: [UsageHistoryPoint]
+        if range == .today {
+            let queriedHourlyRows = try await ledger.hourlyUsageRows(
+                in: currentInterval,
+                calendar: calendar
+            )
+            let hourlyRows = queriedHourlyRows.filter {
+                provider == nil || $0.provider == provider
+            }
+            points = try hourlyPoints(
+                rows: hourlyRows,
+                dailyRows: currentRows,
+                interval: currentInterval,
+                calendar: calendar,
+                pricing: pricing
+            )
+        } else {
+            points = try dailyPoints(
+                rows: currentRows,
+                interval: currentInterval,
+                calendar: calendar,
+                pricing: pricing
+            )
+        }
+
         return UsageHistorySnapshot(
             range: range,
             provider: provider,
             currentInterval: currentInterval,
             previousInterval: previousInterval,
-            points: try dailyPoints(
-                rows: currentRows,
-                interval: currentInterval,
-                calendar: calendar,
-                pricing: pricing
-            ),
+            points: points,
             comparison: UsageComparison(
                 currentTokenTotal: breakdown.tokenTotal,
                 previousTokenTotal: previousTotal,
@@ -82,6 +102,60 @@ public struct UsageQueryService: Sendable {
             ),
             breakdown: breakdown
         )
+    }
+
+    private func hourlyPoints(
+        rows: [HourlyUsageRow],
+        dailyRows: [DailyUsageRow],
+        interval: DateInterval,
+        calendar: Calendar,
+        pricing: PricingSnapshot
+    ) throws -> [UsageHistoryPoint] {
+        var rowsByHour = Dictionary(grouping: rows, by: \.hourStart)
+        var recordedTotals: [UsageRowKey: Int64] = [:]
+        for row in rows {
+            let key = UsageRowKey(row)
+            recordedTotals[key] = try checkedAdd(recordedTotals[key, default: 0], row.quantity)
+        }
+
+        for dailyRow in dailyRows {
+            let key = UsageRowKey(dailyRow)
+            let recorded = recordedTotals[key, default: 0]
+            guard recorded <= dailyRow.quantity else {
+                throw UsageHistoryError.negativeQuantity
+            }
+            let baseline = dailyRow.quantity - recorded
+            guard baseline > 0 else { continue }
+            rowsByHour[interval.start, default: []].append(HourlyUsageRow(
+                hourStart: interval.start,
+                localDay: dailyRow.localDay,
+                provider: dailyRow.provider,
+                observedModelID: dailyRow.observedModelID,
+                metric: dailyRow.metric,
+                aggregation: dailyRow.aggregation,
+                quantity: baseline
+            ))
+        }
+
+        var points: [UsageHistoryPoint] = []
+        var hourStart = interval.start
+        while hourStart < interval.end {
+            let hourRows = rowsByHour[hourStart, default: []].map(\.dailyRow)
+            let breakdown = hourRows.isEmpty
+                ? nil
+                : try usageBreakdown(rows: hourRows, pricing: pricing)
+            points.append(UsageHistoryPoint(
+                localDay: LocalDay(date: hourStart, calendar: calendar),
+                hourStart: hourStart,
+                tokenTotal: breakdown?.tokenTotal ?? 0,
+                breakdown: breakdown
+            ))
+            guard let next = calendar.date(byAdding: .hour, value: 1, to: hourStart) else {
+                throw UsageHistoryError.calendarArithmeticFailure
+            }
+            hourStart = next
+        }
+        return points
     }
 
     private func dailyPoints(
@@ -195,4 +269,35 @@ public struct UsageQueryService: Sendable {
 private struct ModelBreakdownKey: Hashable {
     let provider: Provider
     let observedModelID: String
+}
+
+private struct UsageRowKey: Hashable {
+    let provider: Provider
+    let observedModelID: String
+    let metric: UsageMetric
+
+    init(_ row: DailyUsageRow) {
+        provider = row.provider
+        observedModelID = row.observedModelID
+        metric = row.metric
+    }
+
+    init(_ row: HourlyUsageRow) {
+        provider = row.provider
+        observedModelID = row.observedModelID
+        metric = row.metric
+    }
+}
+
+private extension HourlyUsageRow {
+    var dailyRow: DailyUsageRow {
+        DailyUsageRow(
+            localDay: localDay,
+            provider: provider,
+            observedModelID: observedModelID,
+            metric: metric,
+            aggregation: aggregation,
+            quantity: quantity
+        )
+    }
 }
