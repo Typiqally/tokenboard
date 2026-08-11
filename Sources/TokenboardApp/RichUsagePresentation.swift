@@ -52,12 +52,12 @@ struct RichPopoverPresentation: Equatable, Sendable {
             && state.lastUpdated == nil
             && (state.presentation?.tokenTotal ?? 0) == 0
         let contentState: RichPopoverContentState
-        if awaitingFirstUsage || (state.presentation == nil && startupError == nil) {
-            contentState = .loading
-        } else if let startupError {
+        if let startupError {
             contentState = .failed(message: startupError)
         } else if case let .failed(message) = state.lifecycle {
             contentState = .failed(message: message)
+        } else if awaitingFirstUsage || state.presentation == nil {
+            contentState = .loading
         } else {
             contentState = .ready
         }
