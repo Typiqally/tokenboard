@@ -91,7 +91,7 @@ final class RichUsagePresentationTests: XCTestCase {
         XCTAssertEqual(presentation.periodTitle, "This Month")
         XCTAssertEqual(presentation.trendRangeTitle, "7D")
         XCTAssertEqual(presentation.comparison, UsageComparisonPresentation(
-            title: "+25% from previous 7 days",
+            title: "+25% vs previous 7 days",
             systemImageName: "arrow.up.right",
             accessibilityTitle: "Usage increased 25 percent from the previous 7 days"
         ))
@@ -113,7 +113,7 @@ final class RichUsagePresentationTests: XCTestCase {
                 range: .sevenDays
             ),
             UsageComparisonPresentation(
-                title: "−25% from previous 7 days",
+                title: "−25% vs previous 7 days",
                 systemImageName: "arrow.down.right",
                 accessibilityTitle: "Usage decreased 25 percent from the previous 7 days"
             )
@@ -129,7 +129,7 @@ final class RichUsagePresentationTests: XCTestCase {
                 range: .thirtyDays
             ),
             UsageComparisonPresentation(
-                title: "No change from previous 30 days",
+                title: "No change vs previous 30 days",
                 systemImageName: "minus",
                 accessibilityTitle: "No usage change from the previous 30 days"
             )
