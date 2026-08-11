@@ -154,7 +154,7 @@ final class RichUsagePresentationTests: XCTestCase {
     }
 
     func testApprovedSurfaceDimensionsStayCompactAndRelated() {
-        XCTAssertEqual(TokenboardSurfaceMetrics.popoverSize, NSSize(width: 400, height: 590))
+        XCTAssertEqual(TokenboardSurfaceMetrics.popoverSize, NSSize(width: 400, height: 500))
         XCTAssertEqual(TokenboardSurfaceMetrics.historySize, NSSize(width: 760, height: 580))
         XCTAssertEqual(TokenboardSurfaceMetrics.historyMinimumSize, NSSize(width: 680, height: 520))
     }
