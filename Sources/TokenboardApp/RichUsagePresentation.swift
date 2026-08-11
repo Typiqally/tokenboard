@@ -31,6 +31,20 @@ enum RichPopoverFooterAction: CaseIterable, Equatable {
     }
 }
 
+struct RichPopoverPeriodOption: Equatable, Identifiable {
+    let period: CalendarPeriod
+    let title: String
+
+    var id: String { period.rawValue }
+
+    static let all = UsageSelectionPresentation.periods.map {
+        RichPopoverPeriodOption(
+            period: $0,
+            title: UsageSelectionPresentation.periodTitle($0)
+        )
+    }
+}
+
 enum RichPopoverContentState: Equatable, Sendable {
     case loading
     case ready
@@ -216,6 +230,20 @@ enum UsageHistoryPresentation {
     static func chartAccessibilityLabel(for range: UsageHistoryRange) -> String {
         "Daily token usage for the \(rangeDescription(range).lowercased())"
     }
+
+    static func axisTitle(_ tokenTotal: Int64) -> String {
+        ValueFormatter.compactTokens(tokenTotal)
+    }
+
+    static func providerCountTitle(_ count: Int) -> String {
+        "\(count) \(count == 1 ? "source" : "sources")"
+    }
+
+    static func modelCountTitle(_ count: Int) -> String {
+        "\(count) \(count == 1 ? "model" : "models")"
+    }
+
+    static let tokenTypeSummary = "Input · Cache · Output"
 
     static func modelTitle(for observedModelID: String) -> String {
         ModelIdentifierPolicy.isOpaqueUnknown(observedModelID)

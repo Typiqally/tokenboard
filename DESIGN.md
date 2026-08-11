@@ -31,7 +31,7 @@ The approved visual direction is the **rich popover**. Its companion History win
 - Uses the same header, headline, segmented control, chart, comparison language, dividers, and disclosure typography as the popover.
 - Initially summarizes the whole range. Selecting a chart bar scopes the headline and disclosures to that local day; “Show whole range” or Escape clears the selection.
 - “Why this number?” explains additive totals and why reasoning output is not double-counted.
-- Provider, model, and token-type disclosures are plain rows separated by dividers—never cards nested inside cards.
+- Provider, model, and token-type disclosures start collapsed with summary labels, expand on demand, and remain plain rows separated by dividers—never cards nested inside cards.
 
 ## Shared visual grammar
 

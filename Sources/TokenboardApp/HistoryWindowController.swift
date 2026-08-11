@@ -109,12 +109,22 @@ final class HistoryViewModel: ObservableObject {
     }
 }
 
+struct HistoryDisclosureExpansion: Equatable {
+    var providers: Bool
+    var models: Bool
+    var tokenTypes: Bool
+
+    static let initial = HistoryDisclosureExpansion(
+        providers: false,
+        models: false,
+        tokenTypes: false
+    )
+}
+
 struct UsageHistoryView: View {
     @ObservedObject var model: AppModel
     @ObservedObject var viewModel: HistoryViewModel
-    @State private var providersExpanded = true
-    @State private var modelsExpanded = true
-    @State private var tokenTypesExpanded = true
+    @State private var disclosureExpansion = HistoryDisclosureExpansion.initial
 
     var body: some View {
         Group {
@@ -162,13 +172,11 @@ struct UsageHistoryView: View {
             VStack(alignment: .leading, spacing: TokenboardVisualStyle.sectionSpacing) {
                 HStack(alignment: .firstTextBaseline) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(viewModel.request.provider.map {
-                            "History — \($0.displayName)"
+                        SurfaceEyebrow(title: viewModel.request.provider.map {
+                            "History · \($0.displayName)"
                         } ?? "History")
-                        .font(.headline)
                         Text(viewModel.contextTitle)
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
+                            .font(.title2.weight(.semibold))
                     }
                     Spacer()
                     UsageRangePicker(selection: Binding(
@@ -180,7 +188,7 @@ struct UsageHistoryView: View {
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text("\(ValueFormatter.exactTokens(breakdown.tokenTotal)) tokens")
-                        .font(.title.weight(.semibold))
+                        .font(.system(size: 32, weight: .semibold, design: .rounded))
                         .monospacedDigit()
                     Text(UsageHistoryPresentation.apiEquivalentTitle(
                         for: breakdown,
@@ -194,7 +202,7 @@ struct UsageHistoryView: View {
                     snapshot: snapshot,
                     selectedDay: $viewModel.selectedDay
                 )
-                .frame(height: 190)
+                .frame(height: 155)
 
                 HStack {
                     let comparison = UsageHistoryPresentation.comparison(
@@ -202,7 +210,7 @@ struct UsageHistoryView: View {
                         range: snapshot.range
                     )
                     Label(comparison.title, systemImage: comparison.systemImageName)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(snapshot.comparison.trendColor)
                         .accessibilityLabel(comparison.accessibilityTitle)
                     if viewModel.selectedDay != nil {
                         Spacer()
@@ -217,7 +225,7 @@ struct UsageHistoryView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Why this number?")
                         .font(.headline)
-                    Text("Tokenboard totals additive usage from local logs. Reasoning output is already included in output tokens and is never counted twice.")
+                    Text("Additive local usage only. Reasoning output is never counted twice.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -233,16 +241,21 @@ struct UsageHistoryView: View {
 
     @ViewBuilder
     private func disclosureRows(_ breakdown: UsageBreakdown) -> some View {
-        DisclosureGroup("Providers", isExpanded: $providersExpanded) {
+        DisclosureGroup(isExpanded: $disclosureExpansion.providers) {
             VStack(spacing: 4) {
                 ForEach(breakdown.providers, id: \.provider) { item in
                     BreakdownRow(title: item.provider.displayName, tokenTotal: item.tokenTotal)
                 }
             }
             .padding(.top, 6)
+        } label: {
+            disclosureLabel(
+                "Providers",
+                summary: UsageHistoryPresentation.providerCountTitle(breakdown.providers.count)
+            )
         }
         Divider()
-        DisclosureGroup("Models", isExpanded: $modelsExpanded) {
+        DisclosureGroup(isExpanded: $disclosureExpansion.models) {
             VStack(spacing: 4) {
                 ForEach(
                     breakdown.models,
@@ -255,9 +268,14 @@ struct UsageHistoryView: View {
                 }
             }
             .padding(.top, 6)
+        } label: {
+            disclosureLabel(
+                "Models",
+                summary: UsageHistoryPresentation.modelCountTitle(breakdown.models.count)
+            )
         }
         Divider()
-        DisclosureGroup("Token types", isExpanded: $tokenTypesExpanded) {
+        DisclosureGroup(isExpanded: $disclosureExpansion.tokenTypes) {
             VStack(spacing: 4) {
                 ForEach(breakdown.tokenTypes, id: \.category) { item in
                     BreakdownRow(
@@ -267,7 +285,23 @@ struct UsageHistoryView: View {
                 }
             }
             .padding(.top, 6)
+        } label: {
+            disclosureLabel(
+                "Token types",
+                summary: UsageHistoryPresentation.tokenTypeSummary
+            )
         }
+    }
+
+    private func disclosureLabel(_ title: String, summary: String) -> some View {
+        HStack {
+            Text(title)
+                .fontWeight(.medium)
+            Spacer(minLength: 16)
+            Text(summary)
+                .foregroundStyle(.secondary)
+        }
+        .contentShape(Rectangle())
     }
 
 }

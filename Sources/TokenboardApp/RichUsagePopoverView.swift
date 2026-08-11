@@ -39,29 +39,18 @@ struct RichUsagePopoverView: View {
     private func header(_ presentation: RichPopoverPresentation) -> some View {
         HStack {
             Menu {
-                ForEach(UsageSelectionPresentation.periods, id: \.rawValue) { period in
+                ForEach(RichPopoverPeriodOption.all) { option in
                     Button {
-                        Task { await model.select(period: period) }
+                        Task { await model.select(period: option.period) }
                     } label: {
-                        if period == model.selectedPeriod {
-                            Label(
-                                UsageSelectionPresentation.periodTitle(period),
-                                systemImage: "checkmark"
-                            )
-                        } else {
-                            Text(UsageSelectionPresentation.periodTitle(period))
-                        }
+                        Text(option.title)
                     }
                 }
             } label: {
-                HStack(spacing: 4) {
-                    SurfaceEyebrow(title: presentation.periodTitle)
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(.tertiary)
-                }
+                SurfaceEyebrow(title: presentation.periodTitle)
             }
             .menuStyle(.borderlessButton)
+            .menuIndicator(.visible)
             .fixedSize()
             .accessibilityLabel("Summary period, \(presentation.periodTitle)")
 
@@ -285,10 +274,7 @@ struct RichUsagePopoverView: View {
     }
 
     private func comparisonColor(_ comparison: UsageComparison?) -> Color {
-        guard let comparison else { return .secondary }
-        if comparison.tokenDelta > 0 { return .green }
-        if comparison.tokenDelta < 0 { return .orange }
-        return .secondary
+        comparison?.trendColor ?? .secondary
     }
 }
 

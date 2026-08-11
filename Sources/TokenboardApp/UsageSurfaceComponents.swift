@@ -22,7 +22,7 @@ extension Provider {
 enum TokenboardVisualStyle {
     static let pageInset: CGFloat = 20
     static let compactSpacing: CGFloat = 8
-    static let sectionSpacing: CGFloat = 14
+    static let sectionSpacing: CGFloat = 12
     static let dividerOpacity = 0.55
 }
 
@@ -101,13 +101,15 @@ struct UsageTrendChart: View {
             }
             .chartXAxis(.hidden)
             .chartYAxis {
-                AxisMarks(position: .leading, values: .automatic(desiredCount: compact ? 2 : 4)) {
+                AxisMarks(position: .leading, values: .automatic(desiredCount: compact ? 2 : 4)) { value in
                     AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5, dash: [2, 3]))
                         .foregroundStyle(Color(nsColor: .separatorColor))
-                    if !compact {
-                        AxisValueLabel()
+                    if !compact, let tokenTotal = value.as(Int64.self) {
+                        AxisValueLabel {
+                            Text(UsageHistoryPresentation.axisTitle(tokenTotal))
+                        }
                             .font(.caption2)
-                            .foregroundStyle(.tertiary)
+                            .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
                     }
                 }
             }
@@ -129,6 +131,14 @@ struct UsageTrendChart: View {
         }
     }
 
+}
+
+extension UsageComparison {
+    var trendColor: Color {
+        if tokenDelta > 0 { return .green }
+        if tokenDelta < 0 { return .orange }
+        return .secondary
+    }
 }
 
 struct ProviderShareRow: View {
