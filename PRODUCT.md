@@ -36,7 +36,7 @@ Simple, clean, mean. Quietly confident and direct, with precise language and no 
 
 ## Primary Surfaces
 
-- Use the `350 × 430` transient rich popover for the one-click summary, recent trend, provider shares, and primary navigation.
+- Use the `370 × 560` transient rich popover for the one-click summary, recent trend, provider shares, and primary navigation.
 - Use a standard resizable History window for exploration, selectable days, and provider/model/token-type disclosures.
 - Keep durable display preferences in General Settings; the popover owns only the summary period and session-only trend range.
 - Share one visual grammar across popover and History. The detailed contract lives in [DESIGN.md](DESIGN.md).

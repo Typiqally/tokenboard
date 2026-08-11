@@ -19,7 +19,7 @@ struct RichUsagePopoverView: View {
                     mainContent(presentation)
                 }
                 .padding(.horizontal, TokenboardVisualStyle.pageInset)
-                .padding(.top, 16)
+                .padding(.top, 17)
                 .padding(.bottom, 12)
 
                 Spacer(minLength: 0)
@@ -32,6 +32,7 @@ struct RichUsagePopoverView: View {
                 width: TokenboardSurfaceMetrics.popoverSize.width,
                 height: TokenboardSurfaceMetrics.popoverSize.height
             )
+            .background(.ultraThinMaterial)
         }
     }
 
@@ -53,11 +54,14 @@ struct RichUsagePopoverView: View {
                     }
                 }
             } label: {
-                Text(presentation.periodTitle)
-                    .font(.headline)
+                HStack(spacing: 4) {
+                    SurfaceEyebrow(title: presentation.periodTitle)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(.tertiary)
+                }
             }
             .menuStyle(.borderlessButton)
-            .controlSize(.small)
             .fixedSize()
             .accessibilityLabel("Summary period, \(presentation.periodTitle)")
 
@@ -66,12 +70,16 @@ struct RichUsagePopoverView: View {
             Button {
                 Task { await model.refresh() }
             } label: {
-                Label(presentation.recencyTitle, systemImage: "arrow.clockwise")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 5) {
+                    Text(presentation.recencyTitle.uppercased())
+                        .font(.system(size: 10, weight: .medium))
+                        .tracking(0.35)
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                .foregroundStyle(.secondary)
             }
-            .buttonStyle(.borderless)
-            .controlSize(.small)
+            .buttonStyle(.plain)
             .help("Refresh local usage")
             .accessibilityLabel("\(presentation.recencyAccessibilityTitle). Refresh local usage.")
         }
@@ -96,7 +104,7 @@ struct RichUsagePopoverView: View {
                     .controlSize(.small)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(presentation.headline)
-                        .font(.title2.weight(.semibold))
+                        .font(.system(size: 25, weight: .semibold, design: .rounded))
                     Text(presentation.apiValueTitle)
                         .font(.callout)
                         .foregroundStyle(.secondary)
@@ -124,7 +132,7 @@ struct RichUsagePopoverView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(presentation.headline)
-                .font(.title2.weight(.semibold))
+                .font(.system(size: 30, weight: .semibold, design: .rounded))
             Text(message)
                 .font(.callout)
                 .foregroundStyle(.secondary)
@@ -141,12 +149,12 @@ struct RichUsagePopoverView: View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 1) {
                 Text(presentation.headline)
-                    .font(.title2.weight(.semibold))
+                    .font(.system(size: 38, weight: .semibold, design: .rounded))
                     .monospacedDigit()
                     .lineLimit(1)
-                    .minimumScaleFactor(0.85)
+                    .minimumScaleFactor(0.7)
                 Text(presentation.apiValueTitle)
-                    .font(.callout)
+                    .font(.system(size: 14))
                     .foregroundStyle(.secondary)
             }
 
@@ -157,8 +165,8 @@ struct RichUsagePopoverView: View {
 
             if let comparison = presentation.comparison {
                 Label(comparison.title, systemImage: comparison.systemImageName)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+                    .font(.callout.weight(.medium))
+                    .foregroundStyle(comparisonColor(presentation.snapshot?.comparison))
                     .accessibilityLabel(comparison.accessibilityTitle)
             }
 
@@ -170,7 +178,7 @@ struct RichUsagePopoverView: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, minHeight: 72, alignment: .center)
             } else {
-                VStack(spacing: 2) {
+                VStack(spacing: 10) {
                     ForEach(presentation.providerRows) { row in
                         ProviderShareRow(row: row) {
                             model.openHistory(
@@ -234,7 +242,7 @@ struct RichUsagePopoverView: View {
     }
 
     private var footer: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 4) {
             footerButton("History", systemImage: "clock.arrow.circlepath") {
                 model.openHistory(range: model.selectedHistoryRange)
                 dismiss()
@@ -258,7 +266,6 @@ struct RichUsagePopoverView: View {
                 Label("More", systemImage: "ellipsis.circle")
             }
             .menuStyle(.borderlessButton)
-            .controlSize(.small)
             .fixedSize()
         }
         .font(.callout)
@@ -272,8 +279,16 @@ struct RichUsagePopoverView: View {
         Button(action: action) {
             Label(title, systemImage: systemImage)
         }
-        .buttonStyle(.borderless)
-        .controlSize(.small)
+        .buttonStyle(.plain)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 5)
+    }
+
+    private func comparisonColor(_ comparison: UsageComparison?) -> Color {
+        guard let comparison else { return .secondary }
+        if comparison.tokenDelta > 0 { return .green }
+        if comparison.tokenDelta < 0 { return .orange }
+        return .secondary
     }
 }
 
@@ -300,5 +315,6 @@ struct StartupFailurePopoverView: View {
             width: TokenboardSurfaceMetrics.popoverSize.width,
             height: TokenboardSurfaceMetrics.popoverSize.height
         )
+        .background(.ultraThinMaterial)
     }
 }

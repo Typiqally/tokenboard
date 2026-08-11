@@ -3,7 +3,7 @@ import Foundation
 import TokenboardCore
 
 enum TokenboardSurfaceMetrics {
-    static let popoverSize = NSSize(width: 350, height: 430)
+    static let popoverSize = NSSize(width: 370, height: 560)
     static let historySize = NSSize(width: 760, height: 580)
     static let historyMinimumSize = NSSize(width: 680, height: 520)
 }
