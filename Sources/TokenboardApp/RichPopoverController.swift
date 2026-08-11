@@ -9,6 +9,9 @@ final class RichPopoverController: NSObject, NSPopoverDelegate {
     private let model: AppModel?
     private var stateObservation: AnyCancellable?
 
+    var renderedPopoverAnimates: Bool { popover.animates }
+    var renderedPopoverSize: NSSize { popover.contentSize }
+
     init(model: AppModel) {
         self.model = model
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -49,7 +52,7 @@ final class RichPopoverController: NSObject, NSPopoverDelegate {
 
     private func configurePopover(rootView: AnyView) {
         popover.behavior = .transient
-        popover.animates = true
+        popover.animates = false
         popover.delegate = self
         popover.contentSize = TokenboardSurfaceMetrics.popoverSize
         popover.contentViewController = NSHostingController(rootView: rootView)

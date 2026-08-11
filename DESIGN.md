@@ -16,7 +16,7 @@ The approved information architecture is the **rich popover**, expressed with a 
 
 ### Rich popover
 
-- Native transient `NSPopover`, `400 × 500`; click outside or press Escape to dismiss.
+- Native transient `NSPopover`, `350 × 430`; opens without an entrance animation and dismisses when clicking outside or pressing Escape.
 - The quiet header menu controls the exact summary period: Today, This Week, This Month, This Year, or All Time.
 - The headline and API-equivalent subtitle always use that summary period.
 - The segmented `7D / 30D / 90D` control is independent. It controls only the chart, comparison, and provider shares, defaults to 30D on launch, and changes instantly from cached local snapshots.
