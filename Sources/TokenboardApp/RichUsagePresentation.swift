@@ -5,6 +5,7 @@ import TokenboardCore
 enum TokenboardSurfaceMetrics {
     static let popoverSize = NSSize(width: 350, height: 500)
     static let popoverContentWidth: CGFloat = 310
+    static let providerPercentageWidth: CGFloat = 44
     static let popoverFooterHeight: CGFloat = 52
     static let popoverTopPadding: CGFloat = 16
     static let popoverHeaderSpacing: CGFloat = 16

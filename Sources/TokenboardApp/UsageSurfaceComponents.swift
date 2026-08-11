@@ -203,7 +203,12 @@ struct ProviderShareRow: View {
                 Text("\(row.percentage)%")
                     .font(.system(size: 14, weight: .medium, design: .rounded))
                     .monospacedDigit()
-                    .frame(width: 38, alignment: .trailing)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .frame(
+                        width: TokenboardSurfaceMetrics.providerPercentageWidth,
+                        alignment: .trailing
+                    )
                 Image(systemName: "chevron.right")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.tertiary)
