@@ -212,6 +212,7 @@ final class RichUsagePresentationTests: XCTestCase {
     func testApprovedSurfaceDimensionsStayCompactAndRelated() {
         XCTAssertEqual(TokenboardSurfaceMetrics.popoverSize, NSSize(width: 350, height: 500))
         XCTAssertEqual(TokenboardSurfaceMetrics.popoverContentWidth, 310)
+        XCTAssertEqual(TokenboardSurfaceMetrics.providerPercentageWidth, 44)
         XCTAssertEqual(TokenboardSurfaceMetrics.popoverFooterHeight, 52)
         XCTAssertEqual(TokenboardSurfaceMetrics.popoverTopPadding, 16)
         XCTAssertEqual(TokenboardSurfaceMetrics.popoverHeaderSpacing, 16)
