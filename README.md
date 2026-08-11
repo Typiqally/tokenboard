@@ -2,9 +2,9 @@
 
 A fully native macOS menu-bar app for private, local Claude Code and Codex usage totals.
 
-![Tokenboard native macOS surface family with sample data: a rich menu-bar popover and matching History window show exact local totals, a 30-day trend, comparison, and transparent breakdowns.](docs/design/rich-popover-family.svg)
+![Tokenboard's compact native macOS menu-bar popover and matching History window, shown with sample local usage data.](docs/design/rich-popover-family.svg)
 
-*Product preview with sample data.*
+*Current native popover and History surfaces, shown with sample data.*
 
 ## Install
 

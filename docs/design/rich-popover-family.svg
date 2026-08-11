@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="680" viewBox="0 0 1200 680" role="img" aria-labelledby="title desc">
-  <title id="title">Tokenboard rich popover and History surface family</title>
-  <desc id="desc">Approved dark macOS design reference showing a compact rich menu-bar popover beside its wider native History window.</desc>
+  <title id="title">Tokenboard native popover and History window</title>
+  <desc id="desc">Current Tokenboard product preview showing a compact native menu-bar popover beside its wider History window.</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#11141a"/><stop offset="1" stop-color="#222832"/></linearGradient>
     <linearGradient id="surface" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#252a31"/><stop offset="1" stop-color="#1a1e24"/></linearGradient>
@@ -8,7 +8,7 @@
   </defs>
   <rect width="1200" height="680" rx="28" fill="url(#bg)"/>
   <g font-family="-apple-system,BlinkMacSystemFont,'SF Pro Display','Helvetica Neue',Arial,sans-serif">
-    <text x="60" y="42" fill="#c8cdd5" font-size="13" font-weight="700" letter-spacing="2">TOKENBOARD SURFACE FAMILY · APPROVED DIRECTION</text>
+    <text x="60" y="42" fill="#c8cdd5" font-size="13" font-weight="700" letter-spacing="2">TOKENBOARD · PRIVATE LOCAL USAGE</text>
 
     <g filter="url(#shadow)">
       <rect x="60" y="66" width="350" height="500" rx="24" fill="url(#surface)" stroke="#fff" stroke-opacity=".22"/>
