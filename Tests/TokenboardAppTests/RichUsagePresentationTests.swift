@@ -50,6 +50,23 @@ final class RichUsagePresentationTests: XCTestCase {
         XCTAssertEqual(presentation.emptyMessage, "No usage recorded in this range")
     }
 
+    func testStartupFailureIsNeverPresentedAsLoading() {
+        var state = AppPublishedState.initial(period: .today, displayMetric: .tokens)
+        state.lifecycle = .failed(message: "Ledger could not be opened")
+
+        let presentation = RichPopoverPresentation.make(
+            state: state,
+            startupError: nil,
+            relativeTo: Date(timeIntervalSince1970: 100)
+        )
+
+        XCTAssertEqual(
+            presentation.contentState,
+            .failed(message: "Ledger could not be opened")
+        )
+        XCTAssertEqual(presentation.statusTitle, "Unavailable")
+    }
+
     func testProviderRowsUseTheSelectedTrendSnapshot() throws {
         var state = AppPublishedState.initial(period: .thisMonth, displayMetric: .tokens)
         state.lifecycle = .ready
