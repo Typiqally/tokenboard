@@ -213,14 +213,22 @@ final class RichUsagePresentationTests: XCTestCase {
         )
     }
 
-    func testPopoverFooterExposesTheThreeDirectActions() {
+    func testPopoverKeepsNavigationInTheFooterAndQuitInTheHeader() {
         XCTAssertEqual(
             RichPopoverFooterAction.allCases,
-            [.history, .settings, .quit]
+            [.history, .settings]
         )
         XCTAssertEqual(
             RichPopoverFooterAction.allCases.map(\.title),
-            ["History", "Settings", "Quit"]
+            ["History", "Settings"]
+        )
+        XCTAssertEqual(
+            RichPopoverHeaderAction.allCases,
+            [.quit]
+        )
+        XCTAssertEqual(
+            RichPopoverHeaderAction.quit.systemImageName,
+            "power"
         )
     }
 
