@@ -7,6 +7,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     private let launchAtLoginFactory: @MainActor () -> LaunchAtLoginController
     private var launchAtLogin: LaunchAtLoginController?
     private var hostingController: NSHostingController<SettingsView>?
+    private let navigation = SettingsNavigationModel()
 
     var isSettingsViewLoaded: Bool { hostingController != nil }
     var currentLaunchAtLoginEnabled: Bool? { launchAtLogin?.isEnabled }
@@ -39,6 +40,11 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         Task { await model.refreshSettings() }
     }
 
+    func show(section: SettingsSection) {
+        navigation.selectedSection = section
+        showWindow(nil)
+    }
+
     override func close() {
         window?.close()
         releaseSettingsWindow()
@@ -53,7 +59,11 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         launchAtLogin.refreshStatus()
         self.launchAtLogin = launchAtLogin
         let hostingController = NSHostingController(
-            rootView: SettingsView(model: model, launchAtLogin: launchAtLogin)
+            rootView: SettingsView(
+                model: model,
+                launchAtLogin: launchAtLogin,
+                navigation: navigation
+            )
         )
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 940, height: 660),

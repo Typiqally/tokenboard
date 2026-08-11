@@ -5,9 +5,10 @@ import TokenboardCore
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var model: AppModel?
-    private var menuController: MenuController?
+    private var popoverController: RichPopoverController?
     private var onboardingController: OnboardingWindowController?
     private var settingsController: SettingsWindowController?
+    private var historyController: HistoryWindowController?
     private var onboardingObservation: AnyCancellable?
     private var terminationPending = false
 
@@ -46,16 +47,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 applicationPaths: paths
             )
             self.model = model
-            menuController = MenuController(model: model)
+            popoverController = RichPopoverController(model: model)
             let onboardingController = OnboardingWindowController(model: model)
             self.onboardingController = onboardingController
             let settingsController = SettingsWindowController(model: model)
             self.settingsController = settingsController
+            let historyController = HistoryWindowController(model: model)
+            self.historyController = historyController
             model.onOpenSettings = { [weak settingsController] in
-                settingsController?.showWindow(nil)
+                settingsController?.show(section: .general)
             }
             model.onOpenPricing = { [weak settingsController] in
-                settingsController?.showWindow(nil)
+                settingsController?.show(section: .pricing)
+            }
+            model.onOpenHistory = { [weak historyController] request in
+                historyController?.show(request)
             }
             onboardingObservation = model.$state
                 .map(\.onboardingRequired)
@@ -65,7 +71,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             Task { await model.start() }
         } catch {
-            menuController = MenuController(startupError: error)
+            popoverController = RichPopoverController(startupError: error)
         }
     }
 

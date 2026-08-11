@@ -3,6 +3,7 @@ import TokenboardCore
 enum UsageSelectionPresentation {
     static let displayMetrics = DisplayMetric.allCases
     static let periods = CalendarPeriod.allCases
+    static let currencies = DisplayCurrency.allCases
 
     static func displayMetricTitle(_ metric: DisplayMetric) -> String {
         switch metric {

@@ -54,9 +54,9 @@ public struct UsageQueryService: Sendable {
         let currentRows = rows.filter { $0.localDay.value >= currentStartDay }
         let previousRows = rows.filter { $0.localDay.value < currentStartDay }
         let pricing = try await ledger.pricingSnapshot()
-        let resolution = try PriceResolver().resolve(rows: currentRows, pricing: pricing)
+        let breakdown = try usageBreakdown(rows: currentRows, pricing: pricing)
         let previousTotal = try tokenTotal(in: previousRows)
-        let delta = resolution.tokenTotal - previousTotal
+        let delta = breakdown.tokenTotal - previousTotal
         let percentChange: Decimal? = if previousTotal == 0 {
             nil
         } else {
@@ -71,46 +71,39 @@ public struct UsageQueryService: Sendable {
             points: try dailyPoints(
                 rows: currentRows,
                 interval: currentInterval,
-                calendar: calendar
+                calendar: calendar,
+                pricing: pricing
             ),
             comparison: UsageComparison(
-                currentTokenTotal: resolution.tokenTotal,
+                currentTokenTotal: breakdown.tokenTotal,
                 previousTokenTotal: previousTotal,
                 tokenDelta: delta,
                 percentChange: percentChange
             ),
-            breakdown: UsageBreakdown(
-                tokenTotal: resolution.tokenTotal,
-                knownAPIEquivalentUSD: resolution.knownUSD,
-                unpricedTokens: resolution.unpricedTokens,
-                exchangeRates: pricing.latestExchangeRates,
-                providers: try providerBreakdown(currentRows),
-                models: try modelBreakdown(currentRows),
-                tokenTypes: try tokenTypeBreakdown(currentRows)
-            )
+            breakdown: breakdown
         )
     }
 
     private func dailyPoints(
         rows: [DailyUsageRow],
         interval: DateInterval,
-        calendar: Calendar
+        calendar: Calendar,
+        pricing: PricingSnapshot
     ) throws -> [UsageHistoryPoint] {
-        var totals: [String: Int64] = [:]
-        for row in rows where row.aggregation == .additive {
-            totals[row.localDay.value] = try checkedAdd(
-                totals[row.localDay.value, default: 0],
-                row.quantity
-            )
-        }
+        let rowsByDay = Dictionary(grouping: rows, by: { $0.localDay.value })
 
         var points: [UsageHistoryPoint] = []
         var date = interval.start
         while date < interval.end {
             let day = LocalDay(date: date, calendar: calendar)
+            let dayRows = rowsByDay[day.value] ?? []
+            let breakdown = dayRows.isEmpty
+                ? nil
+                : try usageBreakdown(rows: dayRows, pricing: pricing)
             points.append(UsageHistoryPoint(
                 localDay: day,
-                tokenTotal: totals[day.value, default: 0]
+                tokenTotal: breakdown?.tokenTotal ?? 0,
+                breakdown: breakdown
             ))
             guard let next = calendar.date(byAdding: .day, value: 1, to: date) else {
                 throw UsageHistoryError.calendarArithmeticFailure
@@ -118,6 +111,22 @@ public struct UsageQueryService: Sendable {
             date = next
         }
         return points
+    }
+
+    private func usageBreakdown(
+        rows: [DailyUsageRow],
+        pricing: PricingSnapshot
+    ) throws -> UsageBreakdown {
+        let resolution = try PriceResolver().resolve(rows: rows, pricing: pricing)
+        return UsageBreakdown(
+            tokenTotal: resolution.tokenTotal,
+            knownAPIEquivalentUSD: resolution.knownUSD,
+            unpricedTokens: resolution.unpricedTokens,
+            exchangeRates: pricing.latestExchangeRates,
+            providers: try providerBreakdown(rows),
+            models: try modelBreakdown(rows),
+            tokenTypes: try tokenTypeBreakdown(rows)
+        )
     }
 
     private func providerBreakdown(

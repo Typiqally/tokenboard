@@ -17,10 +17,16 @@ public enum UsageTokenCategory: String, CaseIterable, Codable, Sendable {
 public struct UsageHistoryPoint: Equatable, Sendable {
     public let localDay: LocalDay
     public let tokenTotal: Int64
+    public let breakdown: UsageBreakdown?
 
-    public init(localDay: LocalDay, tokenTotal: Int64) {
+    public init(
+        localDay: LocalDay,
+        tokenTotal: Int64,
+        breakdown: UsageBreakdown? = nil
+    ) {
         self.localDay = localDay
         self.tokenTotal = tokenTotal
+        self.breakdown = breakdown
     }
 }
 

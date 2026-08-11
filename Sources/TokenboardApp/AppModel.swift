@@ -9,6 +9,7 @@ final class AppModel: ObservableObject {
 
     var onOpenPricing: (() -> Void)?
     var onOpenSettings: (() -> Void)?
+    var onOpenHistory: ((HistoryOpenRequest) -> Void)?
 
     var presentation: MenuPresentation? { state.presentation }
     var health: TokenboardHealth { state.health }
@@ -255,6 +256,36 @@ final class AppModel: ObservableObject {
     func openSettings() {
         guard !isDatabaseRestoreInProgress else { return }
         onOpenSettings?()
+    }
+
+    func openHistory(provider: Provider? = nil, range: UsageHistoryRange? = nil) {
+        guard !isDatabaseRestoreInProgress,
+              !isDatabaseRecoveryActionLocked,
+              state.lifecycle != .stopped,
+              state.lifecycle != .shuttingDown else { return }
+        onOpenHistory?(HistoryOpenRequest(
+            provider: provider,
+            range: range ?? state.selectedHistoryRange
+        ))
+    }
+
+    func historySnapshot(
+        range: UsageHistoryRange,
+        provider: Provider?,
+        ignoreCache: Bool = false
+    ) async throws -> UsageHistorySnapshot {
+        if !ignoreCache,
+           provider == nil,
+           let cached = state.historyState.snapshots?[range] {
+            return cached
+        }
+        guard isReadyForSources else { throw AppUsageQueryError.historyUnavailable }
+        return try await queryService.history(
+            range: range,
+            now: now(),
+            calendar: calendar,
+            provider: provider
+        )
     }
 
     @discardableResult

@@ -61,11 +61,21 @@ struct SettingsDiagnosticIssue: Equatable, Identifiable {
 struct SettingsView: View {
     @ObservedObject var model: AppModel
     @ObservedObject var launchAtLogin: LaunchAtLoginController
-    @State private var selectedSection: SettingsSection = .general
+    @ObservedObject var navigation: SettingsNavigationModel
     @State private var technicalDetailsExpanded = false
 
+    init(
+        model: AppModel,
+        launchAtLogin: LaunchAtLoginController,
+        navigation: SettingsNavigationModel = SettingsNavigationModel()
+    ) {
+        self.model = model
+        self.launchAtLogin = launchAtLogin
+        self.navigation = navigation
+    }
+
     var body: some View {
-        TabView(selection: $selectedSection) {
+        TabView(selection: $navigation.selectedSection) {
             ForEach(SettingsNavigationPresentation.sections) { section in
                 settingsForm(for: section)
                     .tabItem {
@@ -130,6 +140,16 @@ struct SettingsView: View {
                         .tag(period)
                 }
             }
+
+            Picker("Currency", selection: Binding(
+                get: { model.selectedDisplayCurrency },
+                set: { model.select(displayCurrency: $0) }
+            )) {
+                ForEach(UsageSelectionPresentation.currencies, id: \.rawValue) { currency in
+                    Text(currency.rawValue).tag(currency)
+                }
+            }
+            .pickerStyle(.menu)
         }
         .disabled(model.isDatabaseRecoveryActionLocked)
 
@@ -259,11 +279,11 @@ struct SettingsActionState: Equatable {
     let controlsEnabled: Bool
 }
 
-private extension Provider {
-    var displayName: String {
-        switch self {
-        case .claudeCode: "Claude Code"
-        case .codex: "Codex"
-        }
+@MainActor
+final class SettingsNavigationModel: ObservableObject {
+    @Published var selectedSection: SettingsSection
+
+    init(selectedSection: SettingsSection = .general) {
+        self.selectedSection = selectedSection
     }
 }
