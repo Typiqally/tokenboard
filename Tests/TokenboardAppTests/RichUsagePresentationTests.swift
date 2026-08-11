@@ -171,6 +171,36 @@ final class RichUsagePresentationTests: XCTestCase {
         )
     }
 
+    func testPopoverPeriodMenuUsesPlainOptionsInStableOrder() {
+        XCTAssertEqual(
+            RichPopoverPeriodOption.all.map(\.title),
+            ["Today", "This Week", "This Month", "This Year", "All Time"]
+        )
+    }
+
+    func testHistoryDisclosuresStartCollapsedWithCompactSummaries() {
+        XCTAssertEqual(
+            HistoryDisclosureExpansion.initial,
+            HistoryDisclosureExpansion(
+                providers: false,
+                models: false,
+                tokenTypes: false
+            )
+        )
+        XCTAssertEqual(UsageHistoryPresentation.providerCountTitle(1), "1 source")
+        XCTAssertEqual(UsageHistoryPresentation.providerCountTitle(2), "2 sources")
+        XCTAssertEqual(UsageHistoryPresentation.modelCountTitle(4), "4 models")
+        XCTAssertEqual(
+            UsageHistoryPresentation.tokenTypeSummary,
+            "Input · Cache · Output"
+        )
+    }
+
+    func testHistoryAxisLabelsUseReadableCompactTokenTitles() {
+        XCTAssertEqual(UsageHistoryPresentation.axisTitle(0), "0")
+        XCTAssertEqual(UsageHistoryPresentation.axisTitle(6_000_000_000), "6B")
+    }
+
     func testProviderRowsUseOfficialLocalBrandMarks() throws {
         XCTAssertEqual(Provider.codex.brandMark, .openAI)
         XCTAssertEqual(Provider.claudeCode.brandMark, .claude)
