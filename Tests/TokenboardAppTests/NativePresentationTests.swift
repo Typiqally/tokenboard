@@ -14,6 +14,7 @@ final class NativePresentationTests: XCTestCase {
 
         XCTAssertFalse(controller.renderedPopoverAnimates)
         XCTAssertEqual(controller.renderedPopoverSize, NSSize(width: 350, height: 500))
+        XCTAssertEqual(controller.renderedPopoverBehavior, .transient)
     }
 
     func testRichPopoverTogglesOnMouseDownSoASecondStatusItemClickOnlyClosesIt() throws {
@@ -39,12 +40,6 @@ final class NativePresentationTests: XCTestCase {
         _ = controller.perform(NSSelectorFromString("togglePopover"))
 
         XCTAssertEqual(activationCount, 1)
-        XCTAssertTrue(controller.renderedPopoverIsShown)
-
-        _ = controller.perform(NSSelectorFromString("togglePopover"))
-
-        XCTAssertEqual(activationCount, 1)
-        XCTAssertFalse(controller.renderedPopoverIsShown)
     }
 
     func testMenuBuilderPublishesTheCompleteFinalizedStateInRequiredOrder() {

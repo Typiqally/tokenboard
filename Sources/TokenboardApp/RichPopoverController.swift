@@ -4,16 +4,27 @@ import SwiftUI
 
 @MainActor
 final class RichPopoverController: NSObject, NSPopoverDelegate {
+    private static let statusButtonActionMask: NSEvent.EventTypeMask = .leftMouseDown
+
     private let statusItem: NSStatusItem
     private let popover = NSPopover()
     private let model: AppModel?
+    private let activateApplication: () -> Void
     private var stateObservation: AnyCancellable?
 
     var renderedPopoverAnimates: Bool { popover.animates }
     var renderedPopoverSize: NSSize { popover.contentSize }
+    var renderedPopoverBehavior: NSPopover.Behavior { popover.behavior }
+    var renderedStatusButtonActionMask: NSEvent.EventTypeMask {
+        Self.statusButtonActionMask
+    }
 
-    init(model: AppModel) {
+    init(
+        model: AppModel,
+        activateApplication: @escaping () -> Void = { NSApplication.shared.activate() }
+    ) {
         self.model = model
+        self.activateApplication = activateApplication
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
         configureStatusButton()
@@ -31,6 +42,7 @@ final class RichPopoverController: NSObject, NSPopoverDelegate {
 
     init(startupError: Error) {
         model = nil
+        activateApplication = { NSApplication.shared.activate() }
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
         configureStatusButton()
@@ -47,7 +59,7 @@ final class RichPopoverController: NSObject, NSPopoverDelegate {
         guard let button = statusItem.button else { return }
         button.target = self
         button.action = #selector(togglePopover)
-        button.sendAction(on: [.leftMouseUp])
+        button.sendAction(on: Self.statusButtonActionMask)
     }
 
     private func configurePopover(rootView: AnyView) {
@@ -98,6 +110,7 @@ final class RichPopoverController: NSObject, NSPopoverDelegate {
         if popover.isShown {
             popover.performClose(nil)
         } else {
+            activateApplication()
             popover.show(
                 relativeTo: button.bounds,
                 of: button,
