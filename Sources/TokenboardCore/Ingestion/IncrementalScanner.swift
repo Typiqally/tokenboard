@@ -110,21 +110,24 @@ public actor IncrementalScanner {
                     : adapter.consume(line: line.data)
                 switch adapterResult {
                 case let .usage(parsed):
-                    if !parsed.cumulativeMetrics.isEmpty {
-                        checkpoint.cumulativeMetrics = parsed.cumulativeMetrics
-                    }
+                    let repeatsCumulativeSnapshot = !parsed.cumulativeMetrics.isEmpty
+                        && parsed.cumulativeMetrics == checkpoint.cumulativeMetrics
                     let usageIdentityHash: String?
                     if let stableUsageID = parsed.usage.stableUsageID {
                         usageIdentityHash = try await ledger.recordIdentityHash(stableUsageID)
                     } else {
                         usageIdentityHash = nil
                     }
-                    if usageIdentityHash == nil || usageIdentityHash != checkpoint.lastUsageIdentityHash {
+                    if !repeatsCumulativeSnapshot,
+                       usageIdentityHash == nil || usageIdentityHash != checkpoint.lastUsageIdentityHash {
                         usageBatch.append(try await storageSafeUsage(
                             parsed.usage,
                             sourceFingerprint: fingerprint,
                             usageIdentityHash: usageIdentityHash
                         ))
+                    }
+                    if !parsed.cumulativeMetrics.isEmpty {
+                        checkpoint.cumulativeMetrics = parsed.cumulativeMetrics
                     }
                     if let usageIdentityHash {
                         checkpoint.lastUsageIdentityHash = usageIdentityHash

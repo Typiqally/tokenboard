@@ -348,28 +348,30 @@ extension AppModel {
         if let skippedCount {
             next.health = next.health.replacing(skippedRecordCount: skippedCount)
         }
-        let hasSuccessfulProvider = result.providers.values.contains { outcome in
-            if case .success = outcome { return true }
-            return false
+        let hasCompletedProvider = result.providers.values.contains { outcome in
+            switch outcome {
+            case .success, .attention: true
+            case .failure: false
+            }
         }
-        let successfulUpdate = hasSuccessfulProvider ? now() : nil
+        let completedUpdate = hasCompletedProvider ? now() : nil
         for (provider, outcome) in result.providers {
             switch outcome {
             case let .success(discoveredFiles, _):
-                if let successfulUpdate {
-                    next.lastSuccessfulScans[provider] = successfulUpdate
+                if let completedUpdate {
+                    next.lastSuccessfulScans[provider] = completedUpdate
                 }
                 if result.scope == .inventory {
                     next.sourceFileCounts[provider] = discoveredFiles
                 }
-                if let successfulUpdate,
+                if let completedUpdate,
                    result.scope == .inventory
                     || !Self.isWarning(nextSourceHealth[provider] ?? .notGranted) {
                     nextSourceHealth[provider] = durableSkipped[provider, default: 0] > 0
                         ? .warning(issue: .unknownFormats, message: TokenboardHealth.Issue.unknownFormats.message)
                         : .healthy(
                             fileCount: next.sourceFileCounts[provider, default: 0],
-                            lastUpdated: successfulUpdate
+                            lastUpdated: completedUpdate
                         )
                 }
             case let .attention(discoveredFiles, _):
@@ -386,8 +388,8 @@ extension AppModel {
             }
         }
         next.sourceHealth = nextSourceHealth
-        if hasSuccessfulProvider {
-            next.lastUpdated = successfulUpdate
+        if hasCompletedProvider {
+            next.lastUpdated = completedUpdate
         }
         if queryID == queryGeneration,
            period == state.selectedPeriod,
