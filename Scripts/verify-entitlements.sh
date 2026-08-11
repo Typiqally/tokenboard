@@ -48,6 +48,7 @@ app_path=${app_path:A}
 contents_path="$app_path/Contents"
 info_plist="$contents_path/Info.plist"
 executable="$contents_path/MacOS/TokenboardApp"
+app_icon="$contents_path/Resources/Tokenboard.icns"
 
 typeset symlink_path
 if ! symlink_path=$(/usr/bin/find "$contents_path" -type l -print -quit 2>/dev/null); then
@@ -59,7 +60,8 @@ if [[ -n "$symlink_path" ]]; then
     exit 65
 fi
 
-if [[ ! -f "$info_plist" || ! -f "$executable" || ! -x "$executable" ]]; then
+if [[ ! -f "$info_plist" || ! -f "$executable" || ! -x "$executable" \
+    || ! -f "$app_icon" ]]; then
     print -u2 "Tokenboard bundle layout is invalid"
     exit 65
 fi
@@ -109,9 +111,15 @@ done
 
 if [[ $(/usr/bin/plutil -extract CFBundleExecutable raw "$info_plist") != "TokenboardApp" \
     || $(/usr/bin/plutil -extract CFBundleIdentifier raw "$info_plist") != "com.tokenboard.Tokenboard" \
+    || $(/usr/bin/plutil -extract CFBundleIconFile raw "$info_plist") != "Tokenboard.icns" \
     || $(/usr/bin/plutil -extract LSMinimumSystemVersion raw "$info_plist") != "14.0" \
     || $(/usr/bin/plutil -extract LSUIElement raw "$info_plist") != "true" ]]; then
     print -u2 "Tokenboard Info.plist identity or runtime policy is invalid"
+    exit 68
+fi
+
+if ! /usr/bin/file -b "$app_icon" | /usr/bin/grep -Fq "Mac OS X icon"; then
+    print -u2 "Tokenboard app icon is invalid"
     exit 68
 fi
 

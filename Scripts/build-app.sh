@@ -43,6 +43,9 @@ else
 fi
 
 ditto Resources/Info.plist "$staging_app/Contents/Info.plist"
+"$repository_root/Scripts/generate-app-icon.sh" \
+  "$repository_root/Resources/AppIcon.png" \
+  "$staging_app/Contents/Resources/Tokenboard.icns"
 if [[ -f Resources/tokenboard-pricing.json ]]; then
   ditto Resources/tokenboard-pricing.json "$staging_app/Contents/Resources/tokenboard-pricing.json"
 fi
