@@ -13,7 +13,7 @@ final class NativePresentationTests: XCTestCase {
         let controller = RichPopoverController(model: setup.model)
 
         XCTAssertFalse(controller.renderedPopoverAnimates)
-        XCTAssertEqual(controller.renderedPopoverSize, NSSize(width: 370, height: 532))
+        XCTAssertEqual(controller.renderedPopoverSize, NSSize(width: 350, height: 500))
     }
 
     func testMenuBuilderPublishesTheCompleteFinalizedStateInRequiredOrder() {

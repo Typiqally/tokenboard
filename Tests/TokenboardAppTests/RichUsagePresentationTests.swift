@@ -190,12 +190,12 @@ final class RichUsagePresentationTests: XCTestCase {
     }
 
     func testApprovedSurfaceDimensionsStayCompactAndRelated() {
-        XCTAssertEqual(TokenboardSurfaceMetrics.popoverSize, NSSize(width: 370, height: 532))
-        XCTAssertEqual(TokenboardSurfaceMetrics.popoverContentWidth, 330)
-        XCTAssertEqual(TokenboardSurfaceMetrics.popoverFooterHeight, 56)
-        XCTAssertEqual(TokenboardSurfaceMetrics.popoverTopPadding, 20)
-        XCTAssertEqual(TokenboardSurfaceMetrics.popoverHeaderSpacing, 20)
-        XCTAssertEqual(TokenboardSurfaceMetrics.popoverContentSpacing, 16)
+        XCTAssertEqual(TokenboardSurfaceMetrics.popoverSize, NSSize(width: 350, height: 500))
+        XCTAssertEqual(TokenboardSurfaceMetrics.popoverContentWidth, 310)
+        XCTAssertEqual(TokenboardSurfaceMetrics.popoverFooterHeight, 52)
+        XCTAssertEqual(TokenboardSurfaceMetrics.popoverTopPadding, 16)
+        XCTAssertEqual(TokenboardSurfaceMetrics.popoverHeaderSpacing, 16)
+        XCTAssertEqual(TokenboardSurfaceMetrics.popoverContentSpacing, 12)
         XCTAssertEqual(TokenboardSurfaceMetrics.historySize, NSSize(width: 760, height: 580))
         XCTAssertEqual(TokenboardSurfaceMetrics.historyMinimumSize, NSSize(width: 680, height: 520))
     }
