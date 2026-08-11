@@ -11,8 +11,9 @@
     <text x="60" y="42" fill="#c8cdd5" font-size="13" font-weight="700" letter-spacing="2">TOKENBOARD SURFACE FAMILY · APPROVED DIRECTION</text>
 
     <g filter="url(#shadow)">
-      <rect x="60" y="66" width="370" height="560" rx="24" fill="url(#surface)" stroke="#fff" stroke-opacity=".22"/>
+      <rect x="60" y="66" width="370" height="532" rx="24" fill="url(#surface)" stroke="#fff" stroke-opacity=".22"/>
       <path d="M216 66l29-28 29 28" fill="#252a31" stroke="#fff" stroke-opacity=".22"/>
+      <g transform="translate(0 -4)">
       <text x="82" y="100" fill="#b6bac2" font-size="11" font-weight="650" letter-spacing="1">THIS MONTH⌄</text>
       <text x="406" y="100" text-anchor="end" fill="#a8adb6" font-size="10" letter-spacing=".5">UPDATED 1 MIN AGO ↻</text>
       <text x="82" y="153" fill="#f4f5f6" font-size="37" font-weight="650">1,284,930 tokens</text>
@@ -31,8 +32,9 @@
       <text x="132" y="469" fill="#f1f2f4" font-size="14" font-weight="600">Claude Code</text><rect x="238" y="458" width="100" height="6" rx="3" fill="#fff" fill-opacity=".12"/><rect x="238" y="458" width="68" height="6" rx="3" fill="#b9bdc4"/><text x="382" y="469" fill="#f1f2f4" font-size="14" text-anchor="end">68%</text><text x="404" y="469" fill="#8e939c">›</text>
       <rect x="84" y="491" width="34" height="34" rx="9" fill="#0f1115" stroke="#fff" stroke-opacity=".14"/><text x="101" y="514" text-anchor="middle" fill="#fff" font-size="12">&lt;/&gt;</text>
       <text x="132" y="513" fill="#f1f2f4" font-size="14" font-weight="600">Codex</text><rect x="238" y="502" width="100" height="6" rx="3" fill="#fff" fill-opacity=".12"/><rect x="238" y="502" width="32" height="6" rx="3" fill="#b9bdc4"/><text x="382" y="513" fill="#f1f2f4" font-size="14" text-anchor="end">32%</text><text x="404" y="513" fill="#8e939c">›</text>
-      <path d="M60 546H430" stroke="#fff" stroke-opacity=".15"/>
-      <g fill="#c4c8cf" font-size="12"><text x="84" y="583">◷  History</text><text x="248" y="583" text-anchor="middle">⚙  Settings</text><text x="404" y="583" text-anchor="end">⏻  Quit</text></g>
+      </g>
+      <path d="M60 542H430" stroke="#fff" stroke-opacity=".15"/>
+      <g fill="#c4c8cf" font-size="12"><text x="84" y="575">◷  History</text><text x="248" y="575" text-anchor="middle">⚙  Settings</text><text x="404" y="575" text-anchor="end">⏻  Quit</text></g>
     </g>
 
     <g filter="url(#shadow)">
