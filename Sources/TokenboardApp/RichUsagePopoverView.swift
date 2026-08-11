@@ -98,6 +98,22 @@ struct RichUsagePopoverView: View {
             .disabled(refreshPresentation.isInProgress)
             .help(refreshPresentation.helpTitle)
             .accessibilityLabel(refreshPresentation.accessibilityTitle)
+
+            let quitAction = RichPopoverHeaderAction.quit
+            Button {
+                NSApplication.shared.terminate(nil)
+            } label: {
+                Image(systemName: quitAction.systemImageName)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 20, height: 20)
+                    .contentShape(Rectangle())
+                    .accessibilityHidden(true)
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut("q")
+            .help(quitAction.title)
+            .accessibilityLabel(quitAction.title)
         }
     }
 
@@ -271,12 +287,7 @@ struct RichUsagePopoverView: View {
     private var footer: some View {
         HStack(spacing: 4) {
             ForEach(RichPopoverFooterAction.allCases, id: \.self) { action in
-                if action == .quit {
-                    footerButton(action)
-                        .keyboardShortcut("q")
-                } else {
-                    footerButton(action)
-                }
+                footerButton(action)
                 if action != RichPopoverFooterAction.allCases.last {
                     Spacer()
                 }
@@ -304,8 +315,6 @@ struct RichUsagePopoverView: View {
         case .settings:
             model.openSettings()
             dismiss()
-        case .quit:
-            NSApplication.shared.terminate(nil)
         }
     }
 

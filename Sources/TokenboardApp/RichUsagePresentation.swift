@@ -16,13 +16,11 @@ enum TokenboardSurfaceMetrics {
 enum RichPopoverFooterAction: CaseIterable, Equatable {
     case history
     case settings
-    case quit
 
     var title: String {
         switch self {
         case .history: "History"
         case .settings: "Settings"
-        case .quit: "Quit"
         }
     }
 
@@ -30,9 +28,15 @@ enum RichPopoverFooterAction: CaseIterable, Equatable {
         switch self {
         case .history: "clock.arrow.circlepath"
         case .settings: "gearshape"
-        case .quit: "power"
         }
     }
+}
+
+enum RichPopoverHeaderAction: CaseIterable, Equatable {
+    case quit
+
+    var title: String { "Quit Tokenboard" }
+    var systemImageName: String { "power" }
 }
 
 struct RichPopoverPeriodOption: Equatable, Identifiable {
