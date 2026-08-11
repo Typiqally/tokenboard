@@ -108,6 +108,29 @@ final class IncrementalScannerTests: XCTestCase {
         XCTAssertEqual(checkpoint?.cumulativeMetrics[.output], 1)
     }
 
+    func testCodexRateLimitOnlyUpdateDoesNotRepeatLastTokenUsage() async throws {
+        let setup = try await makeSetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let usage = #"{"timestamp":"2026-08-05T10:00:00Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":5,"cached_input_tokens":1,"output_tokens":2,"total_tokens":7},"total_token_usage":{"input_tokens":100,"cached_input_tokens":20,"cache_write_input_tokens":10,"output_tokens":40,"reasoning_output_tokens":4,"total_tokens":140}}}}"#
+        let rateLimitOnlyUpdate = #"{"timestamp":"2026-08-05T10:01:00Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":5,"cached_input_tokens":1,"output_tokens":2,"total_tokens":7},"total_token_usage":{"input_tokens":100,"cached_input_tokens":20,"cache_write_input_tokens":10,"output_tokens":40,"reasoning_output_tokens":4,"total_tokens":140}}}}"#
+        try Data(
+            "\(codexPreamble(model: "gpt-test"))\n\(usage)\n\(rateLimitOnlyUpdate)\n".utf8
+        ).write(to: setup.file)
+
+        let outcome = try await setup.scanner.scan(
+            file: setup.file,
+            provider: .codex,
+            calendar: calendar
+        )
+        let rows = try await setup.ledger.usageRows(in: nil, calendar: calendar)
+
+        XCTAssertEqual(outcome.committedUsageRecords, 1)
+        XCTAssertEqual(
+            rows.filter { $0.metric.countsTowardTokenTotal }.reduce(0) { $0 + $1.quantity },
+            7
+        )
+    }
+
     func testUnsafeCodexModelUsesSameOpaqueAliasInUsageAndCheckpoint() async throws {
         let setup = try await makeSetup()
         defer { try? FileManager.default.removeItem(at: setup.directory) }

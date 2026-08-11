@@ -378,6 +378,36 @@ final class AppModelLifecycleTests: XCTestCase {
         )
     }
 
+    func testAttentionOnlyBatchAdvancesVisibleRecencyWithoutClaimingAHealthyScan() async throws {
+        let dates = IncrementingNow()
+        let setup = try makeSetup(approved: false, now: { dates() })
+        defer { setup.cleanup() }
+        await setup.model.start()
+        await setup.model.startHistoricalImport()
+        let priorUpdate = setup.model.state.lastUpdated
+        let priorSuccessfulScan = setup.model.state.lastSuccessfulScans[.codex]
+        let calls = await setup.query.calls()
+        let runID = await setup.coordinator.runID()
+
+        await setup.coordinator.emit(attentionResult(
+            runID: runID,
+            sequence: 2,
+            provider: .codex,
+            attention: .truncated
+        ))
+        await setup.query.waitForCompletedCallCount(calls + 1)
+        await waitUntil { setup.model.state.lastUpdated != priorUpdate }
+
+        XCTAssertNotEqual(setup.model.state.lastUpdated, priorUpdate)
+        XCTAssertEqual(
+            setup.model.state.lastSuccessfulScans[.codex],
+            priorSuccessfulScan
+        )
+        guard case .warning = setup.model.state.sourceHealth[.codex] else {
+            return XCTFail("attention outcome was mislabeled healthy")
+        }
+    }
+
     func testAttentionHealthMappingIsDistinctAndUsesDeterministicPrecedence() throws {
         let setup = try makeSetup(approved: false)
         defer { setup.cleanup() }
