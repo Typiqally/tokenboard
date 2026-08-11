@@ -4,6 +4,89 @@ import XCTest
 @testable import TokenboardCore
 
 final class FSEventWatcherTests: XCTestCase {
+    func testNativeWatcherDeliversFilesystemChangesWithoutManualRefresh() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appending(path: "tokenboard-native-watcher-\(UUID().uuidString)")
+            .standardizedFileURL
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        let watcher = FSEventWatcher()
+        let stream = try watcher.start(roots: [root])
+        let changedFile = root.appending(path: "session.jsonl")
+        defer {
+            watcher.stop()
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        try Data("{\"type\":\"event\"}\n".utf8).write(to: changedFile)
+
+        let received = await withTaskGroup(of: SourceEventBatch?.self) { group in
+            group.addTask {
+                for await batch in stream {
+                    if batch.paths.contains(changedFile) || batch.paths.contains(root) {
+                        return batch
+                    }
+                }
+                return nil
+            }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(5))
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+
+        XCTAssertNotNil(received, "Native FSEvents should deliver source changes automatically")
+    }
+
+    func testFilesystemPollingDeliversChangesWhenNativeEventsStaySilent() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appending(path: "tokenboard-silent-native-watcher-\(UUID().uuidString)")
+            .standardizedFileURL
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        let driver = RecordingFSEventStreamDriver()
+        let watcher = FSEventWatcher(
+            driver: driver,
+            pollingInterval: .milliseconds(50)
+        )
+        let stream = try watcher.start(roots: [root])
+        let changedFile = root.appending(path: "session.jsonl")
+        defer {
+            watcher.stop()
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        try Data("{\"type\":\"event\"}\n".utf8).write(to: changedFile)
+
+        let received = await withTaskGroup(of: SourceEventBatch?.self) { group in
+            group.addTask {
+                for await batch in stream {
+                    if batch.paths.contains(changedFile) || batch.paths.contains(root) {
+                        return batch
+                    }
+                }
+                return nil
+            }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(2))
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+
+        XCTAssertNotNil(received, "Polling should reconcile changes when FSEvents is silent")
+        XCTAssertEqual(driver.operations.prefix(2), [.schedule, .start(true)])
+    }
+
     func testLazyNativeConversionReadsAndRetainsOnlyBoundedPrefixOnOverflow() {
         let source = LazyNativeEventSource(logicalCount: 1_000_000)
 
