@@ -152,7 +152,7 @@ enum UsageHistoryPresentation {
         _ comparison: UsageComparison,
         range: UsageHistoryRange
     ) -> UsageComparisonPresentation {
-        let visualSuffix = "from previous \(range.dayCount) days"
+        let visualSuffix = "vs previous \(range.dayCount) days"
         let spokenSuffix = "from the previous \(range.dayCount) days"
         guard let percent = comparison.percentChange else {
             if comparison.currentTokenTotal == 0 {
@@ -163,7 +163,7 @@ enum UsageHistoryPresentation {
                 )
             }
             return UsageComparisonPresentation(
-                title: "New activity in this range",
+                title: "New activity \(visualSuffix)",
                 systemImageName: "sparkles",
                 accessibilityTitle: "New usage activity \(spokenSuffix)"
             )
