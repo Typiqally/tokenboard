@@ -3,6 +3,63 @@ import Combine
 import SwiftUI
 
 @MainActor
+final class GlobalMouseDownMonitor {
+    typealias Installer = (
+        NSEvent.EventTypeMask,
+        @escaping () -> Void
+    ) -> Any?
+
+    private static let mouseDownMask: NSEvent.EventTypeMask = [
+        .leftMouseDown,
+        .rightMouseDown,
+    ]
+
+    private let install: Installer
+    private let remove: (Any) -> Void
+    private var token: Any?
+
+    init(
+        install: @escaping Installer = { mask, click in
+            NSEvent.addGlobalMonitorForEvents(matching: mask) { _ in click() }
+        },
+        remove: @escaping (Any) -> Void = { NSEvent.removeMonitor($0) }
+    ) {
+        self.install = install
+        self.remove = remove
+    }
+
+    func start(click: @escaping () -> Void) {
+        guard token == nil else { return }
+        token = install(Self.mouseDownMask, click)
+    }
+
+    func stop() {
+        guard let token else { return }
+        remove(token)
+        self.token = nil
+    }
+}
+
+@MainActor
+final class PopoverClickAwayDismissal {
+    private let monitor: GlobalMouseDownMonitor
+    private let dismiss: () -> Void
+
+    init(monitor: GlobalMouseDownMonitor, dismiss: @escaping () -> Void) {
+        self.monitor = monitor
+        self.dismiss = dismiss
+    }
+
+    func popoverDidShow() {
+        monitor.start(click: dismiss)
+    }
+
+    func popoverDidClose() {
+        monitor.stop()
+    }
+}
+
+@MainActor
 final class RichPopoverController: NSObject, NSPopoverDelegate {
     private static let statusButtonActionMask: NSEvent.EventTypeMask = .leftMouseDown
 
@@ -11,6 +68,10 @@ final class RichPopoverController: NSObject, NSPopoverDelegate {
     private let model: AppModel?
     private let activateApplication: () -> Void
     private var stateObservation: AnyCancellable?
+    private lazy var clickAwayDismissal = PopoverClickAwayDismissal(
+        monitor: GlobalMouseDownMonitor(),
+        dismiss: { [weak self] in self?.popover.performClose(nil) }
+    )
 
     var renderedPopoverAnimates: Bool { popover.animates }
     var renderedPopoverSize: NSSize { popover.contentSize }
@@ -68,6 +129,14 @@ final class RichPopoverController: NSObject, NSPopoverDelegate {
         popover.delegate = self
         popover.contentSize = TokenboardSurfaceMetrics.popoverSize
         popover.contentViewController = NSHostingController(rootView: rootView)
+    }
+
+    func popoverDidShow(_ notification: Notification) {
+        clickAwayDismissal.popoverDidShow()
+    }
+
+    func popoverDidClose(_ notification: Notification) {
+        clickAwayDismissal.popoverDidClose()
     }
 
     private func updateStatus(for state: AppPublishedState) {
