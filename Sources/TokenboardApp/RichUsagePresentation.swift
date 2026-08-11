@@ -3,12 +3,12 @@ import Foundation
 import TokenboardCore
 
 enum TokenboardSurfaceMetrics {
-    static let popoverSize = NSSize(width: 370, height: 532)
-    static let popoverContentWidth: CGFloat = 330
-    static let popoverFooterHeight: CGFloat = 56
-    static let popoverTopPadding: CGFloat = 20
-    static let popoverHeaderSpacing: CGFloat = 20
-    static let popoverContentSpacing: CGFloat = 16
+    static let popoverSize = NSSize(width: 350, height: 500)
+    static let popoverContentWidth: CGFloat = 310
+    static let popoverFooterHeight: CGFloat = 52
+    static let popoverTopPadding: CGFloat = 16
+    static let popoverHeaderSpacing: CGFloat = 16
+    static let popoverContentSpacing: CGFloat = 12
     static let historySize = NSSize(width: 760, height: 580)
     static let historyMinimumSize = NSSize(width: 680, height: 520)
 }

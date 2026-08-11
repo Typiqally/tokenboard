@@ -16,15 +16,15 @@ The approved visual direction is the **rich popover**. Its companion History win
 
 ### Rich popover
 
-- Native transient `NSPopover`, `370 × 532`; opens without an entrance animation and dismisses when clicking outside or pressing Escape.
+- Native transient `NSPopover`, `350 × 500`; opens without an entrance animation and dismisses when clicking outside or pressing Escape.
 - The quiet header menu controls the exact summary period: Today, This Week, This Month, This Year, or All Time.
 - The headline and API-equivalent subtitle always use that summary period.
 - The segmented `7D / 30D / 90D` control is independent. It controls only the chart, comparison, and provider shares, defaults to 30D on launch, and changes instantly from cached local snapshots.
 - Provider rows open History filtered to that provider and preserve the selected trend range.
 - The footer contains direct History and Settings navigation. Pricing remains in Settings.
-- The range control spans the full 330-point content column with three equal native segments.
-- The 56-point footer keeps its two navigation actions easy to target without reading as a separate toolbar.
-- The 20-point top inset and 4-point spacing rhythm keep the header compact while preserving clear content groups.
+- The range control spans the full 310-point content column with three equal native segments.
+- The 52-point footer keeps its two navigation actions easy to target without reading as a separate toolbar.
+- The 16-point top inset and 4-point spacing rhythm keep the header compact while preserving clear content groups.
 - The recency label is also the explicit local refresh action. It disables immediately and shows `Refreshing…` with a native activity indicator until the local scan finishes.
 - Quit is a quiet power icon beside Refresh in the header, with a tooltip, accessibility label, and `⌘Q` shortcut.
 
