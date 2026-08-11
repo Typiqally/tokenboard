@@ -6,6 +6,16 @@ import TokenboardCore
 
 @MainActor
 final class NativePresentationTests: XCTestCase {
+    func testRichPopoverOpensInstantlyAtTheApprovedCompactSize() throws {
+        let setup = try makeModel()
+        defer { setup.cleanup() }
+
+        let controller = RichPopoverController(model: setup.model)
+
+        XCTAssertFalse(controller.renderedPopoverAnimates)
+        XCTAssertEqual(controller.renderedPopoverSize, NSSize(width: 350, height: 430))
+    }
+
     func testMenuBuilderPublishesTheCompleteFinalizedStateInRequiredOrder() {
         let updated = Date(timeIntervalSince1970: 1_775_000_000)
         let summary = UsageSummary(
