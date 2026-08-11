@@ -26,10 +26,16 @@ final class UsageHistoryQueryServiceTests: XCTestCase {
         XCTAssertEqual(snapshot.range, .sevenDays)
         XCTAssertNil(snapshot.provider)
         XCTAssertEqual(snapshot.points.count, 7)
-        XCTAssertEqual(snapshot.points.first, UsageHistoryPoint(
-            localDay: localDay("2026-08-05"),
-            tokenTotal: 100
-        ))
+        XCTAssertEqual(snapshot.points.first?.localDay, localDay("2026-08-05"))
+        XCTAssertEqual(snapshot.points.first?.tokenTotal, 100)
+        XCTAssertEqual(snapshot.points.first?.breakdown?.providers, [
+            ProviderUsageBreakdown(provider: .codex, tokenTotal: 100)
+        ])
+        XCTAssertEqual(snapshot.points.first?.breakdown?.tokenTypes, [
+            TokenTypeUsageBreakdown(category: .input, tokenTotal: 100),
+            TokenTypeUsageBreakdown(category: .cache, tokenTotal: 0),
+            TokenTypeUsageBreakdown(category: .output, tokenTotal: 0)
+        ])
         XCTAssertEqual(snapshot.points[1].tokenTotal, 10)
         XCTAssertEqual(snapshot.points[5].tokenTotal, 0)
         XCTAssertEqual(snapshot.points.last?.localDay.value, "2026-08-11")
