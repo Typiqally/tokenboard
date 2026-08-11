@@ -19,10 +19,10 @@ The approved visual direction is the **rich popover**. Its companion History win
 - Native transient `NSPopover`, `350 × 500`; opens without an entrance animation and dismisses when clicking outside or pressing Escape.
 - The quiet header menu controls the exact summary period: Today, This Week, This Month, This Year, or All Time.
 - The headline and API-equivalent subtitle always use that summary period.
-- The segmented `7D / 30D / 90D` control is independent. It controls only the chart, comparison, and provider shares, defaults to 30D on launch, and changes instantly from cached local snapshots.
+- The segmented `TODAY / 7D / 30D / 90D` control is independent. It controls only the chart, comparison, and provider shares, defaults to 30D on launch, and changes instantly from cached local snapshots. Today uses hourly points; longer ranges use daily points.
 - Provider rows open History filtered to that provider and preserve the selected trend range.
 - The footer contains direct History and Settings navigation. Pricing remains in Settings.
-- The range control spans the full 310-point content column with three equal native segments.
+- The range control spans the full 310-point content column with four equal native segments.
 - The 52-point footer keeps its two navigation actions easy to target without reading as a separate toolbar.
 - The 16-point top inset and 4-point spacing rhythm keep the header compact while preserving clear content groups.
 - The recency label is also the explicit local refresh action. It disables immediately and shows `Refreshing…` with a native activity indicator until the local scan finishes.
@@ -33,7 +33,7 @@ The approved visual direction is the **rich popover**. Its companion History win
 - Standard resizable macOS window, initially `760 × 580`, minimum `680 × 520`.
 - Opens on the same trend range as the popover and optionally with a provider filter.
 - Uses the same header, headline, segmented control, chart, comparison language, dividers, and disclosure typography as the popover.
-- Initially summarizes the whole range. Selecting a chart bar scopes the headline and disclosures to that local day; “Show whole range” or Escape clears the selection.
+- Initially summarizes the whole range. Selecting a chart bar scopes the headline and disclosures to that local hour or day; “Show whole range” or Escape clears the selection.
 - “Why this number?” explains additive totals and why reasoning output is not double-counted.
 - Provider, model, and token-type disclosures start collapsed with summary labels, expand on demand, and remain plain rows separated by dividers—never cards nested inside cards.
 
@@ -78,7 +78,7 @@ System appearance, increased contrast, reduced motion, Dynamic Type behavior, ke
 - `RichUsagePopoverView` composes the compact surface.
 - `HistoryWindowController`, `HistoryViewModel`, and `UsageHistoryView` own the on-demand working window.
 - `UsageSurfaceComponents` contains the shared range control, chart, provider row, typography, and disclosure row.
-- `UsageQueryService.history` produces deterministic local snapshots; `AppModel` refreshes and caches 7D, 30D, and 90D snapshots after ingestion and pricing changes.
+- `UsageQueryService.history` produces deterministic local snapshots; `AppModel` refreshes and caches Today, 7D, 30D, and 90D snapshots after ingestion and pricing changes.
 
 ## Guardrails
 

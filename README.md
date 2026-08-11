@@ -1,10 +1,10 @@
 # Tokenboard
 
-A fully native macOS menu-bar app for private, local Claude Code and Codex usage totals.
+A fully native macOS menu-bar app that turns supported local Claude Code and Codex usage records into durable token totals, hourly and daily trends, and transparent API-equivalent estimates.
 
-![Tokenboard's compact native macOS menu-bar popover and matching History window, shown with sample local usage data.](docs/design/rich-popover-family.svg)
+![Tokenboard's compact native macOS menu-bar popover and matching History window, with Today, 7D, 30D, and 90D trends shown using sample local usage data.](docs/design/rich-popover-family.svg)
 
-*Current native popover and History surfaces, shown with sample data.*
+*The current native popover and History surfaces, shown with sample data.*
 
 ## Install
 
@@ -46,28 +46,44 @@ Upgrade with `brew upgrade --cask tokenboard`. Uninstall with `brew uninstall --
 
 ## At a glance
 
-- **Exact local totals.** Tokenboard reduces supported Claude Code and Codex usage logs into durable daily token totals.
-- **Honest estimates.** API-equivalent values use public list prices, effective dates, and explicit unpriced coverage. They are estimates, never a bill.
-- **Useful ranges.** Read Today, This Week (Monday through the current day), This Month, This Year, or All Time, then inspect cached 7D, 30D, or 90D trends and provider shares.
-- **Transparent history.** Select a day and inspect provider, model, and Input/Cache/Output totals, including a plain-language explanation of what is counted.
+- **A useful menu-bar value.** Show compact tokens or API-equivalent value for Today, This Week, This Month, This Year, or All Time. The selected period, metric, and display currency persist across launches.
+- **A focused native popover.** See the exact total, API-equivalent estimate, update recency, comparison, chart, and Claude Code/Codex shares without opening a dashboard. The popover dismisses on an outside click or Escape.
+- **Today through 90 days.** `TODAY` shows hourly progression. `7D`, `30D`, and `90D` show daily trends. These trend ranges are independent from the headline summary period.
+- **Drill-down History.** Open the resizable History window for the whole range or a provider, select a chart bar, and expand provider, model, and Input/Cache/Output totals. Reasoning output is explained and never counted twice.
+- **Automatic local updates.** Native filesystem events provide the fast path. A read-only JSONL metadata reconciliation catches events that the App Sandbox does not deliver, and the recency label doubles as an explicit Refresh action.
+- **Honest estimates.** Effective-dated public list prices and locally approved exchange rates power API-equivalent values. Unknown models and uncovered dates remain counted but visibly unpriced; the estimate is never presented as a bill.
+
+## Native surfaces
+
+The menu-bar item stays compact: it shows the selected token or API-value metric and uses an activity symbol while the first local records are being imported.
+
+The `350 × 500` popover separates two scopes on purpose:
+
+- The header menu controls the headline period: Today, This Week, This Month, This Year, or All Time.
+- The segmented control controls only the trend, comparison, and provider shares: Today, 7D, 30D, or 90D.
+- Provider rows open History already filtered to that provider and preserve the selected trend range.
+- History and Settings remain one click away in the footer; Quit and Refresh stay in the header.
+
+History uses the same typography, chart, range control, dividers, and provider identity at working-window scale. Settings keeps durable controls out of the popover and groups them into General, Sources, Pricing, and Diagnostics. That includes menu-bar metric and period, USD/EUR/JPY/GBP/CNY display currencies, Launch at Login, source grants, pricing coverage, parser diagnostics, local-data reveal, and database recovery.
 
 ## Private by construction
 
 - One sandboxed native process with no network entitlement or network requests.
 - Explicit, read-only folder grants through the native macOS picker; Tokenboard never guesses a source location.
 - No telemetry, analytics, helper, daemon, or XPC service.
-- Filesystem-event monitoring rather than a polling timer.
-- Content-safe daily aggregates and bookkeeping after ingestion—not prompts, responses, tool content, project metadata, paths below the granted roots, raw session IDs, or per-session totals.
+- Automatic monitoring combines native filesystem events with read-only JSONL size and modification-date reconciliation. It never edits source logs.
+- Content-safe daily and hourly aggregates and bookkeeping after ingestion—not prompts, responses, tool content, project metadata, paths below the granted roots, raw session IDs, or per-session totals.
 
 See [PRIVACY.md](PRIVACY.md) for the exact local-data and retention boundary.
 
 ## How it works
 
 1. Choose the Claude Code and Codex roots through the native folder picker.
-2. Approve the optional historical import for the logs currently available.
-3. Read a compact status in the menu bar, open the rich popover for exact totals and recent trends, and use History when you want the full local breakdown.
+2. Start the one-time historical import for the logs currently available.
+3. Tokenboard imports supported records, keeps watching both roots, and refreshes the visible summary and cached trends as those JSONL files change.
+4. Read a compact status in the menu bar, open the popover for exact totals and recent trends, and use History when you want the full local breakdown.
 
-Committed daily aggregates survive later source-log deletion, and recreating an already imported log does not add it again. Tokenboard cannot recover logs that were unavailable or deleted before the first successful import.
+Committed daily and hourly aggregates survive later source-log deletion, and recreating an already imported log does not add it again. Tokenboard cannot recover logs that were unavailable or deleted before the first successful import.
 
 ## Understanding API-equivalent value
 
@@ -104,6 +120,7 @@ open .build/release/Tokenboard.app
 - Logs deleted before the first import are unavailable.
 - Unknown formats are skipped and reported; unknown models remain counted but unpriced.
 - API-equivalent estimates use standard public API list prices, with the limitations described above.
+- Automatic reconciliation watches JSONL size and modification dates; Refresh remains available for an immediate full local rescan.
 - Calendar buckets reflect the Mac's local timezone at ingestion; changing timezones later does not rewrite historical buckets.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development, verification, and release checks.
