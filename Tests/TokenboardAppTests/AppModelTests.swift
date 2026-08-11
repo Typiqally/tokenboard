@@ -135,6 +135,30 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(setup.access.stopCount, 2)
     }
 
+    func testImportCachesEveryTrendRangeAndRangeSelectionDoesNotQuery() async throws {
+        let setup = try makeSetup(approved: false, grantedProviders: Set(Provider.allCases))
+        defer { setup.cleanup() }
+
+        await setup.model.start()
+        XCTAssertEqual(setup.model.selectedHistoryRange, .thirtyDays)
+        XCTAssertEqual(setup.model.historyState, .idle)
+
+        await setup.model.startHistoricalImport()
+
+        let queriedRanges = await setup.query.queriedHistoryRanges()
+        XCTAssertEqual(queriedRanges, UsageHistoryRange.allCases)
+        guard case let .loaded(snapshots) = setup.model.historyState else {
+            return XCTFail("expected cached history snapshots")
+        }
+        XCTAssertEqual(Set(snapshots.keys), Set(UsageHistoryRange.allCases))
+
+        setup.model.select(historyRange: .sevenDays)
+
+        XCTAssertEqual(setup.model.selectedHistoryRange, .sevenDays)
+        let rangesAfterSelection = await setup.query.queriedHistoryRanges()
+        XCTAssertEqual(rangesAfterSelection, queriedRanges)
+    }
+
     private func makeSetup(
         approved: Bool,
         grantedProviders: Set<Provider>,
@@ -156,9 +180,10 @@ final class AppModelTests: XCTestCase {
         }
         let ledger = RuntimeLedger(recorder: recorder, appliedCatalog: existingCatalogData)
         let coordinator = RuntimeCoordinator(recorder: recorder)
+        let query = RuntimeQuery(recorder: recorder)
         let model = AppModel(
             ledger: ledger,
-            queryService: RuntimeQuery(recorder: recorder),
+            queryService: query,
             coordinator: coordinator,
             pricingInbox: RuntimePricingInbox(recorder: recorder),
             grantStore: SourceGrantStore(defaults: defaults, bookmarkAccess: access),
@@ -173,6 +198,7 @@ final class AppModelTests: XCTestCase {
         return ModelSetup(
             model: model,
             ledger: ledger,
+            query: query,
             preferences: preferences,
             coordinator: coordinator,
             access: access,
@@ -213,6 +239,7 @@ final class AppModelTests: XCTestCase {
 private struct ModelSetup {
     let model: AppModel
     let ledger: RuntimeLedger
+    let query: RuntimeQuery
     let preferences: AppPreferences
     let coordinator: RuntimeCoordinator
     let access: RuntimeBookmarkAccess
@@ -262,6 +289,7 @@ private actor RuntimeLedger: AppLedgerRuntime {
 
 private actor RuntimeQuery: AppUsageQuerying {
     let recorder: OrderedRecorder
+    private var historyRanges: [UsageHistoryRange] = []
     init(recorder: OrderedRecorder) { self.recorder = recorder }
 
     func summary(period: CalendarPeriod, now: Date, calendar: Calendar) -> UsageSummary {
@@ -280,6 +308,40 @@ private actor RuntimeQuery: AppUsageQuerying {
             )
         )
     }
+
+    func history(
+        range: UsageHistoryRange,
+        now: Date,
+        calendar: Calendar,
+        provider: Provider?
+    ) -> UsageHistorySnapshot {
+        historyRanges.append(range)
+        let interval = DateInterval(start: now, duration: 1)
+        return UsageHistorySnapshot(
+            range: range,
+            provider: provider,
+            currentInterval: interval,
+            previousInterval: interval,
+            points: [],
+            comparison: UsageComparison(
+                currentTokenTotal: 321,
+                previousTokenTotal: 300,
+                tokenDelta: 21,
+                percentChange: 7
+            ),
+            breakdown: UsageBreakdown(
+                tokenTotal: 321,
+                knownAPIEquivalentUSD: Decimal(string: "1.25")!,
+                unpricedTokens: 0,
+                exchangeRates: nil,
+                providers: [],
+                models: [],
+                tokenTypes: []
+            )
+        )
+    }
+
+    func queriedHistoryRanges() -> [UsageHistoryRange] { historyRanges }
 }
 
 private actor RuntimeCoordinator: AppIngestionCoordinating {
