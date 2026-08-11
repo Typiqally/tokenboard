@@ -22,6 +22,8 @@ The approved visual direction is the **rich popover**. Its companion History win
 - The segmented `7D / 30D / 90D` control is independent. It controls only the chart, comparison, and provider shares, defaults to 30D on launch, and changes instantly from cached local snapshots.
 - Provider rows open History filtered to that provider and preserve the selected trend range.
 - The footer contains direct History, Settings, and Quit actions. Pricing remains in Settings.
+- The range control spans the full 330-point content column with three equal native segments.
+- The 80-point footer and 4-point spacing rhythm keep the content proportions aligned with the approved 370 × 560 mockup.
 - The recency label is also the explicit local refresh action.
 
 ### History

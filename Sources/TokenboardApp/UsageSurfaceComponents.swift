@@ -63,20 +63,56 @@ struct ProviderGlyph: View {
     }
 }
 
-struct UsageRangePicker: View {
+struct UsageRangePicker: NSViewRepresentable {
     @Binding var selection: UsageHistoryRange
+    @Environment(\.isEnabled) private var isEnabled
 
-    var body: some View {
-        Picker("Trend range", selection: $selection) {
-            ForEach(UsageHistoryRange.allCases, id: \.rawValue) { range in
-                Text(UsageHistoryPresentation.rangeTitle(range)).tag(range)
-            }
+    static func makeNativeControl() -> NSSegmentedControl {
+        let control = NSSegmentedControl(
+            labels: UsageHistoryRange.allCases.map(UsageHistoryPresentation.rangeTitle),
+            trackingMode: .selectOne,
+            target: nil,
+            action: nil
+        )
+        control.segmentStyle = .rounded
+        control.segmentDistribution = .fillEqually
+        control.controlSize = .large
+        control.selectedSegmentBezelColor = .controlAccentColor
+        control.setAccessibilityLabel("Trend range")
+        return control
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(selection: $selection)
+    }
+
+    func makeNSView(context: Context) -> NSSegmentedControl {
+        let control = Self.makeNativeControl()
+        control.target = context.coordinator
+        control.action = #selector(Coordinator.changeSelection(_:))
+        return control
+    }
+
+    func updateNSView(_ control: NSSegmentedControl, context: Context) {
+        context.coordinator.selection = $selection
+        control.selectedSegment = UsageHistoryRange.allCases.firstIndex(of: selection) ?? 0
+        control.isEnabled = isEnabled
+    }
+
+    @MainActor
+    final class Coordinator: NSObject {
+        var selection: Binding<UsageHistoryRange>
+
+        init(selection: Binding<UsageHistoryRange>) {
+            self.selection = selection
         }
-        .labelsHidden()
-        .pickerStyle(.segmented)
-        .tint(.blue)
-        .frame(maxWidth: .infinity)
-        .accessibilityLabel("Trend range")
+
+        @objc func changeSelection(_ sender: NSSegmentedControl) {
+            guard UsageHistoryRange.allCases.indices.contains(sender.selectedSegment) else {
+                return
+            }
+            selection.wrappedValue = UsageHistoryRange.allCases[sender.selectedSegment]
+        }
     }
 }
 

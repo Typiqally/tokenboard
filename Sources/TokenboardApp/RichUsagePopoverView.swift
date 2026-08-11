@@ -14,19 +14,22 @@ struct RichUsagePopoverView: View {
                 relativeTo: context.date
             )
             VStack(spacing: 0) {
-                VStack(alignment: .leading, spacing: 13) {
+                VStack(
+                    alignment: .leading,
+                    spacing: TokenboardSurfaceMetrics.popoverHeaderSpacing
+                ) {
                     header(presentation)
                     mainContent(presentation)
                 }
                 .padding(.horizontal, TokenboardVisualStyle.pageInset)
-                .padding(.top, 17)
+                .padding(.top, TokenboardSurfaceMetrics.popoverTopPadding)
                 .padding(.bottom, 12)
 
                 Spacer(minLength: 0)
                 Divider()
                 footer
                     .padding(.horizontal, 12)
-                    .frame(height: 48)
+                    .frame(height: TokenboardSurfaceMetrics.popoverFooterHeight)
             }
             .frame(
                 width: TokenboardSurfaceMetrics.popoverSize.width,
@@ -87,7 +90,10 @@ struct RichUsagePopoverView: View {
     }
 
     private func loadingContent(_ presentation: RichPopoverPresentation) -> some View {
-        VStack(alignment: .leading, spacing: 17) {
+        VStack(
+            alignment: .leading,
+            spacing: TokenboardSurfaceMetrics.popoverContentSpacing
+        ) {
             HStack(spacing: 10) {
                 ProgressView()
                     .controlSize(.small)
@@ -120,7 +126,10 @@ struct RichUsagePopoverView: View {
         _ presentation: RichPopoverPresentation,
         message: String
     ) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(
+            alignment: .leading,
+            spacing: TokenboardSurfaceMetrics.popoverContentSpacing
+        ) {
             Text(presentation.headline)
                 .font(.system(size: 30, weight: .semibold, design: .rounded))
             Text(message)
@@ -136,7 +145,10 @@ struct RichUsagePopoverView: View {
     }
 
     private func readyContent(_ presentation: RichPopoverPresentation) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(
+            alignment: .leading,
+            spacing: TokenboardSurfaceMetrics.popoverContentSpacing
+        ) {
             VStack(alignment: .leading, spacing: 1) {
                 Text(presentation.headline)
                     .font(.system(size: 38, weight: .semibold, design: .rounded))

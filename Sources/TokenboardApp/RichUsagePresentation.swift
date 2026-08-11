@@ -5,6 +5,10 @@ import TokenboardCore
 enum TokenboardSurfaceMetrics {
     static let popoverSize = NSSize(width: 370, height: 560)
     static let popoverContentWidth: CGFloat = 330
+    static let popoverFooterHeight: CGFloat = 80
+    static let popoverTopPadding: CGFloat = 24
+    static let popoverHeaderSpacing: CGFloat = 20
+    static let popoverContentSpacing: CGFloat = 16
     static let historySize = NSSize(width: 760, height: 580)
     static let historyMinimumSize = NSSize(width: 680, height: 520)
 }
