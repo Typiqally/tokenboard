@@ -155,8 +155,32 @@ final class RichUsagePresentationTests: XCTestCase {
 
     func testApprovedSurfaceDimensionsStayCompactAndRelated() {
         XCTAssertEqual(TokenboardSurfaceMetrics.popoverSize, NSSize(width: 370, height: 560))
+        XCTAssertEqual(TokenboardSurfaceMetrics.popoverContentWidth, 330)
         XCTAssertEqual(TokenboardSurfaceMetrics.historySize, NSSize(width: 760, height: 580))
         XCTAssertEqual(TokenboardSurfaceMetrics.historyMinimumSize, NSSize(width: 680, height: 520))
+    }
+
+    func testPopoverFooterExposesTheThreeDirectActions() {
+        XCTAssertEqual(
+            RichPopoverFooterAction.allCases,
+            [.history, .settings, .quit]
+        )
+        XCTAssertEqual(
+            RichPopoverFooterAction.allCases.map(\.title),
+            ["History", "Settings", "Quit"]
+        )
+    }
+
+    func testProviderRowsUseOfficialLocalBrandMarks() throws {
+        XCTAssertEqual(Provider.codex.brandMark, .openAI)
+        XCTAssertEqual(Provider.claudeCode.brandMark, .claude)
+
+        for provider in Provider.allCases {
+            let image = try XCTUnwrap(ProviderBrandAssets.image(for: provider.brandMark))
+            XCTAssertTrue(image.isTemplate)
+            XCTAssertGreaterThan(image.size.width, 0)
+            XCTAssertGreaterThan(image.size.height, 0)
+        }
     }
 
     private func snapshot(tokenTotal: Int64) -> UsageHistorySnapshot {
