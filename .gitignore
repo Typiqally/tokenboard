@@ -4,7 +4,9 @@
 .superpowers/
 superpowers/
 **/superpowers/
-docs/
+docs/*
+!docs/design/
+!docs/design/**
 .build/
 .build-strict/
 .DS_Store

@@ -2,7 +2,7 @@
 
 A fully native macOS menu-bar app for private, local Claude Code and Codex usage totals.
 
-![Tokenboard native macOS menu-bar preview with sample data: the compact menu-bar status shows 1.28M, while the open menu shows This Month, 1,284,930 tokens, and ≈ €4.68 API-equivalent.](.github/assets/tokenboard-hero.svg)
+![Tokenboard native macOS surface family with sample data: a rich menu-bar popover and matching History window show exact local totals, a 30-day trend, comparison, and transparent breakdowns.](docs/design/rich-popover-family.svg)
 
 *Product preview with sample data.*
 
@@ -48,7 +48,8 @@ Upgrade with `brew upgrade --cask tokenboard`. Uninstall with `brew uninstall --
 
 - **Exact local totals.** Tokenboard reduces supported Claude Code and Codex usage logs into durable daily token totals.
 - **Honest estimates.** API-equivalent values use public list prices, effective dates, and explicit unpriced coverage. They are estimates, never a bill.
-- **Useful ranges.** Read Today, This Week (Monday through the current day), This Month, This Year, or All Time in tokens or a supported display currency: USD, EUR, JPY, GBP, or CNY.
+- **Useful ranges.** Read Today, This Week (Monday through the current day), This Month, This Year, or All Time, then inspect cached 7D, 30D, or 90D trends and provider shares.
+- **Transparent history.** Select a day and inspect provider, model, and Input/Cache/Output totals, including a plain-language explanation of what is counted.
 
 ## Private by construction
 
@@ -64,7 +65,7 @@ See [PRIVACY.md](PRIVACY.md) for the exact local-data and retention boundary.
 
 1. Choose the Claude Code and Codex roots through the native folder picker.
 2. Approve the optional historical import for the logs currently available.
-3. Read a compact status in the menu bar, then open the menu for exact totals and API-equivalent estimates while Tokenboard follows future filesystem events.
+3. Read a compact status in the menu bar, open the rich popover for exact totals and recent trends, and use History when you want the full local breakdown.
 
 Committed daily aggregates survive later source-log deletion, and recreating an already imported log does not add it again. Tokenboard cannot recover logs that were unavailable or deleted before the first successful import.
 

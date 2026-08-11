@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="680" viewBox="0 0 1200 680" role="img" aria-labelledby="title desc">
+  <title id="title">Tokenboard rich popover and History surface family</title>
+  <desc id="desc">Approved dark macOS design reference showing a compact menu-bar popover beside its wider History window. Both share typography, range controls, bar charts, dividers, provider glyphs, and restrained native styling.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#11141a"/><stop offset="1" stop-color="#222832"/></linearGradient>
+    <linearGradient id="surface" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#252a31"/><stop offset="1" stop-color="#1a1e24"/></linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#000" flood-opacity=".5"/></filter>
+  </defs>
+  <rect width="1200" height="680" rx="28" fill="url(#bg)"/>
+  <g font-family="-apple-system,BlinkMacSystemFont,'SF Pro Display','Helvetica Neue',Arial,sans-serif">
+    <text x="60" y="42" fill="#c8cdd5" font-size="13" font-weight="700" letter-spacing="2">TOKENBOARD SURFACE FAMILY · APPROVED DIRECTION</text>
+
+    <g filter="url(#shadow)">
+      <rect x="60" y="66" width="370" height="560" rx="24" fill="url(#surface)" stroke="#fff" stroke-opacity=".22"/>
+      <path d="M216 66l29-28 29 28" fill="#252a31" stroke="#fff" stroke-opacity=".22"/>
+      <text x="82" y="100" fill="#b6bac2" font-size="11" font-weight="650" letter-spacing="1">THIS MONTH⌄</text>
+      <text x="406" y="100" text-anchor="end" fill="#a8adb6" font-size="10" letter-spacing=".5">UPDATED 1 MIN AGO ↻</text>
+      <text x="82" y="153" fill="#f4f5f6" font-size="37" font-weight="650">1,284,930 tokens</text>
+      <text x="82" y="180" fill="#b9bdc5" font-size="15">≈ €4.68 API equivalent</text>
+      <rect x="82" y="200" width="326" height="38" rx="9" fill="#fff" fill-opacity=".07" stroke="#fff" stroke-opacity=".15"/>
+      <rect x="191" y="202" width="108" height="34" rx="8" fill="#2364df"/>
+      <g fill="#f5f6f7" font-size="14" font-weight="600"><text x="136" y="225" text-anchor="middle">7D</text><text x="245" y="225" text-anchor="middle">30D</text><text x="354" y="225" text-anchor="middle">90D</text></g>
+      <g fill="#aeb2ba">
+        <rect x="85" y="312" width="7" height="54" rx="2"/><rect x="99" y="286" width="7" height="80" rx="2"/><rect x="113" y="326" width="7" height="40" rx="2"/><rect x="127" y="340" width="7" height="26" rx="2"/><rect x="141" y="308" width="7" height="58" rx="2"/><rect x="155" y="325" width="7" height="41" rx="2"/><rect x="169" y="298" width="7" height="68" rx="2"/><rect x="183" y="319" width="7" height="47" rx="2"/><rect x="197" y="292" width="7" height="74" rx="2"/><rect x="211" y="306" width="7" height="60" rx="2"/><rect x="225" y="276" width="7" height="90" rx="2"/><rect x="239" y="288" width="7" height="78" rx="2"/><rect x="253" y="302" width="7" height="64" rx="2"/><rect x="267" y="280" width="7" height="86" rx="2"/><rect x="281" y="292" width="7" height="74" rx="2"/><rect x="295" y="268" width="7" height="98" rx="2"/><rect x="309" y="285" width="7" height="81" rx="2"/><rect x="323" y="275" width="7" height="91" rx="2"/><rect x="337" y="258" width="7" height="108" rx="2"/><rect x="351" y="281" width="7" height="85" rx="2"/><rect x="365" y="271" width="7" height="95" rx="2"/><rect x="379" y="291" width="7" height="75" rx="2"/><rect x="393" y="280" width="7" height="86" rx="2"/>
+      </g>
+      <path d="M82 275H408M82 320H408M82 366H408" stroke="#fff" stroke-opacity=".12" stroke-dasharray="2 3"/>
+      <g fill="#aeb2ba" font-size="11"><text x="82" y="384">Jul 13</text><text x="245" y="384" text-anchor="middle">Jul 27</text><text x="408" y="384" text-anchor="end">Aug 11</text></g>
+      <text x="82" y="412" fill="#70d67c" font-size="13" font-weight="600">↗ +12% <tspan fill="#b7bbc3" font-weight="450">vs previous 30 days</tspan></text>
+      <path d="M82 430H408" stroke="#fff" stroke-opacity=".15"/>
+      <rect x="84" y="447" width="34" height="34" rx="9" fill="#bd5834"/><text x="101" y="470" text-anchor="middle" fill="#fff" font-size="16">✦</text>
+      <text x="132" y="469" fill="#f1f2f4" font-size="14" font-weight="600">Claude Code</text><rect x="238" y="458" width="100" height="6" rx="3" fill="#fff" fill-opacity=".12"/><rect x="238" y="458" width="68" height="6" rx="3" fill="#b9bdc4"/><text x="382" y="469" fill="#f1f2f4" font-size="14" text-anchor="end">68%</text><text x="404" y="469" fill="#8e939c">›</text>
+      <rect x="84" y="491" width="34" height="34" rx="9" fill="#0f1115" stroke="#fff" stroke-opacity=".14"/><text x="101" y="514" text-anchor="middle" fill="#fff" font-size="12">&lt;/&gt;</text>
+      <text x="132" y="513" fill="#f1f2f4" font-size="14" font-weight="600">Codex</text><rect x="238" y="502" width="100" height="6" rx="3" fill="#fff" fill-opacity=".12"/><rect x="238" y="502" width="32" height="6" rx="3" fill="#b9bdc4"/><text x="382" y="513" fill="#f1f2f4" font-size="14" text-anchor="end">32%</text><text x="404" y="513" fill="#8e939c">›</text>
+      <path d="M60 546H430" stroke="#fff" stroke-opacity=".15"/>
+      <g fill="#c4c8cf" font-size="12"><text x="84" y="583">◷  History</text><text x="248" y="583" text-anchor="middle">⚙  Settings</text><text x="404" y="583" text-anchor="end">⊙  More</text></g>
+    </g>
+
+    <g filter="url(#shadow)">
+      <rect x="470" y="66" width="670" height="560" rx="18" fill="url(#surface)" stroke="#fff" stroke-opacity=".18"/>
+      <rect x="470" y="66" width="670" height="32" rx="18" fill="#30353c"/><circle cx="491" cy="82" r="5" fill="#ff5f57"/><circle cx="508" cy="82" r="5" fill="#febc2e"/><circle cx="525" cy="82" r="5" fill="#28c840"/><text x="805" y="86" text-anchor="middle" fill="#d5d8dd" font-size="11">Tokenboard History</text>
+      <text x="495" y="128" fill="#b6bac2" font-size="11" font-weight="650" letter-spacing="1">HISTORY</text>
+      <text x="495" y="155" fill="#f2f3f4" font-size="19" font-weight="650">Last 30 days</text>
+      <rect x="865" y="116" width="250" height="34" rx="8" fill="#fff" fill-opacity=".07" stroke="#fff" stroke-opacity=".14"/><rect x="949" y="118" width="82" height="30" rx="7" fill="#2364df"/>
+      <g fill="#f5f6f7" font-size="12" font-weight="600"><text x="907" y="138" text-anchor="middle">7D</text><text x="990" y="138" text-anchor="middle">30D</text><text x="1073" y="138" text-anchor="middle">90D</text></g>
+      <text x="495" y="207" fill="#f4f5f6" font-size="34" font-weight="650">1,284,930 tokens</text><text x="495" y="231" fill="#b9bdc5" font-size="14">≈ €4.68 API equivalent</text>
+      <g fill="#aeb2ba"><rect x="505" y="326" width="12" height="60" rx="2"/><rect x="526" y="301" width="12" height="85" rx="2"/><rect x="547" y="342" width="12" height="44" rx="2"/><rect x="568" y="319" width="12" height="67" rx="2"/><rect x="589" y="290" width="12" height="96" rx="2"/><rect x="610" y="312" width="12" height="74" rx="2"/><rect x="631" y="279" width="12" height="107" rx="2"/><rect x="652" y="298" width="12" height="88" rx="2"/><rect x="673" y="324" width="12" height="62" rx="2"/><rect x="694" y="285" width="12" height="101" rx="2"/><rect x="715" y="306" width="12" height="80" rx="2"/><rect x="736" y="270" width="12" height="116" rx="2"/><rect x="757" y="296" width="12" height="90" rx="2"/><rect x="778" y="279" width="12" height="107" rx="2"/><rect x="799" y="316" width="12" height="70" rx="2"/><rect x="820" y="287" width="12" height="99" rx="2"/><rect x="841" y="301" width="12" height="85" rx="2"/><rect x="862" y="265" width="12" height="121" rx="2"/><rect x="883" y="278" width="12" height="108" rx="2"/><rect x="904" y="291" width="12" height="95" rx="2"/><rect x="925" y="257" width="12" height="129" rx="2"/><rect x="946" y="280" width="12" height="106" rx="2"/><rect x="967" y="269" width="12" height="117" rx="2"/><rect x="988" y="301" width="12" height="85" rx="2"/><rect x="1009" y="274" width="12" height="112" rx="2"/><rect x="1030" y="288" width="12" height="98" rx="2"/><rect x="1051" y="252" width="12" height="134" rx="2"/><rect x="1072" y="271" width="12" height="115" rx="2"/><rect x="1093" y="292" width="12" height="94" rx="2"/></g>
+      <path d="M495 270H1115M495 328H1115M495 386H1115" stroke="#fff" stroke-opacity=".12" stroke-dasharray="2 3"/>
+      <g fill="#aeb2ba" font-size="11"><text x="495" y="404">Jul 13</text><text x="805" y="404" text-anchor="middle">Jul 27</text><text x="1115" y="404" text-anchor="end">Aug 11</text></g>
+      <text x="495" y="432" fill="#70d67c" font-size="13" font-weight="600">↗ +12% <tspan fill="#b7bbc3" font-weight="450">vs previous 30 days</tspan></text>
+      <path d="M495 451H1115" stroke="#fff" stroke-opacity=".15"/>
+      <text x="495" y="476" fill="#b6bac2" font-size="10" font-weight="650" letter-spacing="1">WHY THIS NUMBER?</text><text x="495" y="497" fill="#b9bdc5" font-size="12">Additive local usage only. Reasoning output is never counted twice.</text>
+      <path d="M495 516H1115" stroke="#fff" stroke-opacity=".15"/>
+      <g fill="#e4e6e9" font-size="13" font-weight="550"><text x="495" y="542">⌄  Providers</text><text x="495" y="570">⌄  Models</text><text x="495" y="598">⌄  Token types</text></g><g fill="#969ba4" font-size="12"><text x="1115" y="542" text-anchor="end">2 sources</text><text x="1115" y="570" text-anchor="end">4 models</text><text x="1115" y="598" text-anchor="end">Input · Cache · Output</text></g>
+    </g>
+  </g>
+</svg>

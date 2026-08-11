@@ -6,11 +6,11 @@ product
 
 ## Users
 
-Tokenboard is for macOS developers who use Claude Code or Codex and want a quick, private view of their token usage. They check it at a glance from the menu bar, then open the menu only when they need an exact total, a calendar range, source health, or pricing context.
+Tokenboard is for macOS developers who use Claude Code or Codex and want a quick, private view of their token usage. They check it at a glance from the menu bar, open the rich popover for an exact total and recent trend, then use History only when they want to inspect the number more deeply.
 
 ## Product Purpose
 
-Tokenboard locally scans user-approved Claude Code and Codex history folders, reduces usage to deletion-resistant daily token aggregates, and shows token totals or estimated public API-equivalent value for Today, This Week, This Month, This Year, or All Time. USD remains the canonical pricing currency, with optional display conversion to a locally selected currency. Success means the value is fast to read, historically defensible, explicit about unpriced usage, and effectively idle between local filesystem events.
+Tokenboard locally scans user-approved Claude Code and Codex history folders, reduces usage to deletion-resistant daily token aggregates, and shows token totals or estimated public API-equivalent value for Today, This Week, This Month, This Year, or All Time. Cached 7D, 30D, and 90D trends explain change and provider share without querying on popover open. USD remains the canonical pricing currency, with optional display conversion to a locally selected currency. Success means the value is fast to read, historically defensible, explicit about unpriced usage, and effectively idle between local filesystem events.
 
 ## Brand Personality
 
@@ -20,7 +20,7 @@ Simple, clean, mean. Quietly confident and direct, with precise language and no 
 
 - SaaS dashboards, analytics portals, and oversized metric cards
 - Electron or web-shaped controls that feel foreign on macOS
-- Custom popovers where a standard menu or window is clearer
+- Web-shaped dashboard chrome, floating cards, and controls that ignore macOS behavior
 - Opaque telemetry, silent network access, or background activity the user did not request
 - Language that presents API-equivalent estimates as an actual bill
 - Gamification, ornamental motion, and color used without meaning
@@ -32,6 +32,14 @@ Simple, clean, mean. Quietly confident and direct, with precise language and no 
 3. Use the platform: prefer standard AppKit and SwiftUI controls, menus, shortcuts, focus behavior, and system appearance.
 4. Separate fact from estimate: exact token totals, API-equivalent estimates, and unpriced quantities remain visibly distinct.
 5. Stay quiet at rest: refresh from local events and user actions, with no decorative timers, polling, or hidden helpers.
+6. Keep scope visible: the exact summary period and recent-trend range are independent controls and must always be clearly labeled.
+
+## Primary Surfaces
+
+- Use the `400 × 590` transient rich popover for the one-click summary, recent trend, provider shares, and primary navigation.
+- Use a standard resizable History window for exploration, selectable days, and provider/model/token-type disclosures.
+- Keep durable display preferences in General Settings; the popover owns only the summary period and session-only trend range.
+- Share one visual grammar across popover and History. The detailed contract lives in [DESIGN.md](DESIGN.md).
 
 ## Currency Conversion
 
