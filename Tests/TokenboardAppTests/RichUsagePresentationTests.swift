@@ -141,6 +141,22 @@ final class RichUsagePresentationTests: XCTestCase {
         XCTAssertEqual(
             UsageHistoryPresentation.comparison(
                 UsageComparison(
+                    currentTokenTotal: 900,
+                    previousTokenTotal: 600,
+                    tokenDelta: 300,
+                    percentChange: 50
+                ),
+                range: .today
+            ),
+            UsageComparisonPresentation(
+                title: "+50% vs yesterday",
+                systemImageName: "arrow.up.right",
+                accessibilityTitle: "Usage increased 50 percent from yesterday"
+            )
+        )
+        XCTAssertEqual(
+            UsageHistoryPresentation.comparison(
+                UsageComparison(
                     currentTokenTotal: 600,
                     previousTokenTotal: 800,
                     tokenDelta: -200,
@@ -174,6 +190,10 @@ final class RichUsagePresentationTests: XCTestCase {
 
     func testChartAccessibilityLabelNamesTheSelectedRange() {
         XCTAssertEqual(
+            UsageHistoryPresentation.chartAccessibilityLabel(for: .today),
+            "Hourly token usage for today"
+        )
+        XCTAssertEqual(
             UsageHistoryPresentation.chartAccessibilityLabel(for: .ninetyDays),
             "Daily token usage for the last 90 days"
         )
@@ -203,14 +223,15 @@ final class RichUsagePresentationTests: XCTestCase {
     func testRangeControlFillsItsAssignedWidthWithEqualNativeSegments() {
         let control = UsageRangePicker.makeNativeControl()
 
-        XCTAssertEqual(control.segmentCount, 3)
+        XCTAssertEqual(control.segmentCount, 4)
         XCTAssertEqual(control.trackingMode, .selectOne)
         XCTAssertEqual(control.segmentDistribution, .fillEqually)
         XCTAssertEqual(control.controlSize, .large)
         XCTAssertEqual(
             (0..<control.segmentCount).map(control.label(forSegment:)),
-            ["7D", "30D", "90D"]
+            ["TODAY", "7D", "30D", "90D"]
         )
+        XCTAssertEqual(UsageHistoryPresentation.rangeDescription(.today), "Today")
     }
 
     func testPopoverKeepsNavigationInTheFooterAndQuitInTheHeader() {

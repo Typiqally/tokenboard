@@ -206,6 +206,29 @@ final class SQLiteLedgerTests: XCTestCase {
         XCTAssertEqual(storedCheckpoint, checkpoint)
     }
 
+    func testCommitAggregatesUsageIntoCalendarHourBuckets() async throws {
+        let (ledger, _) = try makeLedger()
+        try await ledger.migrate()
+        let usage = try [
+            self.usage(timestamp: timestamp("2026-08-11T07:05:00Z"), quantity: 100),
+            self.usage(timestamp: timestamp("2026-08-11T07:55:00Z"), quantity: 50),
+            self.usage(timestamp: timestamp("2026-08-11T08:00:00Z"), quantity: 25),
+        ]
+
+        try await ledger.commit(
+            usage,
+            skipped: [],
+            checkpoint: checkpoint(),
+            calendar: calendar
+        )
+
+        let rows = try await ledger.hourlyUsageRows(in: nil, calendar: calendar)
+
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertEqual(rows.map(\.quantity), [150, 25])
+        XCTAssertEqual(rows.map { calendar.component(.hour, from: $0.hourStart) }, [9, 10])
+    }
+
     func testMissingSourceNeverDeletesCommittedRows() async throws {
         let (ledger, _) = try makeLedger()
         try await ledger.migrate()
