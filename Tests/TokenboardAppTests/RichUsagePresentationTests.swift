@@ -90,11 +90,57 @@ final class RichUsagePresentationTests: XCTestCase {
 
         XCTAssertEqual(presentation.periodTitle, "This Month")
         XCTAssertEqual(presentation.trendRangeTitle, "7D")
-        XCTAssertEqual(presentation.comparisonTitle, "↑ +25% vs previous 7 days")
+        XCTAssertEqual(presentation.comparison, UsageComparisonPresentation(
+            title: "+25% from previous 7 days",
+            systemImageName: "arrow.up.right",
+            accessibilityTitle: "Usage increased 25 percent from the previous 7 days"
+        ))
         XCTAssertEqual(presentation.providerRows, [
             ProviderSharePresentation(provider: .claudeCode, tokenTotal: 680, percentage: 68),
             ProviderSharePresentation(provider: .codex, tokenTotal: 320, percentage: 32)
         ])
+    }
+
+    func testComparisonPresentationUsesNativeSymbolsAndPlainLanguage() {
+        XCTAssertEqual(
+            UsageHistoryPresentation.comparison(
+                UsageComparison(
+                    currentTokenTotal: 600,
+                    previousTokenTotal: 800,
+                    tokenDelta: -200,
+                    percentChange: -25
+                ),
+                range: .sevenDays
+            ),
+            UsageComparisonPresentation(
+                title: "−25% from previous 7 days",
+                systemImageName: "arrow.down.right",
+                accessibilityTitle: "Usage decreased 25 percent from the previous 7 days"
+            )
+        )
+        XCTAssertEqual(
+            UsageHistoryPresentation.comparison(
+                UsageComparison(
+                    currentTokenTotal: 0,
+                    previousTokenTotal: 0,
+                    tokenDelta: 0,
+                    percentChange: nil
+                ),
+                range: .thirtyDays
+            ),
+            UsageComparisonPresentation(
+                title: "No change from previous 30 days",
+                systemImageName: "minus",
+                accessibilityTitle: "No usage change from the previous 30 days"
+            )
+        )
+    }
+
+    func testChartAccessibilityLabelNamesTheSelectedRange() {
+        XCTAssertEqual(
+            UsageHistoryPresentation.chartAccessibilityLabel(for: .ninetyDays),
+            "Daily token usage for the last 90 days"
+        )
     }
 
     func testHistoryDisclosureMasksOpaqueModelIdentifiers() {
