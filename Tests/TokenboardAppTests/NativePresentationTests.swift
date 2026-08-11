@@ -16,6 +16,37 @@ final class NativePresentationTests: XCTestCase {
         XCTAssertEqual(controller.renderedPopoverSize, NSSize(width: 350, height: 500))
     }
 
+    func testRichPopoverTogglesOnMouseDownSoASecondStatusItemClickOnlyClosesIt() throws {
+        let setup = try makeModel()
+        defer { setup.cleanup() }
+        let controller = RichPopoverController(model: setup.model)
+
+        XCTAssertEqual(
+            controller.renderedStatusButtonActionMask,
+            NSEvent.EventTypeMask.leftMouseDown
+        )
+    }
+
+    func testRichPopoverActivatesTheAccessoryAppBeforeShowingForClickAwayDismissal() throws {
+        let setup = try makeModel()
+        defer { setup.cleanup() }
+        var activationCount = 0
+        let controller = RichPopoverController(
+            model: setup.model,
+            activateApplication: { activationCount += 1 }
+        )
+
+        _ = controller.perform(NSSelectorFromString("togglePopover"))
+
+        XCTAssertEqual(activationCount, 1)
+        XCTAssertTrue(controller.renderedPopoverIsShown)
+
+        _ = controller.perform(NSSelectorFromString("togglePopover"))
+
+        XCTAssertEqual(activationCount, 1)
+        XCTAssertFalse(controller.renderedPopoverIsShown)
+    }
+
     func testMenuBuilderPublishesTheCompleteFinalizedStateInRequiredOrder() {
         let updated = Date(timeIntervalSince1970: 1_775_000_000)
         let summary = UsageSummary(
