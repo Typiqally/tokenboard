@@ -156,8 +156,25 @@ final class RichUsagePresentationTests: XCTestCase {
     func testApprovedSurfaceDimensionsStayCompactAndRelated() {
         XCTAssertEqual(TokenboardSurfaceMetrics.popoverSize, NSSize(width: 370, height: 560))
         XCTAssertEqual(TokenboardSurfaceMetrics.popoverContentWidth, 330)
+        XCTAssertEqual(TokenboardSurfaceMetrics.popoverFooterHeight, 80)
+        XCTAssertEqual(TokenboardSurfaceMetrics.popoverTopPadding, 24)
+        XCTAssertEqual(TokenboardSurfaceMetrics.popoverHeaderSpacing, 20)
+        XCTAssertEqual(TokenboardSurfaceMetrics.popoverContentSpacing, 16)
         XCTAssertEqual(TokenboardSurfaceMetrics.historySize, NSSize(width: 760, height: 580))
         XCTAssertEqual(TokenboardSurfaceMetrics.historyMinimumSize, NSSize(width: 680, height: 520))
+    }
+
+    func testRangeControlFillsItsAssignedWidthWithEqualNativeSegments() {
+        let control = UsageRangePicker.makeNativeControl()
+
+        XCTAssertEqual(control.segmentCount, 3)
+        XCTAssertEqual(control.trackingMode, .selectOne)
+        XCTAssertEqual(control.segmentDistribution, .fillEqually)
+        XCTAssertEqual(control.controlSize, .large)
+        XCTAssertEqual(
+            (0..<control.segmentCount).map(control.label(forSegment:)),
+            ["7D", "30D", "90D"]
+        )
     }
 
     func testPopoverFooterExposesTheThreeDirectActions() {
