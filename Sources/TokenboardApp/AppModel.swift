@@ -18,6 +18,11 @@ final class AppModel: ObservableObject {
     var selectedPeriod: CalendarPeriod { state.selectedPeriod }
     var selectedDisplayMetric: DisplayMetric { state.selectedDisplayMetric }
     var selectedDisplayCurrency: DisplayCurrency { state.selectedDisplayCurrency }
+    var selectedHistoryRange: UsageHistoryRange { state.selectedHistoryRange }
+    var historyState: UsageHistoryLoadState { state.historyState }
+    var selectedHistorySnapshot: UsageHistorySnapshot? {
+        state.historyState.snapshots?[state.selectedHistoryRange]
+    }
     var lastUpdated: Date? { state.lastUpdated }
     var canStartHistoricalImport: Bool { state.canStartHistoricalImport }
     var isSourceMutationInProgress: Bool { sourceMutation != nil }
@@ -55,6 +60,10 @@ final class AppModel: ObservableObject {
     var readyGeneration: UInt64?
     var queryGeneration: UInt64 = 0
     var inFlightQueries: [UInt64: Task<Result<UsageSummary, Error>, Never>] = [:]
+    var historyQueryGeneration: UInt64 = 0
+    var inFlightHistoryQueries: [
+        UInt64: Task<Result<[UsageHistoryRange: UsageHistorySnapshot], Error>, Never>
+    ] = [:]
     var activityGeneration: UInt64 = 0
     var sourceMutationGeneration: UInt64 = 0
     var settingsActivityGeneration: UInt64 = 0
@@ -169,7 +178,7 @@ final class AppModel: ObservableObject {
             var next = state
             next.onboardingRequired = true
             state = next
-            if preferences.historicalImportApproved { await querySelectedSummary() }
+            if preferences.historicalImportApproved { await queryUsagePresentations() }
             return
         }
         if let activity {
@@ -217,6 +226,16 @@ final class AppModel: ObservableObject {
         if let lastSummary {
             next.presentation = makePresentation(summary: lastSummary, state: next)
         }
+        state = next
+    }
+
+    func select(historyRange: UsageHistoryRange) {
+        guard !isDatabaseRestoreInProgress,
+              !isDatabaseRecoveryActionLocked,
+              state.lifecycle != .stopped,
+              state.lifecycle != .shuttingDown else { return }
+        var next = state
+        next.selectedHistoryRange = historyRange
         state = next
     }
 
@@ -289,6 +308,7 @@ final class AppModel: ObservableObject {
         var next = state
         next.lifecycle = .stopped
         next.presentation = nil
+        next.historyState = .idle
         next.grantedProviders = []
         next.sourceFileCounts = [:]
         next.lastSuccessfulScans = [:]
@@ -324,6 +344,7 @@ final class AppModel: ObservableObject {
         sourceMutationGeneration &+= 1
         readyGeneration = nil
         queryGeneration &+= 1
+        historyQueryGeneration &+= 1
         let startup = startupTask
         let currentActivity = activity?.task
         let currentSourceMutation = sourceMutation?.task
@@ -331,12 +352,14 @@ final class AppModel: ObservableObject {
         let currentResultConsumer = resultConsumerTask
         let currentPricingUpdateConsumer = pricingUpdateConsumerTask
         let currentQueries = Array(inFlightQueries.values)
+        let currentHistoryQueries = Array(inFlightHistoryQueries.values)
         startup?.cancel()
         currentActivity?.cancel()
         currentSourceMutation?.cancel()
         currentResultConsumer?.cancel()
         currentPricingUpdateConsumer?.cancel()
         currentQueries.forEach { $0.cancel() }
+        currentHistoryQueries.forEach { $0.cancel() }
         pendingIngestionResults.removeAll()
         knownIngestionResults.removeAll()
         settleAllIngestionWaiters()
@@ -355,6 +378,7 @@ final class AppModel: ObservableObject {
         await currentResultConsumer?.value
         await currentPricingUpdateConsumer?.value
         for query in currentQueries { _ = await query.value }
+        for query in currentHistoryQueries { _ = await query.value }
 
         await coordinator.stop()
         let remainingQueries = Array(inFlightQueries.values)
@@ -377,6 +401,7 @@ final class AppModel: ObservableObject {
         lastAppliedSequence.removeAll()
         isProcessingIngestionResults = false
         inFlightQueries.removeAll()
+        inFlightHistoryQueries.removeAll()
         closeActiveGrants()
         try await ledger.shutdown()
     }

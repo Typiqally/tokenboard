@@ -92,7 +92,7 @@ extension AppModel {
             next.sourceHealth[provider] = .notGranted
             next.onboardingRequired = true
             commitState(next)
-            await querySelectedSummary()
+            await queryUsagePresentations()
             await performRefreshSettings(statusMessage: "Source access revoked · Committed totals retained")
         } catch {
             coordinatorStatus = .inactive

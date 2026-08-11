@@ -176,7 +176,7 @@ extension AppModel {
                   self.accepts(generation),
                   self.isReadyForSources else { return }
             if case .current = status {
-                await self.querySelectedSummary()
+                await self.queryUsagePresentations()
             }
             await self.performRefreshSettings(statusMessage: nil)
         }
@@ -187,7 +187,7 @@ extension AppModel {
         if preferences.historicalImportApproved, hasAnyGrant {
             await launchIngestion(refreshExisting: false)
         } else if preferences.historicalImportApproved {
-            await querySelectedSummary()
+            await queryUsagePresentations()
         }
     }
 

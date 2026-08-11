@@ -410,6 +410,7 @@ extension AppModel {
             }
         }
         commitState(next)
+        await queryUsageHistory()
     }
 
     func launchReplacement(
@@ -623,6 +624,67 @@ extension AppModel {
                   queryGeneration == queryID else { return }
             publishWarning(.applicationFailure, message: "Summary unavailable: \(Self.errorDescription(error))")
         }
+    }
+
+    func queryUsagePresentations() async {
+        await querySelectedSummary()
+        await queryUsageHistory()
+    }
+
+    func queryUsageHistory() async {
+        guard preferences.historicalImportApproved, isReadyForSources else { return }
+        let generation = lifecycleGeneration
+        let cachedSnapshots = state.historyState.snapshots
+        historyQueryGeneration &+= 1
+        let queryID = historyQueryGeneration
+        if cachedSnapshots == nil {
+            var next = state
+            next.historyState = .loading
+            commitState(next)
+        }
+
+        let queryService = self.queryService
+        let requestedAt = now()
+        let calendar = self.calendar
+        let task = Task<Result<[UsageHistoryRange: UsageHistorySnapshot], Error>, Never> {
+            do {
+                var snapshots: [UsageHistoryRange: UsageHistorySnapshot] = [:]
+                for range in UsageHistoryRange.allCases {
+                    snapshots[range] = try await queryService.history(
+                        range: range,
+                        now: requestedAt,
+                        calendar: calendar,
+                        provider: nil
+                    )
+                }
+                return .success(snapshots)
+            } catch {
+                return .failure(error)
+            }
+        }
+        inFlightHistoryQueries[queryID] = task
+        let result = await task.value
+        inFlightHistoryQueries[queryID] = nil
+
+        guard readyGeneration == generation,
+              accepts(generation),
+              historyQueryGeneration == queryID else { return }
+        var next = state
+        switch result {
+        case let .success(snapshots):
+            next.historyState = .loaded(snapshots)
+        case let .failure(error):
+            if let cachedSnapshots {
+                next.historyState = .loaded(cachedSnapshots)
+            } else {
+                next.historyState = .failed(message: Self.errorDescription(error))
+            }
+        }
+        commitState(next)
+    }
+
+    func retryUsageHistory() async {
+        await queryUsageHistory()
     }
 
     func requestSummary(

@@ -33,6 +33,27 @@ protocol AppUsageQuerying: Sendable {
         now: Date,
         calendar: Calendar
     ) async throws -> UsageSummary
+    func history(
+        range: UsageHistoryRange,
+        now: Date,
+        calendar: Calendar,
+        provider: Provider?
+    ) async throws -> UsageHistorySnapshot
+}
+
+enum AppUsageQueryError: Error {
+    case historyUnavailable
+}
+
+extension AppUsageQuerying {
+    func history(
+        range: UsageHistoryRange,
+        now: Date,
+        calendar: Calendar,
+        provider: Provider?
+    ) async throws -> UsageHistorySnapshot {
+        throw AppUsageQueryError.historyUnavailable
+    }
 }
 
 protocol AppIngestionCoordinating: Sendable {
@@ -95,6 +116,18 @@ enum AppLifecycleState: Equatable, Sendable {
     case stopped
 }
 
+enum UsageHistoryLoadState: Equatable, Sendable {
+    case idle
+    case loading
+    case loaded([UsageHistoryRange: UsageHistorySnapshot])
+    case failed(message: String)
+
+    var snapshots: [UsageHistoryRange: UsageHistorySnapshot]? {
+        guard case let .loaded(snapshots) = self else { return nil }
+        return snapshots
+    }
+}
+
 struct AppPublishedState: Equatable, Sendable {
     var lifecycle: AppLifecycleState
     var presentation: MenuPresentation?
@@ -105,6 +138,8 @@ struct AppPublishedState: Equatable, Sendable {
     var selectedPeriod: CalendarPeriod
     var selectedDisplayMetric: DisplayMetric
     var selectedDisplayCurrency: DisplayCurrency
+    var selectedHistoryRange: UsageHistoryRange
+    var historyState: UsageHistoryLoadState
     var health: TokenboardHealth
     var isImporting: Bool
 
@@ -144,6 +179,8 @@ struct AppPublishedState: Equatable, Sendable {
             selectedPeriod: period,
             selectedDisplayMetric: displayMetric,
             selectedDisplayCurrency: displayCurrency,
+            selectedHistoryRange: .thirtyDays,
+            historyState: .idle,
             health: TokenboardHealth(
                 claude: .notGranted,
                 codex: .notGranted,
