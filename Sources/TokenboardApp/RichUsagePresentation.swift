@@ -4,8 +4,31 @@ import TokenboardCore
 
 enum TokenboardSurfaceMetrics {
     static let popoverSize = NSSize(width: 370, height: 560)
+    static let popoverContentWidth: CGFloat = 330
     static let historySize = NSSize(width: 760, height: 580)
     static let historyMinimumSize = NSSize(width: 680, height: 520)
+}
+
+enum RichPopoverFooterAction: CaseIterable, Equatable {
+    case history
+    case settings
+    case quit
+
+    var title: String {
+        switch self {
+        case .history: "History"
+        case .settings: "Settings"
+        case .quit: "Quit"
+        }
+    }
+
+    var systemImageName: String {
+        switch self {
+        case .history: "clock.arrow.circlepath"
+        case .settings: "gearshape"
+        case .quit: "power"
+        }
+    }
 }
 
 enum RichPopoverContentState: Equatable, Sendable {

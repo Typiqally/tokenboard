@@ -21,7 +21,7 @@ The approved visual direction is the **rich popover**. Its companion History win
 - The headline and API-equivalent subtitle always use that summary period.
 - The segmented `7D / 30D / 90D` control is independent. It controls only the chart, comparison, and provider shares, defaults to 30D on launch, and changes instantly from cached local snapshots.
 - Provider rows open History filtered to that provider and preserve the selected trend range.
-- The footer contains History, Settings, and a native More menu. More contains Pricing and Quit.
+- The footer contains direct History, Settings, and Quit actions. Pricing remains in Settings.
 - The recency label is also the explicit local refresh action.
 
 ### History
@@ -43,7 +43,7 @@ The approved visual direction is the **rich popover**. Its companion History win
 | Range control | Native segmented picker | Same component |
 | Chart | Neutral native bars and subtle dashed grid | Same component with selectable bars and axis labels |
 | Separation | System dividers | Same |
-| Provider identity | Local SF Symbol glyph in a compact rounded square | Same glyph and name |
+| Provider identity | Official local OpenAI and Claude marks in compact rounded squares | Same mark and name |
 | Color | Meaning only: range selection, provider identity, positive/negative comparison, warnings | Same |
 
 System appearance, increased contrast, reduced motion, Dynamic Type behavior, keyboard focus, and VoiceOver semantics take precedence over a pixel-perfect screenshot match.

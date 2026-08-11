@@ -111,6 +111,7 @@ struct RichUsagePopoverView: View {
                 }
             }
             UsageRangePicker(selection: historyRangeBinding)
+                .frame(width: TokenboardSurfaceMetrics.popoverContentWidth)
                 .disabled(true)
             VStack(spacing: 10) {
                 ForEach([0.72, 0.48, 0.85, 0.61], id: \.self) { width in
@@ -159,6 +160,7 @@ struct RichUsagePopoverView: View {
             }
 
             UsageRangePicker(selection: historyRangeBinding)
+                .frame(width: TokenboardSurfaceMetrics.popoverContentWidth)
 
             trendContent(presentation)
                 .frame(height: 152)
@@ -243,45 +245,43 @@ struct RichUsagePopoverView: View {
 
     private var footer: some View {
         HStack(spacing: 4) {
-            footerButton("History", systemImage: "clock.arrow.circlepath") {
-                model.openHistory(range: model.selectedHistoryRange)
-                dismiss()
-            }
-            Spacer()
-            footerButton("Settings", systemImage: "gearshape") {
-                model.openSettings()
-                dismiss()
-            }
-            Menu {
-                Button("Pricing…") {
-                    model.openPricing()
-                    dismiss()
+            ForEach(RichPopoverFooterAction.allCases, id: \.self) { action in
+                if action == .quit {
+                    footerButton(action)
+                        .keyboardShortcut("q")
+                } else {
+                    footerButton(action)
                 }
-                Divider()
-                Button("Quit Tokenboard") {
-                    NSApplication.shared.terminate(nil)
+                if action != RichPopoverFooterAction.allCases.last {
+                    Spacer()
                 }
-                .keyboardShortcut("q")
-            } label: {
-                Label("More", systemImage: "ellipsis.circle")
             }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
         }
         .font(.callout)
     }
 
-    private func footerButton(
-        _ title: String,
-        systemImage: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Label(title, systemImage: systemImage)
+    private func footerButton(_ action: RichPopoverFooterAction) -> some View {
+        Button {
+            perform(action)
+        } label: {
+            Label(action.title, systemImage: action.systemImageName)
         }
         .buttonStyle(.plain)
         .padding(.horizontal, 7)
         .padding(.vertical, 5)
+    }
+
+    private func perform(_ action: RichPopoverFooterAction) {
+        switch action {
+        case .history:
+            model.openHistory(range: model.selectedHistoryRange)
+            dismiss()
+        case .settings:
+            model.openSettings()
+            dismiss()
+        case .quit:
+            NSApplication.shared.terminate(nil)
+        }
     }
 
     private func comparisonColor(_ comparison: UsageComparison?) -> Color {

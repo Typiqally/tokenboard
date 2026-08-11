@@ -11,17 +11,10 @@ extension Provider {
         }
     }
 
-    var symbolName: String {
-        switch self {
-        case .claudeCode: "sparkles"
-        case .codex: "chevron.left.forwardslash.chevron.right"
-        }
-    }
-
-    var symbolColor: Color {
+    var brandTileColor: Color {
         switch self {
         case .claudeCode: Color(red: 0.77, green: 0.34, blue: 0.18)
-        case .codex: Color(nsColor: .labelColor)
+        case .codex: .black
         }
     }
 }
@@ -51,20 +44,19 @@ struct ProviderGlyph: View {
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: size * 0.26, style: .continuous)
-                .fill(
-                    provider == .claudeCode
-                        ? provider.symbolColor
-                        : Color(nsColor: .controlBackgroundColor)
-                )
+                .fill(provider.brandTileColor)
                 .overlay {
                     RoundedRectangle(cornerRadius: size * 0.26, style: .continuous)
-                        .strokeBorder(.white.opacity(provider == .claudeCode ? 0.18 : 0.08))
+                        .strokeBorder(.white.opacity(0.16))
                 }
-            Image(systemName: provider.symbolName)
-                .font(.system(size: size * 0.42, weight: .semibold))
-                .foregroundStyle(
-                    provider == .claudeCode ? .white : Color(nsColor: .labelColor)
-                )
+            if let image = ProviderBrandAssets.image(for: provider.brandMark) {
+                Image(nsImage: image)
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+                    .foregroundStyle(.white)
+                    .frame(width: size * 0.56, height: size * 0.56)
+            }
         }
         .frame(width: size, height: size)
         .accessibilityHidden(true)
@@ -83,6 +75,7 @@ struct UsageRangePicker: View {
         .labelsHidden()
         .pickerStyle(.segmented)
         .tint(.blue)
+        .frame(maxWidth: .infinity)
         .accessibilityLabel("Trend range")
     }
 }
