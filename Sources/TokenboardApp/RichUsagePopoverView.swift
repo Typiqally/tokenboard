@@ -5,6 +5,7 @@ import TokenboardCore
 struct RichUsagePopoverView: View {
     @ObservedObject var model: AppModel
     let dismiss: () -> Void
+    @State private var isRefreshPending = false
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { context in
@@ -13,12 +14,18 @@ struct RichUsagePopoverView: View {
                 startupError: nil,
                 relativeTo: context.date
             )
+            let refreshPresentation = RichPopoverRefreshPresentation.make(
+                recencyTitle: presentation.recencyTitle,
+                recencyAccessibilityTitle: presentation.recencyAccessibilityTitle,
+                isRefreshPending: isRefreshPending,
+                isImporting: model.state.isImporting
+            )
             VStack(spacing: 0) {
                 VStack(
                     alignment: .leading,
                     spacing: TokenboardSurfaceMetrics.popoverHeaderSpacing
                 ) {
-                    header(presentation)
+                    header(presentation, refreshPresentation: refreshPresentation)
                     mainContent(presentation)
                 }
                 .padding(.horizontal, TokenboardVisualStyle.pageInset)
@@ -39,7 +46,10 @@ struct RichUsagePopoverView: View {
         }
     }
 
-    private func header(_ presentation: RichPopoverPresentation) -> some View {
+    private func header(
+        _ presentation: RichPopoverPresentation,
+        refreshPresentation: RichPopoverRefreshPresentation
+    ) -> some View {
         HStack {
             Menu {
                 ForEach(RichPopoverPeriodOption.all) { option in
@@ -60,20 +70,34 @@ struct RichUsagePopoverView: View {
             Spacer()
 
             Button {
-                Task { await model.refresh() }
+                guard !refreshPresentation.isInProgress else { return }
+                isRefreshPending = true
+                Task { @MainActor in
+                    await model.refresh()
+                    isRefreshPending = false
+                }
             } label: {
                 HStack(spacing: 5) {
-                    Text(presentation.recencyTitle.uppercased())
+                    Text(refreshPresentation.title)
                         .font(.system(size: 10, weight: .medium))
                         .tracking(0.35)
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 11, weight: .semibold))
+                    if refreshPresentation.isInProgress {
+                        ProgressView()
+                            .controlSize(.mini)
+                            .frame(width: 12, height: 12)
+                            .accessibilityHidden(true)
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 11, weight: .semibold))
+                            .accessibilityHidden(true)
+                    }
                 }
                 .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
-            .help("Refresh local usage")
-            .accessibilityLabel("\(presentation.recencyAccessibilityTitle). Refresh local usage.")
+            .disabled(refreshPresentation.isInProgress)
+            .help(refreshPresentation.helpTitle)
+            .accessibilityLabel(refreshPresentation.accessibilityTitle)
         }
     }
 

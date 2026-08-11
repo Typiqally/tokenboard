@@ -69,6 +69,35 @@ struct UsageComparisonPresentation: Equatable, Sendable {
     let accessibilityTitle: String
 }
 
+struct RichPopoverRefreshPresentation: Equatable, Sendable {
+    let isInProgress: Bool
+    let title: String
+    let accessibilityTitle: String
+    let helpTitle: String
+
+    static func make(
+        recencyTitle: String,
+        recencyAccessibilityTitle: String,
+        isRefreshPending: Bool,
+        isImporting: Bool
+    ) -> RichPopoverRefreshPresentation {
+        if isRefreshPending || isImporting {
+            return RichPopoverRefreshPresentation(
+                isInProgress: true,
+                title: "REFRESHING…",
+                accessibilityTitle: "Refreshing local usage",
+                helpTitle: "Refreshing local usage…"
+            )
+        }
+        return RichPopoverRefreshPresentation(
+            isInProgress: false,
+            title: recencyTitle.uppercased(),
+            accessibilityTitle: "\(recencyAccessibilityTitle). Refresh local usage.",
+            helpTitle: "Refresh local usage"
+        )
+    }
+}
+
 struct RichPopoverPresentation: Equatable, Sendable {
     let contentState: RichPopoverContentState
     let statusTitle: String

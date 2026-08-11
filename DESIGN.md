@@ -25,7 +25,7 @@ The approved visual direction is the **rich popover**. Its companion History win
 - The range control spans the full 330-point content column with three equal native segments.
 - The 56-point footer keeps its three direct actions easy to target without reading as a separate toolbar.
 - The 20-point top inset and 4-point spacing rhythm keep the header compact while preserving clear content groups.
-- The recency label is also the explicit local refresh action.
+- The recency label is also the explicit local refresh action. It disables immediately and shows `Refreshing…` with a native activity indicator until the local scan finishes.
 
 ### History
 
