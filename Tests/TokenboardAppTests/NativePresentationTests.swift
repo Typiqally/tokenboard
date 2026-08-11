@@ -42,6 +42,16 @@ final class NativePresentationTests: XCTestCase {
         XCTAssertEqual(activationCount, 1)
     }
 
+    func testStartupFailurePopoverUsesTheSameStableDismissalConfiguration() {
+        let controller = RichPopoverController(startupError: SyntheticStartupError())
+
+        XCTAssertEqual(controller.renderedPopoverBehavior, .transient)
+        XCTAssertEqual(
+            controller.renderedStatusButtonActionMask,
+            NSEvent.EventTypeMask.leftMouseDown
+        )
+    }
+
     func testMenuBuilderPublishesTheCompleteFinalizedStateInRequiredOrder() {
         let updated = Date(timeIntervalSince1970: 1_775_000_000)
         let summary = UsageSummary(
@@ -497,6 +507,8 @@ final class NativePresentationTests: XCTestCase {
         return (model, preferences, { defaults.removePersistentDomain(forName: suite) })
     }
 }
+
+private struct SyntheticStartupError: Error {}
 
 private actor PresentationLedger: AppLedgerRuntime {
     func migrate() {}
