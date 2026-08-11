@@ -30,6 +30,10 @@ final class SettingsTests: XCTestCase {
             ),
             ["Today", "This Week", "This Month", "This Year", "All Time"]
         )
+        XCTAssertEqual(
+            UsageSelectionPresentation.currencies.map(\.rawValue),
+            ["USD", "EUR", "JPY", "GBP", "CNY"]
+        )
     }
 
     func testDiagnosticsCollectsCurrentSourceIssuesBehindTechnicalDetails() {
