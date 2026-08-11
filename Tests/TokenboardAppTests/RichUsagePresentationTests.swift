@@ -24,6 +24,42 @@ final class RichUsagePresentationTests: XCTestCase {
         XCTAssertFalse(presentation.headline.contains("0"))
     }
 
+    func testRefreshControlDisablesImmediatelyForPendingAndActiveRefreshes() {
+        let idle = RichPopoverRefreshPresentation.make(
+            recencyTitle: "Updated 2s ago",
+            recencyAccessibilityTitle: "Updated 2 seconds ago",
+            isRefreshPending: false,
+            isImporting: false
+        )
+        let pending = RichPopoverRefreshPresentation.make(
+            recencyTitle: "Updated 2s ago",
+            recencyAccessibilityTitle: "Updated 2 seconds ago",
+            isRefreshPending: true,
+            isImporting: false
+        )
+        let importing = RichPopoverRefreshPresentation.make(
+            recencyTitle: "Updated 2s ago",
+            recencyAccessibilityTitle: "Updated 2 seconds ago",
+            isRefreshPending: false,
+            isImporting: true
+        )
+
+        XCTAssertEqual(idle, RichPopoverRefreshPresentation(
+            isInProgress: false,
+            title: "UPDATED 2S AGO",
+            accessibilityTitle: "Updated 2 seconds ago. Refresh local usage.",
+            helpTitle: "Refresh local usage"
+        ))
+        for active in [pending, importing] {
+            XCTAssertEqual(active, RichPopoverRefreshPresentation(
+                isInProgress: true,
+                title: "REFRESHING…",
+                accessibilityTitle: "Refreshing local usage",
+                helpTitle: "Refreshing local usage…"
+            ))
+        }
+    }
+
     func testCompletedEmptyImportShowsAnExplicitZero() {
         var state = AppPublishedState.initial(period: .today, displayMetric: .tokens)
         state.lifecycle = .ready
