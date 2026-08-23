@@ -153,6 +153,23 @@ struct SettingsView: View {
         }
         .disabled(model.isDatabaseRecoveryActionLocked)
 
+        Section("Companion") {
+            CompanionThemeShelf(model: model)
+
+            CompanionSettingsPreview(model: model)
+
+            if model.companionState.isVisible {
+                Toggle("Show companion in menu bar", isOn: Binding(
+                    get: { model.companionState.showInMenuBar },
+                    set: { model.setShowCompanionInMenuBar($0) }
+                ))
+            }
+
+            Text("Every scene is built into Tokenboard. Progress stays on this Mac and continues when the companion is hidden.")
+                .foregroundStyle(.secondary)
+        }
+        .disabled(model.isDatabaseRecoveryActionLocked)
+
         Section("General") {
             Toggle("Launch at Login", isOn: Binding(
                 get: { launchAtLogin.isEnabled },
@@ -271,6 +288,157 @@ struct SettingsView: View {
         switch state {
         case .healthy: "Healthy"
         case let .recoveryRequired(message): "Recovery required · \(message)"
+        }
+    }
+}
+
+private struct CompanionThemeShelf: View {
+    @ObservedObject var model: AppModel
+    private let columns = Array(
+        repeating: GridItem(.flexible(minimum: 92), spacing: 8),
+        count: CompanionTheme.allCases.count
+    )
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            LazyVGrid(columns: columns, spacing: 8) {
+                ForEach(CompanionTheme.allCases) { theme in
+                    Button {
+                        Task { await model.select(companionTheme: theme) }
+                    } label: {
+                        CompanionThemeShelfLabel(
+                            theme: theme,
+                            isSelected: model.companionState.theme == theme,
+                            presentation: presentation(for: theme, date: context.date)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("\(theme.title). \(theme.subtitle)")
+                    .accessibilityValue(
+                        model.companionState.theme == theme ? "Selected" : "Not selected"
+                    )
+                }
+            }
+        }
+    }
+
+    private func presentation(
+        for theme: CompanionTheme,
+        date: Date
+    ) -> CompanionPresentation? {
+        var state = model.companionState
+        state.theme = theme
+        return CompanionPresentation.make(
+            state: state,
+            date: date,
+            calendar: .current
+        )
+    }
+}
+
+private struct CompanionThemeShelfLabel: View {
+    let theme: CompanionTheme
+    let isSelected: Bool
+    let presentation: CompanionPresentation?
+
+    var body: some View {
+        VStack(spacing: 6) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(Color(nsColor: .underPageBackgroundColor))
+
+                if let presentation {
+                    CompanionSceneView(presentation: presentation)
+                } else {
+                    Image(systemName: "minus")
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .frame(height: 48)
+            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+
+            Text(theme.title)
+                .font(.system(size: 11, weight: .medium))
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity, minHeight: 28, alignment: .top)
+        }
+        .padding(6)
+        .frame(maxWidth: .infinity, minHeight: 94, alignment: .top)
+        .background {
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(isSelected ? Color.accentColor.opacity(0.12) : .clear)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .strokeBorder(
+                    isSelected ? Color.accentColor : Color(nsColor: .separatorColor),
+                    lineWidth: isSelected ? 1.5 : 1
+                )
+        }
+        .overlay(alignment: .topTrailing) {
+            if isSelected {
+                Image(systemName: "checkmark.circle.fill")
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(.white, Color.accentColor)
+                    .padding(4)
+                    .accessibilityHidden(true)
+            }
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+    }
+}
+
+private struct CompanionSettingsPreview: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            if let companion = CompanionPresentation.make(
+                state: model.companionState,
+                date: context.date,
+                calendar: .current
+            ) {
+                HStack(alignment: .center, spacing: 18) {
+                    CompanionSceneView(presentation: companion)
+                        .frame(maxWidth: .infinity, minHeight: 142, maxHeight: 142)
+                        .background(Color(nsColor: .underPageBackgroundColor))
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .strokeBorder(Color(nsColor: .separatorColor))
+                        }
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("\(companion.theme.title) · \(companion.variant.title)")
+                            .font(.system(size: 10, weight: .semibold))
+                            .tracking(0.45)
+                            .foregroundStyle(.secondary)
+                            .textCase(.uppercase)
+                        Text(companion.stageTitle)
+                            .font(.title3.weight(.semibold))
+                        Text("Stage \(companion.stage + 1) of 8")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                        ProgressView(value: companion.progressFraction)
+                            .progressViewStyle(.linear)
+                            .accessibilityLabel("Progress to next stage")
+                        if let remaining = companion.tokensUntilNextStage {
+                            Text("\(remaining.formatted()) tokens to the next scene")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text("Journey complete")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .frame(minWidth: 250, maxWidth: 290, alignment: .leading)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 }
