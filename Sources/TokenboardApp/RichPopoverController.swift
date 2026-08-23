@@ -68,6 +68,8 @@ final class RichPopoverController: NSObject, NSPopoverDelegate {
     private let model: AppModel?
     private let activateApplication: () -> Void
     private var stateObservation: AnyCancellable?
+    private var calendarObservations: Set<AnyCancellable> = []
+    private var milestoneAcknowledgementTask: Task<Void, Never>?
     private lazy var clickAwayDismissal = PopoverClickAwayDismissal(
         monitor: GlobalMouseDownMonitor(),
         dismiss: { [weak self] in self?.popover.performClose(nil) }
@@ -76,6 +78,7 @@ final class RichPopoverController: NSObject, NSPopoverDelegate {
     var renderedPopoverAnimates: Bool { popover.animates }
     var renderedPopoverSize: NSSize { popover.contentSize }
     var renderedPopoverBehavior: NSPopover.Behavior { popover.behavior }
+    var renderedStatusImage: NSImage? { statusItem.button?.image }
     var renderedStatusButtonActionMask: NSEvent.EventTypeMask {
         Self.statusButtonActionMask
     }
@@ -96,8 +99,12 @@ final class RichPopoverController: NSObject, NSPopoverDelegate {
             ))
         )
         stateObservation = model.$state.sink { [weak self] state in
+            self?.popover.contentSize = TokenboardSurfaceMetrics.popoverSize(
+                companionEnabled: state.companion.isVisible
+            )
             self?.updateStatus(for: state)
         }
+        observeCalendarChanges()
         updateStatus(for: model.state)
     }
 
@@ -127,16 +134,21 @@ final class RichPopoverController: NSObject, NSPopoverDelegate {
         popover.behavior = .transient
         popover.animates = false
         popover.delegate = self
-        popover.contentSize = TokenboardSurfaceMetrics.popoverSize
+        popover.contentSize = TokenboardSurfaceMetrics.popoverSize(
+            companionEnabled: model?.state.companion.isVisible == true
+        )
         popover.contentViewController = NSHostingController(rootView: rootView)
     }
 
     func popoverDidShow(_ notification: Notification) {
         clickAwayDismissal.popoverDidShow()
+        scheduleMilestoneAcknowledgement()
     }
 
     func popoverDidClose(_ notification: Notification) {
         clickAwayDismissal.popoverDidClose()
+        milestoneAcknowledgementTask?.cancel()
+        milestoneAcknowledgementTask = nil
     }
 
     private func updateStatus(for state: AppPublishedState) {
@@ -145,10 +157,40 @@ final class RichPopoverController: NSObject, NSPopoverDelegate {
             startupError: nil,
             relativeTo: Date()
         )
+        if let systemImageName = presentation.statusSystemImageName {
+            updateStatus(
+                title: presentation.statusTitle,
+                image: NSImage(
+                    systemSymbolName: systemImageName,
+                    accessibilityDescription: presentation.statusAccessibilityLabel
+                ),
+                accessibilityLabel: presentation.statusAccessibilityLabel
+            )
+            return
+        }
+
+        let companion = CompanionPresentation.make(
+            state: state.companion,
+            date: Date(),
+            calendar: .current
+        )
+        let image: NSImage? = companion.flatMap { companion -> NSImage? in
+            guard state.companion.showInMenuBar else { return nil }
+            return CompanionMenuIconRenderer.image(
+                theme: companion.theme,
+                variant: companion.variant,
+                stage: companion.stage
+            )
+        }
+        let accessibilityLabel: String = companion.flatMap { companion -> String? in
+            state.companion.showInMenuBar
+                ? "\(presentation.statusAccessibilityLabel). \(companion.accessibilityLabel)"
+                : nil
+        } ?? presentation.statusAccessibilityLabel
         updateStatus(
             title: presentation.statusTitle,
-            systemImageName: presentation.statusSystemImageName,
-            accessibilityLabel: presentation.statusAccessibilityLabel
+            image: image,
+            accessibilityLabel: accessibilityLabel
         )
     }
 
@@ -157,20 +199,48 @@ final class RichPopoverController: NSObject, NSPopoverDelegate {
         systemImageName: String?,
         accessibilityLabel: String
     ) {
+        let image = systemImageName.flatMap {
+            NSImage(
+                systemSymbolName: $0,
+                accessibilityDescription: accessibilityLabel
+            )
+        }
+        updateStatus(title: title, image: image, accessibilityLabel: accessibilityLabel)
+    }
+
+    private func updateStatus(
+        title: String,
+        image: NSImage?,
+        accessibilityLabel: String
+    ) {
         guard let button = statusItem.button else { return }
         button.title = title
         button.setAccessibilityLabel(accessibilityLabel)
-        if let systemImageName {
-            let image = NSImage(
-                systemSymbolName: systemImageName,
-                accessibilityDescription: accessibilityLabel
-            )
-            image?.isTemplate = true
-            button.image = image
-            button.imagePosition = title.isEmpty ? .imageOnly : .imageLeading
-        } else {
-            button.image = nil
-            button.imagePosition = .noImage
+        image?.isTemplate = true
+        button.image = image
+        button.imagePosition = image == nil ? .noImage : (title.isEmpty ? .imageOnly : .imageLeading)
+    }
+
+    private func observeCalendarChanges() {
+        let center = NotificationCenter.default
+        center.publisher(for: .NSCalendarDayChanged)
+            .merge(with: center.publisher(for: .NSSystemTimeZoneDidChange))
+            .sink { [weak self] _ in
+                guard let self, let model = self.model else { return }
+                self.updateStatus(for: model.state)
+            }
+            .store(in: &calendarObservations)
+    }
+
+    private func scheduleMilestoneAcknowledgement() {
+        milestoneAcknowledgementTask?.cancel()
+        guard let model,
+              model.companionState.isVisible,
+              model.companionState.progress?.hasUnacknowledgedMilestone == true else { return }
+        milestoneAcknowledgementTask = Task { @MainActor [weak self, weak model] in
+            try? await Task.sleep(for: .seconds(1.6))
+            guard !Task.isCancelled, self?.popover.isShown == true else { return }
+            model?.acknowledgeCompanionMilestone()
         }
     }
 

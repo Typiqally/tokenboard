@@ -13,6 +13,7 @@ The approved visual direction is the **rich popover**. Its companion History win
 - Shows one compact value using the display metric chosen in General Settings.
 - Shows an activity symbol instead of `0` while the first local records are still being parsed.
 - Uses a real `0` only after an import has completed with no usage in the selected summary period.
+- Can show an opt-in `18 × 18` template silhouette before the value. It reflects the current companion stage and that day's local variant; loading and failure symbols override it.
 
 ### Rich popover
 
@@ -27,6 +28,16 @@ The approved visual direction is the **rich popover**. Its companion History win
 - The 16-point top inset and 4-point spacing rhythm keep the header compact while preserving clear content groups.
 - The recency label is also the explicit local refresh action. It disables immediately and shows `Refreshing…` with a native activity indicator until the local scan finishes.
 - Quit is a quiet power icon beside Refresh in the header, with a tooltip, accessibility label, and `⌘Q` shortcut.
+- With a companion enabled, insert a visual-only `310 × 84` scene immediately below the headline and expand the popover to `350 × 596`. The scene contains no title, stage, token count, progress bar, or caption. `None` renders no placeholder and leaves the `350 × 500` layout unchanged.
+
+### Companion settings
+
+- General Settings uses a one-click visual shelf for `None`, Pokémon, Tree, Tower, Old School RuneScape, and Age of Empires II. A checkmark and border identify selection without relying on color alone.
+- Show the selected track's larger live scene, stage details outside the artwork, and an off-by-default “Show companion in menu bar” toggle.
+- Assets and variant catalogs are built into the executable bundle. There is no file picker, watched asset directory, JSON configuration, or runtime network fetch.
+- The daily choice changes on the local calendar day or timezone notification and is deterministic from one local seed. It does not poll.
+- Every scene uses downloaded source artwork bundled into the executable: canonical Pokémon sprites over game locations, a licensed tree-growth asset over woodland, architectural photography, equipped Old School RuneScape characters over game locations, and Age of Empires II building imagery. Scenes never fetch at runtime and never use generated approximations.
+- Pokémon rotates among bundled starter families. Tree and Tower grow one subject, Old School RuneScape pairs each equipment tier with a suitable location, and Age of Empires II advances real Town Center imagery through the four ages.
 
 ### History
 
@@ -71,6 +82,7 @@ System appearance, increased contrast, reduced motion, Dynamic Type behavior, ke
 - **Ready with zero:** explicit `0 tokens` plus a quiet empty-range explanation.
 - **History refresh:** keep a valid cached snapshot visible while replacing it.
 - **Failure:** explain that the local summary or trend is unavailable and provide Settings or Retry as appropriate.
+- **Milestone:** show one quiet “reached” label on the next popover open, then acknowledge it locally. Reduced Motion removes the crossfade.
 
 ## Implementation map
 
@@ -79,10 +91,12 @@ System appearance, increased contrast, reduced motion, Dynamic Type behavior, ke
 - `HistoryWindowController`, `HistoryViewModel`, and `UsageHistoryView` own the on-demand working window.
 - `UsageSurfaceComponents` contains the shared range control, chart, provider row, typography, and disclosure row.
 - `UsageQueryService.history` produces deterministic local snapshots; `AppModel` refreshes and caches Today, 7D, 30D, and 90D snapshots after ingestion and pricing changes.
+- `CompanionJourney` owns milestones, permanent delta accumulation, and deterministic Pokémon starter variants. `CompanionAssetCatalog` maps every visible theme and stage to bundle-relative resources; `CompanionArtwork` composes those local images and menu silhouettes. `SQLiteLedger.lifetimeAdditiveTokenTotal` supplies an additive-only observation without a schema change.
 
 ## Guardrails
 
 - Do not add network access, telemetry, accounts, or cloud sync to make a surface easier to populate.
 - Do not turn the popover into a settings panel; durable preferences belong in Settings.
-- Do not add decorative cards, gradients, animation, or accent colors without semantic purpose.
+- Do not add decorative cards, gradients, animation, or accent colors outside the explicitly selected companion scene without semantic purpose.
 - Do not hide scope, pricing coverage, loading, empty, or failure states for visual cleanliness.
+- Do not add streaks, rewards, restart/prestige loops, companion uploads, configuration files, or runtime asset downloads.

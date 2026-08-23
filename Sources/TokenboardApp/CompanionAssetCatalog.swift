@@ -9,6 +9,11 @@ struct CompanionAssetCrop: Equatable, Sendable {
     static let full = CompanionAssetCrop(x: 0, y: 0, width: 1, height: 1)
 }
 
+enum CompanionSceneBlendMode: Equatable, Sendable {
+    case normal
+    case multiply
+}
+
 struct CompanionSceneLayer: Equatable, Sendable, Identifiable {
     let resource: String
     let crop: CompanionAssetCrop?
@@ -16,6 +21,7 @@ struct CompanionSceneLayer: Equatable, Sendable, Identifiable {
     let horizontalPosition: Double
     let bottomOffset: Double
     let usesNearestNeighbor: Bool
+    let blendMode: CompanionSceneBlendMode
 
     var id: String {
         [
@@ -29,7 +35,6 @@ struct CompanionSceneLayer: Equatable, Sendable, Identifiable {
 struct CompanionSceneAsset: Equatable, Sendable {
     let backgroundResource: String
     let backgroundCrop: CompanionAssetCrop?
-    let backgroundHorizontalPosition: Double
     let layers: [CompanionSceneLayer]
 
     var allResources: [String] {
@@ -114,30 +119,28 @@ enum CompanionAssetCatalog {
             return CompanionSceneAsset(
                 backgroundResource: towerScenes[stage],
                 backgroundCrop: nil,
-                backgroundHorizontalPosition: towerHorizontalPosition(stage: stage),
                 layers: []
             )
         case .oldSchoolRuneScape:
             return CompanionSceneAsset(
                 backgroundResource: oldSchoolBackgrounds[stage],
                 backgroundCrop: nil,
-                backgroundHorizontalPosition: 0.5,
                 layers: [
                     CompanionSceneLayer(
                         resource: oldSchoolCharacters[stage],
                         crop: nil,
-                        relativeHeight: 1.46,
+                        relativeHeight: 1.10,
                         horizontalPosition: 0.5,
-                        bottomOffset: -0.12,
-                        usesNearestNeighbor: false
+                        bottomOffset: -0.04,
+                        usesNearestNeighbor: false,
+                        blendMode: .normal
                     )
                 ]
             )
         case .ageOfEmpiresII:
             return CompanionSceneAsset(
                 backgroundResource: ageOfEmpiresScenes[stage],
-                backgroundCrop: ageOfEmpiresCrop(stage: stage),
-                backgroundHorizontalPosition: 0.5,
+                backgroundCrop: nil,
                 layers: []
             )
         }
@@ -166,7 +169,8 @@ enum CompanionAssetCatalog {
                 relativeHeight: 1,
                 horizontalPosition: 0.5,
                 bottomOffset: 0,
-                usesNearestNeighbor: false
+                usesNearestNeighbor: false,
+                blendMode: .normal
             )
         }
         return scene(theme: theme, variant: variant, stage: stage)?.layers.last
@@ -191,13 +195,13 @@ enum CompanionAssetCatalog {
                 relativeHeight: relativeHeight,
                 horizontalPosition: position,
                 bottomOffset: 0,
-                usesNearestNeighbor: true
+                usesNearestNeighbor: true,
+                blendMode: .normal
             )
         }
         return CompanionSceneAsset(
             backgroundResource: pokemonBackgrounds[stage],
             backgroundCrop: nil,
-            backgroundHorizontalPosition: 0.5,
             layers: layers
         )
     }
@@ -205,49 +209,29 @@ enum CompanionAssetCatalog {
     private static func treeScene(stage: Int) -> CompanionSceneAsset {
         let progression = [0, 0, 1, 1, 2, 3, 3, 4]
         let crops = [
-            CompanionAssetCrop(x: 0.00, y: 0, width: 0.14, height: 1),
-            CompanionAssetCrop(x: 0.11, y: 0, width: 0.18, height: 1),
-            CompanionAssetCrop(x: 0.25, y: 0, width: 0.23, height: 1),
-            CompanionAssetCrop(x: 0.45, y: 0, width: 0.27, height: 1),
-            CompanionAssetCrop(x: 0.69, y: 0, width: 0.31, height: 1)
+            CompanionAssetCrop(x: 0.04, y: 0.86, width: 0.06, height: 0.11),
+            CompanionAssetCrop(x: 0.18, y: 0.65, width: 0.07, height: 0.32),
+            CompanionAssetCrop(x: 0.32, y: 0.38, width: 0.12, height: 0.59),
+            CompanionAssetCrop(x: 0.51, y: 0.18, width: 0.18, height: 0.79),
+            CompanionAssetCrop(x: 0.74, y: 0.04, width: 0.22, height: 0.93)
         ]
+        let relativeHeights = [0.18, 0.24, 0.31, 0.39, 0.49, 0.60, 0.72, 0.84]
         let step = progression[stage]
         return CompanionSceneAsset(
             backgroundResource: "Tree/woodland.jpg",
             backgroundCrop: nil,
-            backgroundHorizontalPosition: 0.5,
             layers: [
                 CompanionSceneLayer(
                     resource: "Tree/growing-tree.png",
                     crop: crops[step],
-                    relativeHeight: 0.82,
+                    relativeHeight: relativeHeights[stage],
                     horizontalPosition: 0.5,
                     bottomOffset: 0.02,
-                    usesNearestNeighbor: false
+                    usesNearestNeighbor: false,
+                    blendMode: .multiply
                 )
             ]
         )
     }
 
-    private static func towerHorizontalPosition(stage: Int) -> Double {
-        switch stage {
-        case 0: 0.52
-        case 1: 0.48
-        case 2: 0.52
-        case 3: 0.5
-        case 4: 0.5
-        case 5: 0.48
-        case 6: 0.5
-        default: 0.5
-        }
-    }
-
-    private static func ageOfEmpiresCrop(stage: Int) -> CompanionAssetCrop? {
-        switch stage {
-        case 0, 1:
-            nil
-        default:
-            CompanionAssetCrop(x: 0, y: 0, width: 0.235, height: 1)
-        }
-    }
 }

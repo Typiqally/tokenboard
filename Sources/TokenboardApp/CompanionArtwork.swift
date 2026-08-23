@@ -79,7 +79,14 @@ private struct CompanionSceneLayerView: View {
                 - sceneSize.height * layer.bottomOffset
                 - height / 2
         )
-        .shadow(color: .black.opacity(0.26), radius: 2, y: 2)
+        .blendMode(layer.blendMode == .multiply ? .multiply : .normal)
+        .shadow(
+            color: layer.blendMode == .multiply
+                ? .white.opacity(0.85)
+                : .black.opacity(0.26),
+            radius: layer.blendMode == .multiply ? 1.5 : 2,
+            y: layer.blendMode == .multiply ? 0 : 2
+        )
     }
 }
 

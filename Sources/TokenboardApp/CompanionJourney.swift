@@ -28,7 +28,7 @@ enum CompanionTheme: String, CaseIterable, Identifiable, Sendable {
         case .tree: "A seedling growing into a landmark tree"
         case .tower: "A small home becoming a city tower"
         case .oldSchoolRuneScape: "An adventurer upgrading through classic gear"
-        case .ageOfEmpiresII: "A Britons settlement advancing through the ages"
+        case .ageOfEmpiresII: "Town centers advancing through the ages"
         }
     }
 }
@@ -57,7 +57,7 @@ enum CompanionCatalog {
         case .oldSchoolRuneScape:
             named(["Ranger"])
         case .ageOfEmpiresII:
-            named(["Britons"])
+            named(["Town Center"])
         }
     }
 
@@ -223,8 +223,8 @@ struct CompanionPresentation: Equatable, Sendable {
             ["Seed", "Sprout", "Sapling", "Young tree", "Branching out",
              "Mature tree", "Ancient canopy", "Landmark tree"]
         case .tower:
-            ["Foundation", "Small house", "Townhouse", "Mid-rise", "City block",
-             "High-rise", "Skyline tower", "Skyscraper"]
+            ["Small house", "Townhouse", "Apartments", "Mid-rise", "High-rise",
+             "Skyline", "City tower", "Skyscraper"]
         case .oldSchoolRuneScape:
             ["Leather", "Studded leather", "Green d’hide", "Blue d’hide",
              "Red d’hide", "Black d’hide", "Armadyl", "Masori"]

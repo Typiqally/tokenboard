@@ -52,19 +52,21 @@ Upgrade with `brew upgrade --cask tokenboard`. Uninstall with `brew uninstall --
 - **Drill-down History.** Open the resizable History window for the whole range or a provider, select a chart bar, and expand provider, model, and Input/Cache/Output totals. Reasoning output is explained and never counted twice.
 - **Automatic local updates.** Native filesystem events provide the fast path. A read-only JSONL metadata reconciliation catches events that the App Sandbox does not deliver, and the recency label doubles as an explicit Refresh action.
 - **Honest estimates.** Effective-dated public list prices and locally approved exchange rates power API-equivalent values. Unknown models and uncovered dates remain counted but visibly unpriced; the estimate is never presented as a bill.
+- **Optional local companions.** Choose Pokémon, Tree, Tower, Old School RuneScape, or Age of Empires II from the visual shelf in General Settings. Real source artwork is bundled for every stage, while the popover stays visual-only. The shared eight-stage journey grows only from tokens recorded after first enablement; `None` keeps the original compact interface.
 
 ## Native surfaces
 
 The menu-bar item stays compact: it shows the selected token or API-value metric and uses an activity symbol while the first local records are being imported.
 
-The `350 × 500` popover separates two scopes on purpose:
+The default `350 × 500` popover separates two scopes on purpose. Enabling a companion adds one `310 × 84` pixel-art scene below the headline and expands the popover to `350 × 596`; selecting `None` returns to the exact compact layout.
 
 - The header menu controls the headline period: Today, This Week, This Month, This Year, or All Time.
 - The segmented control controls only the trend, comparison, and provider shares: Today, 7D, 30D, or 90D.
 - Provider rows open History already filtered to that provider and preserve the selected trend range.
 - History and Settings remain one click away in the footer; Quit and Refresh stay in the header.
+- The optional menu-bar companion icon is off by default. When enabled, its silhouette follows the current stage; Pokémon also follows the deterministic starter family selected for that calendar day.
 
-History uses the same typography, chart, range control, dividers, and provider identity at working-window scale. Settings keeps durable controls out of the popover and groups them into General, Sources, Pricing, and Diagnostics. That includes menu-bar metric and period, USD/EUR/JPY/GBP/CNY display currencies, Launch at Login, source grants, pricing coverage, parser diagnostics, local-data reveal, and database recovery.
+History uses the same typography, chart, range control, dividers, and provider identity at working-window scale. Settings keeps durable controls out of the popover and groups them into General, Sources, Pricing, and Diagnostics. That includes menu-bar metric and period, companion track and icon visibility, USD/EUR/JPY/GBP/CNY display currencies, Launch at Login, source grants, pricing coverage, parser diagnostics, local-data reveal, and database recovery.
 
 ## Private by construction
 
@@ -73,6 +75,7 @@ History uses the same typography, chart, range control, dividers, and provider i
 - No telemetry, analytics, helper, daemon, or XPC service.
 - Automatic monitoring combines native filesystem events with read-only JSONL size and modification-date reconciliation. It never edits source logs.
 - Content-safe daily and hourly aggregates and bookkeeping after ingestion—not prompts, responses, tool content, project metadata, paths below the granted roots, raw session IDs, or per-session totals.
+- Companion art is bundled with the app. The selected track, random seed, earned progress, last observed lifetime total, and acknowledged milestone are small local preferences; no companion data is fetched or uploaded.
 
 See [PRIVACY.md](PRIVACY.md) for the exact local-data and retention boundary.
 

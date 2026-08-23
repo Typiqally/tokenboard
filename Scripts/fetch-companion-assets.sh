@@ -50,7 +50,7 @@ fetch_asset 'https://oldschool.runescape.wiki/images/thumb/Seers_Village.png/600
 fetch_asset 'https://oldschool.runescape.wiki/images/thumb/Karamja.png/600px-Karamja.png?d1c25' "$asset_root/OldSchoolRuneScape/Backgrounds/05-karamja.png"
 fetch_asset 'https://oldschool.runescape.wiki/images/thumb/Canifis.png/600px-Canifis.png?e6f64' "$asset_root/OldSchoolRuneScape/Backgrounds/06-canifis.png"
 fetch_asset 'https://oldschool.runescape.wiki/images/thumb/God_Wars_Dungeon_Entrance.png/600px-God_Wars_Dungeon_Entrance.png?8b0f5' "$asset_root/OldSchoolRuneScape/Backgrounds/07-god-wars.png"
-fetch_asset 'https://oldschool.runescape.wiki/images/thumb/Tombs_of_Amascut.png/600px-Tombs_of_Amascut.png?f9992' "$asset_root/OldSchoolRuneScape/Backgrounds/08-tombs-of-amascut.png"
+fetch_asset 'https://oldschool.runescape.wiki/images/thumb/Tombs_of_Amascut_-_Nexus_room.png/600px-Tombs_of_Amascut_-_Nexus_room.png' "$asset_root/OldSchoolRuneScape/Backgrounds/08-tombs-of-amascut.png"
 
 fetch_asset 'https://oldschool.runescape.wiki/images/Leather_armour_equipped.png?5eeb1' "$asset_root/OldSchoolRuneScape/Characters/01-leather.png"
 fetch_asset 'https://oldschool.runescape.wiki/images/Studded_leather_armour_equipped.png?74625' "$asset_root/OldSchoolRuneScape/Characters/02-studded-leather.png"

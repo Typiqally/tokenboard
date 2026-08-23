@@ -412,6 +412,7 @@ extension AppModel {
             }
         }
         commitState(next)
+        await refreshCompanionProgress()
         await queryUsageHistory()
     }
 
@@ -630,6 +631,7 @@ extension AppModel {
 
     func queryUsagePresentations() async {
         await querySelectedSummary()
+        await refreshCompanionProgress()
         await queryUsageHistory()
     }
 

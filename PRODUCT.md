@@ -14,7 +14,7 @@ Tokenboard locally scans user-approved Claude Code and Codex history folders, re
 
 ## Brand Personality
 
-Simple, clean, mean. Quietly confident and direct, with precise language and no decorative product theater.
+Simple, clean, mean. Quietly confident and direct, with precise language and no decorative product theater. Optional companions can add personality, but the default experience remains the undecorated usage tool.
 
 ## Anti-references
 
@@ -23,7 +23,7 @@ Simple, clean, mean. Quietly confident and direct, with precise language and no 
 - Web-shaped dashboard chrome, floating cards, and controls that ignore macOS behavior
 - Opaque telemetry, silent network access, or background activity the user did not request
 - Language that presents API-equivalent estimates as an actual bill
-- Gamification, ornamental motion, and color used without meaning
+- Competitive gamification, streak pressure, rewards, ornamental motion, and color used without meaning
 
 ## Design Principles
 
@@ -33,13 +33,25 @@ Simple, clean, mean. Quietly confident and direct, with precise language and no 
 4. Separate fact from estimate: exact token totals, API-equivalent estimates, and unpriced quantities remain visibly distinct.
 5. Stay quiet at rest: refresh from local events and user actions, with no decorative timers, polling, or hidden helpers.
 6. Keep scope visible: the exact summary period and recent-trend range are independent controls and must always be clearly labeled.
+7. Make delight optional: ambient companion growth is a private visualization of usage, never a score, reward, streak, or prompt to spend more.
 
 ## Primary Surfaces
 
-- Use the `370 × 560` transient rich popover for the one-click summary, recent trend, provider shares, and primary navigation.
+- Use the `350 × 500` transient rich popover for the one-click summary, recent trend, provider shares, and primary navigation. A selected companion expands it to `350 × 596`; `None` remains the default.
 - Use a standard resizable History window for exploration, selectable days, and provider/model/token-type disclosures.
 - Keep durable display preferences in General Settings; the popover owns only the summary period and session-only trend range.
 - Share one visual grammar across popover and History. The detailed contract lives in [DESIGN.md](DESIGN.md).
+
+## Companion Journey
+
+- Offer `None`, Pokémon, Tree, Tower, Old School RuneScape, and Age of Empires II as built-in choices. Do not expose file imports, asset folders, configuration files, or runtime downloads.
+- Establish a zero baseline from the authoritative lifetime additive-token total when the first non-`None` theme is selected. Only future positive deltas advance the journey.
+- Share one permanent journey across themes. Hiding with `None` preserves and continues initialized progress; there is no restart control.
+- Use eight stages at 0, 1M, 4M, 16M, 64M, 160M, 400M, and 1B earned tokens. Completion stops at stage eight without prestige loops.
+- Pick one deterministic Pokémon starter family per local calendar day; every starter family appears once per cycle before the order repeats. Tree, Tower, and Old School RuneScape keep one coherent subject, while Age of Empires II advances a real Town Center collection through its four ages.
+- Use real source artwork bundled at build time for every track and stage. The popover scene is visual only; journey labels and progress remain in Settings.
+- Keep the menu-bar silhouette off by default. Loading and failure symbols always take precedence.
+- Reveal a newly reached milestone once on the next popover open with a quiet crossfade; respect Reduced Motion.
 
 ## Currency Conversion
 

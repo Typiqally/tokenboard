@@ -222,6 +222,25 @@ public actor SQLiteLedger: LedgerStore {
         }
     }
 
+    public func lifetimeAdditiveTokenTotal() throws -> Int64 {
+        let connection = try requiredConnection()
+        let statement = try prepare(
+            "SELECT COALESCE(SUM(quantity), 0) FROM daily_usage WHERE aggregation = ?;",
+            using: connection
+        )
+        defer { sqlite3_finalize(statement) }
+        try bind(MetricAggregation.additive.rawValue, to: statement, at: 1, using: connection)
+        let result = sqlite3_step(statement)
+        guard result == SQLITE_ROW else {
+            throw failure(result, using: connection)
+        }
+        let total = sqlite3_column_int64(statement, 0)
+        guard total >= 0 else {
+            throw LedgerError.corruptData("lifetime additive token total is negative")
+        }
+        return total
+    }
+
     public func hourlyUsageRows(
         in interval: DateInterval?,
         calendar: Calendar

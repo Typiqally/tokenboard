@@ -20,13 +20,18 @@ struct RichUsagePopoverView: View {
                 isRefreshPending: isRefreshPending,
                 isImporting: model.state.isImporting
             )
+            let companion = CompanionPresentation.make(
+                state: model.companionState,
+                date: context.date,
+                calendar: .current
+            )
             VStack(spacing: 0) {
                 VStack(
                     alignment: .leading,
                     spacing: TokenboardSurfaceMetrics.popoverHeaderSpacing
                 ) {
                     header(presentation, refreshPresentation: refreshPresentation)
-                    mainContent(presentation)
+                    mainContent(presentation, companion: companion)
                 }
                 .padding(.horizontal, TokenboardVisualStyle.pageInset)
                 .padding(.top, TokenboardSurfaceMetrics.popoverTopPadding)
@@ -40,7 +45,9 @@ struct RichUsagePopoverView: View {
             }
             .frame(
                 width: TokenboardSurfaceMetrics.popoverSize.width,
-                height: TokenboardSurfaceMetrics.popoverSize.height
+                height: TokenboardSurfaceMetrics.popoverSize(
+                    companionEnabled: companion != nil
+                ).height
             )
             .background(.ultraThinMaterial)
         }
@@ -118,18 +125,24 @@ struct RichUsagePopoverView: View {
     }
 
     @ViewBuilder
-    private func mainContent(_ presentation: RichPopoverPresentation) -> some View {
+    private func mainContent(
+        _ presentation: RichPopoverPresentation,
+        companion: CompanionPresentation?
+    ) -> some View {
         switch presentation.contentState {
         case .loading:
-            loadingContent(presentation)
+            loadingContent(presentation, companion: companion)
         case let .failed(message):
-            failureContent(presentation, message: message)
+            failureContent(presentation, message: message, companion: companion)
         case .ready:
-            readyContent(presentation)
+            readyContent(presentation, companion: companion)
         }
     }
 
-    private func loadingContent(_ presentation: RichPopoverPresentation) -> some View {
+    private func loadingContent(
+        _ presentation: RichPopoverPresentation,
+        companion: CompanionPresentation?
+    ) -> some View {
         VStack(
             alignment: .leading,
             spacing: TokenboardSurfaceMetrics.popoverContentSpacing
@@ -144,6 +157,9 @@ struct RichUsagePopoverView: View {
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
+            }
+            if let companion {
+                CompanionStrip(presentation: companion)
             }
             UsageRangePicker(selection: historyRangeBinding)
                 .frame(width: TokenboardSurfaceMetrics.popoverContentWidth)
@@ -164,7 +180,8 @@ struct RichUsagePopoverView: View {
 
     private func failureContent(
         _ presentation: RichPopoverPresentation,
-        message: String
+        message: String,
+        companion: CompanionPresentation?
     ) -> some View {
         VStack(
             alignment: .leading,
@@ -176,6 +193,9 @@ struct RichUsagePopoverView: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            if let companion {
+                CompanionStrip(presentation: companion)
+            }
             Button("Open Settings") {
                 model.openSettings()
                 dismiss()
@@ -184,7 +204,10 @@ struct RichUsagePopoverView: View {
         .frame(maxWidth: .infinity, minHeight: 390, alignment: .topLeading)
     }
 
-    private func readyContent(_ presentation: RichPopoverPresentation) -> some View {
+    private func readyContent(
+        _ presentation: RichPopoverPresentation,
+        companion: CompanionPresentation?
+    ) -> some View {
         VStack(
             alignment: .leading,
             spacing: TokenboardSurfaceMetrics.popoverContentSpacing
@@ -198,6 +221,10 @@ struct RichUsagePopoverView: View {
                 Text(presentation.apiValueTitle)
                     .font(.system(size: 14))
                     .foregroundStyle(.secondary)
+            }
+
+            if let companion {
+                CompanionStrip(presentation: companion)
             }
 
             UsageRangePicker(selection: historyRangeBinding)

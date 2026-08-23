@@ -17,6 +17,36 @@ final class NativePresentationTests: XCTestCase {
         XCTAssertEqual(controller.renderedPopoverBehavior, .transient)
     }
 
+    func testRichPopoverExpandsOnlyForACompanionAndMenuIconIsOptIn() async throws {
+        let setup = try makeModel()
+        defer { setup.cleanup() }
+        var state = setup.model.state
+        state.lifecycle = .ready
+        state.presentation = MenuPresentation(
+            summary: UsageSummary(
+                period: .today,
+                tokenTotal: 42,
+                knownAPIEquivalentUSD: 0,
+                unpricedTokens: 0
+            ),
+            displayMetric: .tokens
+        )
+        setup.model.commitState(state)
+        await setup.model.select(companionTheme: .tree)
+        let controller = RichPopoverController(model: setup.model)
+
+        XCTAssertEqual(controller.renderedPopoverSize, TokenboardSurfaceMetrics.companionPopoverSize)
+        XCTAssertNil(controller.renderedStatusImage)
+
+        setup.model.setShowCompanionInMenuBar(true)
+        XCTAssertEqual(controller.renderedStatusImage?.size, NSSize(width: 18, height: 18))
+        XCTAssertTrue(controller.renderedStatusImage?.isTemplate == true)
+
+        await setup.model.select(companionTheme: .none)
+        XCTAssertEqual(controller.renderedPopoverSize, TokenboardSurfaceMetrics.popoverSize)
+        XCTAssertNil(controller.renderedStatusImage)
+    }
+
     func testRichPopoverTogglesOnMouseDownSoASecondStatusItemClickOnlyClosesIt() throws {
         let setup = try makeModel()
         defer { setup.cleanup() }

@@ -151,6 +151,33 @@ final class SQLiteLedgerTests: XCTestCase {
         try await ledger.integrityCheck()
     }
 
+    func testLifetimeAdditiveTokenTotalExcludesInformationalSubsets() async throws {
+        let (ledger, directory) = try makeLedger()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try await ledger.migrate()
+        let entry = try NormalizedUsage(
+            provider: .codex,
+            observedModelID: "gpt-test",
+            timestamp: timestamp(),
+            metrics: [
+                .inputUncached: 125,
+                .output: 25,
+                .detailReasoningOutput: 1_000
+            ],
+            stableSourceID: "session-a",
+            stableUsageID: "turn-a"
+        )
+        try await ledger.commit(
+            [entry],
+            skipped: [],
+            checkpoint: checkpoint(),
+            calendar: calendar
+        )
+
+        let total = try await ledger.lifetimeAdditiveTokenTotal()
+        XCTAssertEqual(total, 150)
+    }
+
     func testIntegrityCheckRejectsATruncatedLedger() async throws {
         let (ledger, directory) = try makeLedger()
         try await ledger.migrate()

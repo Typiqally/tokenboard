@@ -49,6 +49,9 @@ ditto Resources/Info.plist "$staging_app/Contents/Info.plist"
 if [[ -f Resources/tokenboard-pricing.json ]]; then
   ditto Resources/tokenboard-pricing.json "$staging_app/Contents/Resources/tokenboard-pricing.json"
 fi
+if [[ -d Resources/Companions ]]; then
+  ditto Resources/Companions "$staging_app/Contents/Resources/Companions"
+fi
 
 sign_identity=${TOKENBOARD_SIGN_IDENTITY:--}
 sign_arguments=(--force --sign "$sign_identity" --entitlements Resources/Tokenboard.entitlements)

@@ -159,6 +159,52 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(rangesAfterSelection, queriedRanges)
     }
 
+    func testCompanionStartsAtEnablementAndKeepsAdvancingWhileHidden() async throws {
+        let setup = try makeSetup(approved: false, grantedProviders: [])
+        defer { setup.cleanup() }
+        await setup.ledger.setLifetimeTotal(500_000_000)
+
+        await setup.model.select(companionTheme: .tree)
+
+        XCTAssertEqual(setup.model.companionState.theme, .tree)
+        XCTAssertEqual(setup.model.companionState.progress?.earnedTokens, 0)
+        XCTAssertEqual(
+            setup.model.companionState.progress?.lastObservedLifetimeTotal,
+            500_000_000
+        )
+        XCTAssertEqual(setup.preferences.selectedCompanionTheme, .tree)
+
+        await setup.ledger.setLifetimeTotal(504_000_000)
+        await setup.model.refreshCompanionProgress()
+        XCTAssertEqual(setup.model.companionState.progress?.earnedTokens, 4_000_000)
+
+        await setup.model.select(companionTheme: .none)
+        await setup.ledger.setLifetimeTotal(520_000_000)
+        await setup.model.refreshCompanionProgress()
+        XCTAssertEqual(setup.model.companionState.theme, .none)
+        XCTAssertEqual(setup.model.companionState.progress?.earnedTokens, 20_000_000)
+
+        await setup.model.select(companionTheme: .pokemon)
+        XCTAssertEqual(setup.model.companionState.progress?.earnedTokens, 20_000_000)
+    }
+
+    func testCompanionMenuBarChoicePersistsAndMilestoneAcknowledgesOnce() async throws {
+        let setup = try makeSetup(approved: false, grantedProviders: [])
+        defer { setup.cleanup() }
+        await setup.ledger.setLifetimeTotal(10)
+        await setup.model.select(companionTheme: .tower)
+
+        setup.model.setShowCompanionInMenuBar(true)
+        await setup.ledger.setLifetimeTotal(1_000_010)
+        await setup.model.refreshCompanionProgress()
+
+        XCTAssertTrue(setup.model.companionState.showInMenuBar)
+        XCTAssertTrue(setup.model.companionState.progress?.hasUnacknowledgedMilestone == true)
+        setup.model.acknowledgeCompanionMilestone()
+        XCTAssertFalse(setup.model.companionState.progress?.hasUnacknowledgedMilestone == true)
+        XCTAssertEqual(setup.preferences.companionProgress?.lastAcknowledgedStage, 1)
+    }
+
     private func makeSetup(
         approved: Bool,
         grantedProviders: Set<Provider>,
@@ -258,6 +304,7 @@ private final class OrderedRecorder: @unchecked Sendable {
 private actor RuntimeLedger: AppLedgerRuntime {
     let recorder: OrderedRecorder
     private var appliedCatalog: Data?
+    private var lifetimeTotal: Int64 = 0
 
     init(recorder: OrderedRecorder, appliedCatalog: Data? = nil) {
         self.recorder = recorder
@@ -284,6 +331,8 @@ private actor RuntimeLedger: AppLedgerRuntime {
         PricingSnapshot(catalogIDs: [], rates: [], aliases: [])
     }
     func usageRows(in interval: DateInterval?, calendar: Calendar) -> [DailyUsageRow] { [] }
+    func lifetimeAdditiveTokenTotal() -> Int64 { lifetimeTotal }
+    func setLifetimeTotal(_ value: Int64) { lifetimeTotal = value }
     func skippedRecordCount() -> Int { 0 }
 }
 

@@ -4,6 +4,8 @@ import TokenboardCore
 
 enum TokenboardSurfaceMetrics {
     static let popoverSize = NSSize(width: 350, height: 500)
+    static let companionPopoverSize = NSSize(width: 350, height: 596)
+    static let companionSceneHeight: CGFloat = 84
     static let popoverContentWidth: CGFloat = 310
     static let providerPercentageWidth: CGFloat = 44
     static let popoverFooterHeight: CGFloat = 52
@@ -12,6 +14,10 @@ enum TokenboardSurfaceMetrics {
     static let popoverContentSpacing: CGFloat = 12
     static let historySize = NSSize(width: 760, height: 580)
     static let historyMinimumSize = NSSize(width: 680, height: 520)
+
+    static func popoverSize(companionEnabled: Bool) -> NSSize {
+        companionEnabled ? companionPopoverSize : popoverSize
+    }
 }
 
 enum RichPopoverFooterAction: CaseIterable, Equatable {

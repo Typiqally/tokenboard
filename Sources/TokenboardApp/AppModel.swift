@@ -19,6 +19,7 @@ final class AppModel: ObservableObject {
     var selectedPeriod: CalendarPeriod { state.selectedPeriod }
     var selectedDisplayMetric: DisplayMetric { state.selectedDisplayMetric }
     var selectedDisplayCurrency: DisplayCurrency { state.selectedDisplayCurrency }
+    var companionState: CompanionState { state.companion }
     var selectedHistoryRange: UsageHistoryRange { state.selectedHistoryRange }
     var historyState: UsageHistoryLoadState { state.historyState }
     var selectedHistorySnapshot: UsageHistorySnapshot? {
@@ -130,7 +131,13 @@ final class AppModel: ObservableObject {
             period: preferences.selectedPeriod,
             displayMetric: preferences.selectedDisplayMetric,
             displayCurrency: preferences.selectedDisplayCurrency,
-            historicalImportApproved: preferences.historicalImportApproved
+            historicalImportApproved: preferences.historicalImportApproved,
+            companion: CompanionState(
+                theme: preferences.selectedCompanionTheme,
+                showInMenuBar: preferences.showCompanionInMenuBar,
+                progress: preferences.companionProgress,
+                seed: preferences.companionSeed
+            )
         )
         settingsState = .initial
     }
@@ -228,6 +235,51 @@ final class AppModel: ObservableObject {
             next.presentation = makePresentation(summary: lastSummary, state: next)
         }
         state = next
+    }
+
+    func select(companionTheme: CompanionTheme) async {
+        guard !isDatabaseRestoreInProgress,
+              !isDatabaseRecoveryActionLocked,
+              state.lifecycle != .shuttingDown,
+              state.lifecycle != .stopped else { return }
+        preferences.selectedCompanionTheme = companionTheme
+        var next = state
+        next.companion.theme = companionTheme
+        commitState(next)
+        if companionTheme != .none, next.companion.progress == nil {
+            await refreshCompanionProgress()
+        }
+    }
+
+    func setShowCompanionInMenuBar(_ enabled: Bool) {
+        guard !isDatabaseRestoreInProgress, !isDatabaseRecoveryActionLocked else { return }
+        preferences.showCompanionInMenuBar = enabled
+        var next = state
+        next.companion.showInMenuBar = enabled
+        commitState(next)
+    }
+
+    func refreshCompanionProgress() async {
+        let previous = state.companion.progress
+        guard previous != nil || state.companion.theme != .none else { return }
+        guard let total = try? await ledger.lifetimeAdditiveTokenTotal() else { return }
+        guard state.companion.progress == previous else { return }
+        let progress = previous?.observing(lifetimeTotal: total)
+            ?? CompanionProgress.activate(at: total)
+        preferences.companionProgress = progress
+        var next = state
+        next.companion.progress = progress
+        commitState(next)
+    }
+
+    func acknowledgeCompanionMilestone() {
+        guard let progress = state.companion.progress,
+              progress.hasUnacknowledgedMilestone else { return }
+        let acknowledged = progress.acknowledgingCurrentStage()
+        preferences.companionProgress = acknowledged
+        var next = state
+        next.companion.progress = acknowledged
+        commitState(next)
     }
 
     func select(historyRange: UsageHistoryRange) {
