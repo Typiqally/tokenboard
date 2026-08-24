@@ -8,8 +8,8 @@
   <key>CFBundleName</key><string>Tokenboard</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleIconFile</key><string>Tokenboard.icns</string>
-  <key>CFBundleShortVersionString</key><string>0.6.2</string>
-  <key>CFBundleVersion</key><string>10</string>
+  <key>CFBundleShortVersionString</key><string>0.7.0</string>
+  <key>CFBundleVersion</key><string>11</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
   <key>NSHumanReadableCopyright</key><string>Copyright © 2026 Tokenboard contributors</string>
