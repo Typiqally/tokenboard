@@ -17,6 +17,20 @@ final class NativePresentationTests: XCTestCase {
         XCTAssertEqual(controller.renderedPopoverBehavior, .transient)
     }
 
+    func testCompanionAmbientMotionRunsOnlyWhilePopoverIsVisible() throws {
+        let setup = try makeModel()
+        defer { setup.cleanup() }
+        let controller = RichPopoverController(model: setup.model)
+
+        XCTAssertFalse(controller.renderedAmbientMotionActive)
+
+        controller.popoverDidShow(Notification(name: NSPopover.didShowNotification))
+        XCTAssertTrue(controller.renderedAmbientMotionActive)
+
+        controller.popoverDidClose(Notification(name: NSPopover.didCloseNotification))
+        XCTAssertFalse(controller.renderedAmbientMotionActive)
+    }
+
     func testRichPopoverExpandsOnlyForACompanionAndMenuIconIsOptIn() async throws {
         let setup = try makeModel()
         defer { setup.cleanup() }
@@ -32,7 +46,7 @@ final class NativePresentationTests: XCTestCase {
             displayMetric: .tokens
         )
         setup.model.commitState(state)
-        await setup.model.select(companionTheme: .tree)
+        await setup.model.select(companionTheme: .forest)
         let controller = RichPopoverController(model: setup.model)
 
         XCTAssertEqual(controller.renderedPopoverSize, TokenboardSurfaceMetrics.companionPopoverSize)
@@ -45,6 +59,29 @@ final class NativePresentationTests: XCTestCase {
         await setup.model.select(companionTheme: .none)
         XCTAssertEqual(controller.renderedPopoverSize, TokenboardSurfaceMetrics.popoverSize)
         XCTAssertNil(controller.renderedStatusImage)
+    }
+
+    func testPopoverLetsTheHostedViewDriveItsSizeSoContentNeverOffsets() async throws {
+        let setup = try makeModel()
+        defer { setup.cleanup() }
+        let controller = RichPopoverController(model: setup.model)
+
+        // AppKit owns the content view's geometry; the hosting controller
+        // publishes the SwiftUI frame as preferredContentSize and NSPopover
+        // tracks it. Managing frames by hand shifted the content.
+        XCTAssertEqual(controller.renderedSizingOptions, .preferredContentSize)
+
+        await setup.model.select(companionTheme: .forest)
+        XCTAssertEqual(
+            controller.renderedPopoverSize,
+            TokenboardSurfaceMetrics.companionPopoverSize
+        )
+
+        await setup.model.select(companionTheme: .none)
+        XCTAssertEqual(
+            controller.renderedPopoverSize,
+            TokenboardSurfaceMetrics.popoverSize
+        )
     }
 
     func testRichPopoverTogglesOnMouseDownSoASecondStatusItemClickOnlyClosesIt() throws {

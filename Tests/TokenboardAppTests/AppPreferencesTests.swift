@@ -23,7 +23,7 @@ final class AppPreferencesTests: XCTestCase {
         preferences.selectedDisplayMetric = .apiValue
         preferences.selectedDisplayCurrency = .gbp
         preferences.historicalImportApproved = true
-        preferences.selectedCompanionTheme = .tree
+        preferences.selectedCompanionTheme = .forest
         preferences.showCompanionInMenuBar = true
         preferences.companionSeed = 42
         preferences.companionProgress = CompanionProgress(
@@ -47,7 +47,7 @@ final class AppPreferencesTests: XCTestCase {
         XCTAssertEqual(persisted["selectedDisplayMetric"] as? String, "api_value")
         XCTAssertEqual(persisted["selectedDisplayCurrency"] as? String, "GBP")
         XCTAssertEqual(persisted["historicalImportApproved"] as? Bool, true)
-        XCTAssertEqual(persisted["selectedCompanionTheme"] as? String, "tree")
+        XCTAssertEqual(persisted["selectedCompanionTheme"] as? String, "forest")
         XCTAssertEqual(persisted["showCompanionInMenuBar"] as? Bool, true)
         XCTAssertEqual(persisted["companionSeed"] as? String, "42")
         XCTAssertEqual(persisted["companionProgressInitialized"] as? Bool, true)
@@ -66,5 +66,14 @@ final class AppPreferencesTests: XCTestCase {
         defaults.set("BTC", forKey: "selectedDisplayCurrency")
 
         XCTAssertEqual(AppPreferences(defaults: defaults).selectedDisplayCurrency, .usd)
+    }
+
+    func testUnknownPersistedCompanionThemeFallsBackToNone() {
+        let suiteName = "AppPreferencesTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set("castle", forKey: "selectedCompanionTheme")
+
+        XCTAssertEqual(AppPreferences(defaults: defaults).selectedCompanionTheme, .none)
     }
 }

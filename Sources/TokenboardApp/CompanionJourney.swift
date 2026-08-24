@@ -3,10 +3,11 @@ import Foundation
 enum CompanionTheme: String, CaseIterable, Identifiable, Sendable {
     case none
     case pokemon
-    case tree
-    case tower
+    case forest
+    case village
     case oldSchoolRuneScape = "old_school_runescape"
     case ageOfEmpiresII = "age_of_empires_ii"
+    case minecraft
 
     var id: String { rawValue }
 
@@ -14,10 +15,11 @@ enum CompanionTheme: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .none: "None"
         case .pokemon: "Pokémon"
-        case .tree: "Tree"
-        case .tower: "Tower"
+        case .forest: "Forest"
+        case .village: "Village"
         case .oldSchoolRuneScape: "Old School RuneScape"
         case .ageOfEmpiresII: "Age of Empires II"
+        case .minecraft: "Minecraft"
         }
     }
 
@@ -25,10 +27,11 @@ enum CompanionTheme: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .none: "Keep Tokenboard clean and compact"
         case .pokemon: "A starter and its evolution family"
-        case .tree: "A seedling growing into a landmark tree"
-        case .tower: "A small home becoming a city tower"
+        case .forest: "A lone sapling growing into an ancient pixel forest"
+        case .village: "A pixel hamlet rising into a high-rise skyline"
         case .oldSchoolRuneScape: "An adventurer upgrading through classic gear"
         case .ageOfEmpiresII: "Town centers advancing through the ages"
+        case .minecraft: "A survivor gearing up from spawn to the End"
         }
     }
 }
@@ -50,14 +53,16 @@ enum CompanionCatalog {
                 "Treecko", "Torchic", "Mudkip",
                 "Turtwig", "Chimchar", "Piplup"
             ])
-        case .tree:
-            named(["Oak"])
-        case .tower:
-            named(["City"])
+        case .forest:
+            named(["Wildwood"])
+        case .village:
+            named(["Riverstead"])
         case .oldSchoolRuneScape:
             named(["Ranger"])
         case .ageOfEmpiresII:
             named(["Town Center"])
+        case .minecraft:
+            named(["Steve"])
         }
     }
 
@@ -92,14 +97,20 @@ enum CompanionCatalog {
 }
 
 enum CompanionJourney {
+    /// Twelve milestones spread linearly to the one-billion summit: ninety
+    /// million tokens per stage, with the final stretch rounding up to 1B.
     static let thresholds: [Int64] = [
         0,
-        1_000_000,
-        4_000_000,
-        16_000_000,
-        64_000_000,
-        160_000_000,
-        400_000_000,
+        90_000_000,
+        180_000_000,
+        270_000_000,
+        360_000_000,
+        450_000_000,
+        540_000_000,
+        630_000_000,
+        720_000_000,
+        810_000_000,
+        900_000_000,
         1_000_000_000
     ]
 
@@ -178,6 +189,12 @@ struct CompanionPresentation: Equatable, Sendable {
     let theme: CompanionTheme
     let variant: CompanionVariant
     let stage: Int
+    /// Today's scenery pick for the stage — the same place on a different
+    /// day, rotated deterministically so no plate repeats two days running.
+    let scenery: Int
+    /// The user's stable companion seed; growing themes lay out their trees
+    /// and buildings from it so every install grows a distinct place.
+    let seed: UInt64
     let stageTitle: String
     let progressFraction: Double
     let tokensUntilNextStage: Int64?
@@ -198,39 +215,57 @@ struct CompanionPresentation: Equatable, Sendable {
               ) else { return nil }
         let stage = state.stage
         let title = stageTitles(for: state.theme)[stage]
+        let scenery = CompanionDailyVariantSelector.index(
+            key: "\(state.theme.rawValue)/scenery/\(stage)",
+            seed: state.seed,
+            date: date,
+            calendar: calendar,
+            variantCount: CompanionAssetCatalog.sceneryCount(for: state.theme)
+        )
         return CompanionPresentation(
             theme: state.theme,
             variant: variant,
             stage: stage,
+            scenery: scenery,
+            seed: state.seed,
             stageTitle: title,
             progressFraction: state.fraction,
             tokensUntilNextStage: state.progress.flatMap {
                 CompanionJourney.tokensUntilNextStage(for: $0.earnedTokens)
             },
             showsMilestone: state.progress?.hasUnacknowledgedMilestone == true,
-            accessibilityLabel: "\(state.theme.title), \(variant.title), stage \(stage + 1) of 8, \(title)"
+            accessibilityLabel: "\(state.theme.title), \(variant.title), stage \(stage + 1) of \(CompanionJourney.thresholds.count), \(title)"
         )
     }
 
     private static func stageTitles(for theme: CompanionTheme) -> [String] {
         switch theme {
         case .none:
-            Array(repeating: "", count: 8)
+            Array(repeating: "", count: CompanionJourney.thresholds.count)
         case .pokemon:
-            ["First partner", "First steps", "Training begins", "Growing stronger",
-             "Second evolution", "Seasoned partner", "Final evolution", "Evolution family"]
-        case .tree:
-            ["Seed", "Sprout", "Sapling", "Young tree", "Branching out",
-             "Mature tree", "Ancient canopy", "Landmark tree"]
-        case .tower:
-            ["Small house", "Townhouse", "Apartments", "Mid-rise", "High-rise",
-             "Skyline", "City tower", "Skyscraper"]
+            ["First partner", "First steps", "Rookie battles", "Training begins",
+             "Second evolution", "Growing stronger", "Proven team", "Seasoned partner",
+             "Final evolution", "Battle-hardened", "Victory Road", "Evolution family"]
+        case .forest:
+            ["Lone sapling", "First saplings", "Young grove", "Grove",
+             "Greenwood", "Woodland", "Deep woodland", "Old growth",
+             "Elder woods", "Ancient forest", "Primeval forest", "Endless forest"]
+        case .village:
+            ["First cottage", "Homestead", "Hamlet", "Village",
+             "Growing town", "Market town", "Busy town", "City blocks",
+             "City rising", "Downtown", "High-rise skyline", "Metropolis"]
         case .oldSchoolRuneScape:
-            ["Leather", "Studded leather", "Green d’hide", "Blue d’hide",
-             "Red d’hide", "Black d’hide", "Armadyl", "Masori"]
+            ["Leather", "Frog-leather", "Studded leather", "Snakeskin",
+             "Green d’hide", "Blue d’hide", "Red d’hide", "Black d’hide",
+             "Karil’s", "Armadyl", "Crystal", "Masori"]
         case .ageOfEmpiresII:
-            ["Dark Age camp", "Dark Age town", "Feudal Age", "Feudal settlement",
-             "Castle Age", "Castle town", "Imperial Age", "Imperial city"]
+            ["Dark Age camp", "Dark Age hamlet", "Dark Age town", "Feudal Age",
+             "Feudal village", "Feudal town", "Castle Age", "Castle village",
+             "Castle town", "Imperial Age", "Imperial city", "Imperial capital"]
+        case .minecraft:
+            ["Fresh spawn", "Into the woods", "Village life", "Lush caves",
+             "Jagged peaks", "Ancient city", "Nether wastes", "Crimson forest",
+             "Nether fortress", "Stronghold", "The End", "End city"]
         }
     }
 }
@@ -243,10 +278,29 @@ enum CompanionDailyVariantSelector {
         calendar: Calendar,
         variantCount: Int
     ) -> Int {
+        index(
+            key: theme.rawValue,
+            seed: seed,
+            date: date,
+            calendar: calendar,
+            variantCount: variantCount
+        )
+    }
+
+    /// Deterministic daily pick from `variantCount` options for any keyed
+    /// rotation. Distinct keys rotate independently, so the day's scenery
+    /// never correlates with the day's Pokémon family.
+    static func index(
+        key: String,
+        seed: UInt64,
+        date: Date,
+        calendar: Calendar,
+        variantCount: Int
+    ) -> Int {
         guard variantCount > 1 else { return 0 }
         let day = dayOrdinal(for: date, calendar: calendar)
         let position = positiveModulo(day, variantCount)
-        return permutation(count: variantCount, seed: seed ^ stableHash(theme.rawValue))[position]
+        return permutation(count: variantCount, seed: seed ^ CompanionHash.fnv1a(key))[position]
     }
 
     private static func dayOrdinal(for date: Date, calendar: Calendar) -> Int {
@@ -271,15 +325,9 @@ enum CompanionDailyVariantSelector {
         }
         return values
     }
-
-    private static func stableHash(_ string: String) -> UInt64 {
-        string.utf8.reduce(14_695_981_039_346_656_037) { value, byte in
-            (value ^ UInt64(byte)) &* 1_099_511_628_211
-        }
-    }
 }
 
-private struct SplitMix64 {
+struct SplitMix64 {
     var state: UInt64
 
     mutating func next() -> UInt64 {
@@ -288,5 +336,14 @@ private struct SplitMix64 {
         value = (value ^ (value >> 30)) &* 0xBF58476D1CE4E5B9
         value = (value ^ (value >> 27)) &* 0x94D049BB133111EB
         return value ^ (value >> 31)
+    }
+
+    /// Uniform value in [0, 1).
+    mutating func unit() -> Double {
+        Double(next() >> 11) / Double(1 << 53)
+    }
+
+    mutating func range(_ low: Double, _ high: Double) -> Double {
+        low + unit() * (high - low)
     }
 }

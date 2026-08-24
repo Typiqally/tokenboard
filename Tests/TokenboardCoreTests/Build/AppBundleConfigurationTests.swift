@@ -8,12 +8,22 @@ final class AppBundleConfigurationTests: XCTestCase {
         let root = TestRepository.root
         let companions = root.appending(path: "Resources/Companions")
         let representativeAssets = [
-            "Pokemon/Backgrounds/01-pallet-town.png",
-            "Tree/growing-tree.png",
-            "Tower/08-skyscraper.jpg",
-            "OldSchoolRuneScape/Characters/08-masori.png",
-            "OldSchoolRuneScape/Backgrounds/08-tombs-of-amascut.png",
-            "AgeOfEmpiresII/07-imperial-age.webp"
+            "Pokemon/scenes/01-pallet-town-a.jpg",
+            "Pokemon/scenes/12-indigo-plateau-c.jpg",
+            "Pokemon/art/001.png",
+            "Forest/scenes/01-a.png",
+            "Forest/scenes/12-c.png",
+            "Forest/sprites/oak-3.png",
+            "Forest/silhouettes/12.png",
+            "Village/scenes/12-b.png",
+            "Village/sprites/modern-3-lit.png",
+            "Village/silhouettes/12.png",
+            "OldSchoolRuneScape/Characters/12-masori.png",
+            "OldSchoolRuneScape/Backgrounds/12-tombs-of-amascut-b.jpg",
+            "AgeOfEmpiresII/scenes/12-imperial-capital-c.jpg",
+            "Minecraft/scenes/01-plains-a.jpg",
+            "Minecraft/scenes/12-end-city-c.jpg",
+            "Minecraft/characters/netherite.png"
         ]
         for resource in representativeAssets {
             let url = companions.appending(path: resource)
@@ -22,11 +32,11 @@ final class AppBundleConfigurationTests: XCTestCase {
             XCTAssertGreaterThan(size, 1_000, resource)
         }
         let pokemonDirectory = root.appending(path: "Resources/Companions/Pokemon")
-        let pokemonSprites = try FileManager.default.contentsOfDirectory(
-            at: pokemonDirectory,
+        let pokemonArtworks = try FileManager.default.contentsOfDirectory(
+            at: pokemonDirectory.appending(path: "art"),
             includingPropertiesForKeys: nil
         ).filter { $0.pathExtension == "png" }
-        XCTAssertEqual(pokemonSprites.count, 36)
+        XCTAssertEqual(pokemonArtworks.count, 36)
         XCTAssertTrue(FileManager.default.fileExists(
             atPath: pokemonDirectory.appending(path: "POKEAPI-LICENCE.txt").path
         ))

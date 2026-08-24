@@ -88,6 +88,8 @@ struct SettingsView: View {
         .toolbarBackground(Color(nsColor: .windowBackgroundColor), for: .windowToolbar)
         .toolbarBackground(.visible, for: .windowToolbar)
         .disabled(model.settingsState.isLoading || model.isDatabaseRestoreInProgress)
+        // The companion preview animates only while this window is on screen.
+        .tracksCompanionSceneVisibility()
     }
 
     private func settingsForm(for section: SettingsSection) -> some View {
@@ -322,16 +324,33 @@ private struct CompanionThemeShelf: View {
         }
     }
 
+    // Shelf tiles show a fixed, art-directed stage per theme so every
+    // thumbnail is immediately recognizable regardless of current progress.
+    // Pokémon still follows the day's starter family.
     private func presentation(
         for theme: CompanionTheme,
         date: Date
     ) -> CompanionPresentation? {
         var state = model.companionState
         state.theme = theme
-        return CompanionPresentation.make(
+        guard let live = CompanionPresentation.make(
             state: state,
             date: date,
             calendar: .current
+        ) else { return nil }
+        let shelfStage = CompanionAssetCatalog.shelfPreviewStage(for: theme)
+        return CompanionPresentation(
+            theme: live.theme,
+            variant: live.variant,
+            stage: shelfStage,
+            // Scenery 0 keeps every shelf thumbnail on its vetted plate.
+            scenery: 0,
+            seed: live.seed,
+            stageTitle: live.stageTitle,
+            progressFraction: live.progressFraction,
+            tokensUntilNextStage: live.tokensUntilNextStage,
+            showsMilestone: false,
+            accessibilityLabel: "\(theme.title) preview"
         )
     }
 }
@@ -401,8 +420,20 @@ private struct CompanionSettingsPreview: View {
                 calendar: .current
             ) {
                 HStack(alignment: .center, spacing: 18) {
-                    CompanionSceneView(presentation: companion)
-                        .frame(maxWidth: .infinity, minHeight: 142, maxHeight: 142)
+                    // The live preview keeps the popover scene's composition
+                    // and flexes to the row width the form offers, so the
+                    // Companion section card stays as wide as every other
+                    // section instead of stretching to a fixed preview size.
+                    CompanionSceneView(
+                        presentation: companion,
+                        isAmbientMotionActive: true
+                    )
+                        .aspectRatio(
+                            TokenboardSurfaceMetrics.popoverContentWidth
+                                / TokenboardSurfaceMetrics.companionSceneHeight,
+                            contentMode: .fit
+                        )
+                        .frame(maxWidth: .infinity)
                         .background(Color(nsColor: .underPageBackgroundColor))
                         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                         .overlay {
@@ -418,7 +449,7 @@ private struct CompanionSettingsPreview: View {
                             .textCase(.uppercase)
                         Text(companion.stageTitle)
                             .font(.title3.weight(.semibold))
-                        Text("Stage \(companion.stage + 1) of 8")
+                        Text("Stage \(companion.stage + 1) of \(CompanionJourney.thresholds.count)")
                             .font(.callout)
                             .foregroundStyle(.secondary)
                             .monospacedDigit()
@@ -435,7 +466,7 @@ private struct CompanionSettingsPreview: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
-                    .frame(minWidth: 250, maxWidth: 290, alignment: .leading)
+                    .frame(width: 230, alignment: .leading)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }

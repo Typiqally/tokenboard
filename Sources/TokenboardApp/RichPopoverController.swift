@@ -65,6 +65,7 @@ final class RichPopoverController: NSObject, NSPopoverDelegate {
 
     private let statusItem: NSStatusItem
     private let popover = NSPopover()
+    private let visibility = RichPopoverVisibility()
     private let model: AppModel?
     private let activateApplication: () -> Void
     private var stateObservation: AnyCancellable?
@@ -77,7 +78,12 @@ final class RichPopoverController: NSObject, NSPopoverDelegate {
 
     var renderedPopoverAnimates: Bool { popover.animates }
     var renderedPopoverSize: NSSize { popover.contentSize }
+    var renderedSizingOptions: NSHostingSizingOptions? {
+        (popover.contentViewController as? NSHostingController<AnyView>)?
+            .sizingOptions
+    }
     var renderedPopoverBehavior: NSPopover.Behavior { popover.behavior }
+    var renderedAmbientMotionActive: Bool { visibility.isPresented }
     var renderedStatusImage: NSImage? { statusItem.button?.image }
     var renderedStatusButtonActionMask: NSEvent.EventTypeMask {
         Self.statusButtonActionMask
@@ -95,13 +101,12 @@ final class RichPopoverController: NSObject, NSPopoverDelegate {
         configurePopover(
             rootView: AnyView(RichUsagePopoverView(
                 model: model,
+                visibility: visibility,
                 dismiss: { [weak self] in self?.popover.performClose(nil) }
             ))
         )
         stateObservation = model.$state.sink { [weak self] state in
-            self?.popover.contentSize = TokenboardSurfaceMetrics.popoverSize(
-                companionEnabled: state.companion.isVisible
-            )
+            self?.applyPopoverSize(companionEnabled: state.companion.isVisible)
             self?.updateStatus(for: state)
         }
         observeCalendarChanges()
@@ -137,15 +142,37 @@ final class RichPopoverController: NSObject, NSPopoverDelegate {
         popover.contentSize = TokenboardSurfaceMetrics.popoverSize(
             companionEnabled: model?.state.companion.isVisible == true
         )
-        popover.contentViewController = NSHostingController(rootView: rootView)
+        let controller = NSHostingController(rootView: rootView)
+        // The SwiftUI view's fixed frame is the popover's single source of
+        // truth: publishing it as `preferredContentSize` lets NSPopover keep
+        // its window and content view in agreement itself. Managing geometry
+        // by hand here raced AppKit's own layout — NSPopover insets its
+        // content view within a larger frame view, so forcing the view's
+        // frame shifted the whole layout toward the bottom-left.
+        controller.sizingOptions = .preferredContentSize
+        popover.contentViewController = controller
+    }
+
+    /// Redundant `contentSize` assignments relayout a shown popover and can
+    /// offset its content, so only touch the popover on real changes; the
+    /// hosting controller's `preferredContentSize` keeps the window and the
+    /// content view in agreement at show time.
+    private func applyPopoverSize(companionEnabled: Bool) {
+        let size = TokenboardSurfaceMetrics.popoverSize(
+            companionEnabled: companionEnabled
+        )
+        guard popover.contentSize != size else { return }
+        popover.contentSize = size
     }
 
     func popoverDidShow(_ notification: Notification) {
+        visibility.isPresented = true
         clickAwayDismissal.popoverDidShow()
         scheduleMilestoneAcknowledgement()
     }
 
     func popoverDidClose(_ notification: Notification) {
+        visibility.isPresented = false
         clickAwayDismissal.popoverDidClose()
         milestoneAcknowledgementTask?.cancel()
         milestoneAcknowledgementTask = nil

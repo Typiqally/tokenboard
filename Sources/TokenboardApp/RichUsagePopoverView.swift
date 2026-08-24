@@ -2,8 +2,14 @@ import AppKit
 import SwiftUI
 import TokenboardCore
 
+@MainActor
+final class RichPopoverVisibility: ObservableObject {
+    @Published var isPresented = false
+}
+
 struct RichUsagePopoverView: View {
     @ObservedObject var model: AppModel
+    @ObservedObject var visibility: RichPopoverVisibility
     let dismiss: () -> Void
     @State private var isRefreshPending = false
 
@@ -51,6 +57,9 @@ struct RichUsagePopoverView: View {
             )
             .background(.ultraThinMaterial)
         }
+        // Companion scenes inside the popover animate only while this
+        // window is genuinely on screen.
+        .tracksCompanionSceneVisibility()
     }
 
     private func header(
@@ -159,7 +168,7 @@ struct RichUsagePopoverView: View {
                 }
             }
             if let companion {
-                CompanionStrip(presentation: companion)
+                companionBand(companion)
             }
             UsageRangePicker(selection: historyRangeBinding)
                 .frame(width: TokenboardSurfaceMetrics.popoverContentWidth)
@@ -194,7 +203,7 @@ struct RichUsagePopoverView: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             if let companion {
-                CompanionStrip(presentation: companion)
+                companionBand(companion)
             }
             Button("Open Settings") {
                 model.openSettings()
@@ -224,7 +233,7 @@ struct RichUsagePopoverView: View {
             }
 
             if let companion {
-                CompanionStrip(presentation: companion)
+                companionBand(companion)
             }
 
             UsageRangePicker(selection: historyRangeBinding)
@@ -302,6 +311,15 @@ struct RichUsagePopoverView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+    }
+
+    /// The companion band bleeds through the page inset to the popover edges.
+    private func companionBand(_ companion: CompanionPresentation) -> some View {
+        CompanionStrip(
+            presentation: companion,
+            isAmbientMotionActive: visibility.isPresented
+        )
+            .padding(.horizontal, -TokenboardVisualStyle.pageInset)
     }
 
     private var historyRangeBinding: Binding<UsageHistoryRange> {

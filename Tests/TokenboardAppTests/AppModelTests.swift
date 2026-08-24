@@ -164,15 +164,15 @@ final class AppModelTests: XCTestCase {
         defer { setup.cleanup() }
         await setup.ledger.setLifetimeTotal(500_000_000)
 
-        await setup.model.select(companionTheme: .tree)
+        await setup.model.select(companionTheme: .forest)
 
-        XCTAssertEqual(setup.model.companionState.theme, .tree)
+        XCTAssertEqual(setup.model.companionState.theme, .forest)
         XCTAssertEqual(setup.model.companionState.progress?.earnedTokens, 0)
         XCTAssertEqual(
             setup.model.companionState.progress?.lastObservedLifetimeTotal,
             500_000_000
         )
-        XCTAssertEqual(setup.preferences.selectedCompanionTheme, .tree)
+        XCTAssertEqual(setup.preferences.selectedCompanionTheme, .forest)
 
         await setup.ledger.setLifetimeTotal(504_000_000)
         await setup.model.refreshCompanionProgress()
@@ -192,10 +192,10 @@ final class AppModelTests: XCTestCase {
         let setup = try makeSetup(approved: false, grantedProviders: [])
         defer { setup.cleanup() }
         await setup.ledger.setLifetimeTotal(10)
-        await setup.model.select(companionTheme: .tower)
+        await setup.model.select(companionTheme: .village)
 
         setup.model.setShowCompanionInMenuBar(true)
-        await setup.ledger.setLifetimeTotal(1_000_010)
+        await setup.ledger.setLifetimeTotal(90_000_010)
         await setup.model.refreshCompanionProgress()
 
         XCTAssertTrue(setup.model.companionState.showInMenuBar)
