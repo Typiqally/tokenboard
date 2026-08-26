@@ -268,7 +268,7 @@ final class SettingsTests: XCTestCase {
         await setup.model.refreshSettings()
 
         let termination = Task { await setup.model.shutdown() }
-        await shutdownGate.waitUntilEntered()
+        try await shutdownGate.waitUntilEntered()
         let restoreDuringTermination = Task {
             await setup.model.restoreBackup(recoveryFiles.backup)
         }
@@ -338,7 +338,7 @@ final class SettingsTests: XCTestCase {
         setup.model.onOpenPricing = { openedPricing = true }
 
         let restore = Task { await setup.model.restoreBackup(recoveryFiles.backup) }
-        await gate.waitUntilEntered()
+        try await gate.waitUntilEntered()
 
         XCTAssertEqual(
             DatabaseRecoveryView(model: setup.model).actionState,
@@ -509,7 +509,7 @@ final class SettingsTests: XCTestCase {
         guard await delegate.shutdownForTermination() == false else { throw SettingsError.injected }
 
         let retry = Task { await setup.model.retryDatabasePreservation() }
-        await retryGate.waitUntilEntered()
+        try await retryGate.waitUntilEntered()
         let shutdownCompleted = SettingsCompletionFlag()
         let shutdown = Task {
             let result = await setup.model.shutdown()
@@ -684,7 +684,7 @@ final class SettingsTests: XCTestCase {
             await setup.model.refreshSettings()
 
             let restore = Task { await setup.model.restoreLatestBackup() }
-            await gate.waitUntilEntered()
+            try await gate.waitUntilEntered()
             let completion = SettingsCompletionFlag()
             let shutdown = Task {
                 await setup.model.shutdown()
@@ -832,7 +832,12 @@ final class SettingsTests: XCTestCase {
 
     func testChangeThenRevokeSharesOneMutationAndKeepsReplacementGrantAtomic() async throws {
         let gate = SettingsMutationGate()
-        let replacement = URL(fileURLWithPath: "/private/tmp/change-wins", isDirectory: true)
+        let replacement = FileManager.default.temporaryDirectory.appending(
+            path: "SettingsTests-change-wins-\(UUID().uuidString)",
+            directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(at: replacement, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: replacement) }
         let setup = try makeSetup(
             grantedProviders: Set(Provider.allCases),
             approved: true,
@@ -844,7 +849,7 @@ final class SettingsTests: XCTestCase {
         await setup.coordinator.resetEvidence()
 
         let change = Task { await setup.model.changeSource(.claudeCode) }
-        await gate.waitUntilEntered()
+        try await gate.waitUntilEntered()
         XCTAssertTrue(setup.model.settingsState.isSourceMutationInProgress)
         let revoke = Task { await setup.model.revokeSource(.claudeCode) }
         await Task.yield()
@@ -877,7 +882,7 @@ final class SettingsTests: XCTestCase {
         await setup.coordinator.resetEvidence()
 
         let revoke = Task { await setup.model.revokeSource(.claudeCode) }
-        await gate.waitUntilEntered()
+        try await gate.waitUntilEntered()
         let change = Task { await setup.model.changeSource(.claudeCode) }
         await Task.yield()
         await gate.release()
@@ -904,7 +909,7 @@ final class SettingsTests: XCTestCase {
         await setup.coordinator.resetEvidence()
 
         let first = Task { await setup.model.revokeSource(.claudeCode) }
-        await gate.waitUntilEntered()
+        try await gate.waitUntilEntered()
         let second = Task { await setup.model.revokeSource(.claudeCode) }
         await Task.yield()
         await gate.release()
@@ -1128,7 +1133,10 @@ private struct SettingsSetup {
     let cleanup: () -> Void
 }
 
-private enum SettingsError: Error { case injected }
+private enum SettingsError: Error {
+    case injected
+    case gateTimeout
+}
 
 private actor SettingsRecovery: AppDatabaseRecovering {
     private let backup: DatabaseBackup
@@ -1349,20 +1357,20 @@ private actor SettingsMutationGate {
     private var entered = false
     private var released = false
     private var waiters: [CheckedContinuation<Void, Never>] = []
-    private var enteredWaiters: [CheckedContinuation<Void, Never>] = []
 
     func suspend() async {
         entered = true
-        let observers = enteredWaiters
-        enteredWaiters.removeAll()
-        observers.forEach { $0.resume() }
         guard !released else { return }
         await withCheckedContinuation { waiters.append($0) }
     }
 
-    func waitUntilEntered() async {
-        guard !entered else { return }
-        await withCheckedContinuation { enteredWaiters.append($0) }
+    func waitUntilEntered() async throws {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while !entered {
+            guard clock.now < deadline else { throw SettingsError.gateTimeout }
+            try await Task.sleep(for: .milliseconds(10))
+        }
     }
 
     func release() {
