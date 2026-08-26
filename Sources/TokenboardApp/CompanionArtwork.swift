@@ -196,12 +196,28 @@ struct CompanionSceneCanvas: View {
         Canvas(opaque: false, rendersAsynchronously: false) { context, size in
             guard let asset = composition.asset else { return }
             draw(background: asset, frame: frame, in: &context, size: size)
-            for placement in composition.placements {
-                draw(placement: placement, frame: frame, time: time, in: &context)
+            for item in CompanionSceneDepth.painterOrder(
+                placements: composition.placements,
+                actors: frame.actors
+            ) {
+                switch item {
+                case let .placement(index):
+                    draw(
+                        placement: composition.placements[index],
+                        frame: frame,
+                        time: time,
+                        in: &context
+                    )
+                case let .actor(index):
+                    draw(
+                        actor: frame.actors[index],
+                        motion: frame.background,
+                        in: &context,
+                        size: size
+                    )
+                }
             }
-            // The inhabitants stand in the near foreground of their world, so
-            // the weather above them still passes over them.
-            draw(actors: frame.actors, motion: frame.background, in: &context, size: size)
+            // Atmosphere crosses the whole world, including its inhabitants.
             draw(bands: frame.bands, in: &context, size: size)
             draw(glows: frame.glows, in: &context, size: size)
             draw(particles: frame.particles, in: &context, size: size)
@@ -374,52 +390,50 @@ struct CompanionSceneCanvas: View {
     /// bundled strips; Forest and Village retain Tokenboard's original body
     /// plans so those worlds stay wholly original artwork.
     private func draw(
-        actors: [CompanionActor],
+        actor: CompanionActor,
         motion: CompanionBackgroundMotion,
         in context: inout GraphicsContext,
         size: CGSize
     ) {
-        guard !actors.isEmpty, size.height > 0 else { return }
+        guard actor.opacity > 0.01, size.height > 0 else { return }
         let scale = size.height / TokenboardSurfaceMetrics.companionSceneHeight
-        for actor in actors where actor.opacity > 0.01 {
-            var height = max(3, actor.height * scale)
-            // Inhabitants stand in the world, so they travel with its camera.
-            var ground = CGPoint(
-                x: actor.x * size.width + motion.offsetX,
-                y: actor.y * size.height - actor.lift * scale + motion.offsetY
+        var height = max(3, actor.height * scale)
+        // Inhabitants stand in the world, so they travel with its camera.
+        var ground = CGPoint(
+            x: actor.x * size.width + motion.offsetX,
+            y: actor.y * size.height - actor.lift * scale + motion.offsetY
+        )
+        guard ground.x > -height * 2, ground.x < size.width + height * 2 else { return }
+        if actor.snapsToPixelGrid {
+            let grid = composition.artPixel
+            height = max(grid * 2, (height / grid).rounded() * grid)
+            ground = CGPoint(
+                x: (ground.x / grid).rounded() * grid,
+                y: (ground.y / grid).rounded() * grid
             )
-            guard ground.x > -height * 2, ground.x < size.width + height * 2 else { continue }
-            if actor.snapsToPixelGrid {
-                let grid = composition.artPixel
-                height = max(grid * 2, (height / grid).rounded() * grid)
-                ground = CGPoint(
-                    x: (ground.x / grid).rounded() * grid,
-                    y: (ground.y / grid).rounded() * grid
-                )
+        }
+        if let sprite = actor.sprite {
+            if actor.body != .flier || actor.pose == .perched || actor.pose == .idle {
+                drawContactShadow(for: actor, at: ground, height: height, in: &context)
             }
-            if let sprite = actor.sprite {
-                if actor.body != .flier || actor.pose == .perched || actor.pose == .idle {
-                    drawContactShadow(for: actor, at: ground, height: height, in: &context)
-                }
-                drawSprite(
-                    sprite,
-                    frame: actor.spriteFrame ?? 0,
-                    for: actor,
-                    at: ground,
-                    height: height,
-                    in: &context
-                )
-            } else {
-                switch actor.body {
-                case .biped:
-                    drawContactShadow(for: actor, at: ground, height: height, in: &context)
-                    drawBiped(actor, at: ground, height: height, in: &context)
-                case .quadruped:
-                    drawContactShadow(for: actor, at: ground, height: height, in: &context)
-                    drawQuadruped(actor, at: ground, height: height, in: &context)
-                case .flier:
-                    drawFlier(actor, at: ground, height: height, in: &context)
-                }
+            drawSprite(
+                sprite,
+                frame: actor.spriteFrame ?? 0,
+                for: actor,
+                at: ground,
+                height: height,
+                in: &context
+            )
+        } else {
+            switch actor.body {
+            case .biped:
+                drawContactShadow(for: actor, at: ground, height: height, in: &context)
+                drawBiped(actor, at: ground, height: height, in: &context)
+            case .quadruped:
+                drawContactShadow(for: actor, at: ground, height: height, in: &context)
+                drawQuadruped(actor, at: ground, height: height, in: &context)
+            case .flier:
+                drawFlier(actor, at: ground, height: height, in: &context)
             }
         }
     }
