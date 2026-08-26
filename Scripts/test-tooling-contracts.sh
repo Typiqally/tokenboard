@@ -35,6 +35,16 @@ if /usr/bin/grep -R -q -- '--clobber' \
   fail "release tooling permits mutable artifact replacement"
 fi
 
+runtime_gate="$repository_root/Scripts/verify-runtime-resources.sh"
+for isolated_default in \
+  'sourceBookmark.claude_code' \
+  'sourceBookmark.codex' \
+  'historicalImportApproved' \
+  'selectedCompanionTheme'; do
+  /usr/bin/grep -q -- "-$isolated_default" "$runtime_gate" \
+    || fail "runtime resource gate inherits $isolated_default from its test container"
+done
+
 claude_root="$test_root/claude"
 codex_root="$test_root/codex"
 ledger_path="$test_root/ledger.sqlite"
