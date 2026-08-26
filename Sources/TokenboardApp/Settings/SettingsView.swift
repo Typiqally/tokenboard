@@ -37,7 +37,7 @@ enum CompanionSettingsLayout {
     static let navigatorThumbnailSize = CGSize(width: 52, height: 28)
     static let navigatorRowMinimumHeight: CGFloat = 40
     static let minimumPreviewWidth: CGFloat = 340
-    static let maximumSceneHeight: CGFloat = 220
+    static let maximumSceneWidth: CGFloat = 812
 }
 
 enum SettingsSection: String, CaseIterable, Identifiable {
@@ -466,13 +466,14 @@ private struct CompanionSettingsPreview: View {
                     / TokenboardSurfaceMetrics.companionSceneHeight,
                 contentMode: .fit
             )
-            .frame(maxHeight: CompanionSettingsLayout.maximumSceneHeight)
+            .frame(maxWidth: CompanionSettingsLayout.maximumSceneWidth)
             .background(Color(nsColor: .underPageBackgroundColor))
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .strokeBorder(Color(nsColor: .separatorColor))
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             HStack(alignment: .top, spacing: 16) {
                 VStack(alignment: .leading, spacing: 4) {
