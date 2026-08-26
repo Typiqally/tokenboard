@@ -19,6 +19,11 @@ final class AppModel: ObservableObject {
     var selectedPeriod: CalendarPeriod { state.selectedPeriod }
     var selectedDisplayMetric: DisplayMetric { state.selectedDisplayMetric }
     var selectedDisplayCurrency: DisplayCurrency { state.selectedDisplayCurrency }
+    func isDisplayCurrencyAvailable(_ currency: DisplayCurrency) -> Bool {
+        currency == .usd
+            || lastSummary?.exchangeRates?.rates[currency] != nil
+            || settingsState.pricing.exchangeRates?.rates[currency] != nil
+    }
     var companionState: CompanionState { state.companion }
     var selectedHistoryRange: UsageHistoryRange { state.selectedHistoryRange }
     var historyState: UsageHistoryLoadState { state.historyState }
@@ -227,7 +232,8 @@ final class AppModel: ObservableObject {
         guard !isDatabaseRestoreInProgress,
               !isDatabaseRecoveryActionLocked,
               state.lifecycle != .stopped,
-              state.lifecycle != .shuttingDown else { return }
+              state.lifecycle != .shuttingDown,
+              isDisplayCurrencyAvailable(displayCurrency) else { return }
         preferences.selectedDisplayCurrency = displayCurrency
         var next = state
         next.selectedDisplayCurrency = displayCurrency
@@ -235,6 +241,17 @@ final class AppModel: ObservableObject {
             next.presentation = makePresentation(summary: lastSummary, state: next)
         }
         state = next
+    }
+
+    func normalizeDisplayCurrency(
+        in state: inout AppPublishedState,
+        for summary: UsageSummary
+    ) {
+        let currency = state.selectedDisplayCurrency
+        guard currency != .usd,
+              summary.exchangeRates?.rates[currency] == nil else { return }
+        preferences.selectedDisplayCurrency = .usd
+        state.selectedDisplayCurrency = .usd
     }
 
     func select(companionTheme: CompanionTheme) async {

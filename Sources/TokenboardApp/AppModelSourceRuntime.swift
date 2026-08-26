@@ -395,6 +395,7 @@ extension AppModel {
            period == state.selectedPeriod,
            case let .success(summary) = summaryResult {
             lastSummary = summary
+            normalizeDisplayCurrency(in: &next, for: summary)
             next.health = next.health.replacing(unpricedTokens: summary.unpricedTokens)
             next.presentation = makePresentation(summary: summary, state: next)
         } else if let lastSummary {
@@ -617,6 +618,7 @@ extension AppModel {
                   state.selectedPeriod == period else { return }
             lastSummary = summary
             var next = state
+            normalizeDisplayCurrency(in: &next, for: summary)
             next.health = next.health.replacing(unpricedTokens: summary.unpricedTokens)
             next.presentation = makePresentation(summary: summary, state: next)
             commitState(next)

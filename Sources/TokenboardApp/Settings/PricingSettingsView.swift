@@ -104,7 +104,7 @@ struct PricingSettingsView: View {
                 ForEach(DisplayCurrency.allCases, id: \.rawValue) { currency in
                     Text(UsageSelectionPresentation.currencyTitle(currency))
                         .tag(currency)
-                        .disabled(currency != .usd && pricing.exchangeRates?.rates[currency] == nil)
+                        .disabled(!model.isDisplayCurrencyAvailable(currency))
                 }
             }
             .pickerStyle(.menu)

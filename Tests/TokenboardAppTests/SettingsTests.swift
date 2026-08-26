@@ -1237,6 +1237,7 @@ private actor SettingsLedger: AppLedgerRuntime {
     func pricingSnapshot() -> PricingSnapshot { pricing }
     func usageRows(in interval: DateInterval?, calendar: Calendar) -> [DailyUsageRow] { rows }
     func skippedRecordCount() -> Int { currentSkippedRecordCount }
+    func skippedRecordCountsByProvider() -> [Provider: Int] { [:] }
     func setSkippedRecordCount(_ count: Int) { currentSkippedRecordCount = count }
     func shutdown() async throws {
         shutdowns += 1

@@ -21,13 +21,6 @@ protocol AppLedgerRuntime: Sendable {
     func shutdown() async throws
 }
 
-extension AppLedgerRuntime {
-    func shutdown() async throws {}
-
-    func skippedRecordCountsByProvider() async throws -> [Provider: Int] { [:] }
-
-}
-
 protocol AppUsageQuerying: Sendable {
     func summary(
         period: CalendarPeriod,
@@ -95,10 +88,6 @@ extension AppDatabaseRecovering {
     func retryPreservation() async throws {
         throw DatabaseRecoveryError.preservationFailed
     }
-}
-
-extension AppPricingInboxWatching {
-    func quiesce() async throws {}
 }
 
 extension SQLiteLedger: AppLedgerRuntime {}

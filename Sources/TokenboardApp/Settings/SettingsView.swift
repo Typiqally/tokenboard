@@ -148,7 +148,9 @@ struct SettingsView: View {
                 set: { model.select(displayCurrency: $0) }
             )) {
                 ForEach(UsageSelectionPresentation.currencies, id: \.rawValue) { currency in
-                    Text(currency.rawValue).tag(currency)
+                    Text(UsageSelectionPresentation.currencyTitle(currency))
+                        .tag(currency)
+                        .disabled(!model.isDisplayCurrencyAvailable(currency))
                 }
             }
             .pickerStyle(.menu)

@@ -309,6 +309,8 @@ private actor PresentationLedger: AppLedgerRuntime {
     }
     func usageRows(in interval: DateInterval?, calendar: Calendar) -> [DailyUsageRow] { [] }
     func skippedRecordCount() -> Int { 0 }
+    func skippedRecordCountsByProvider() -> [Provider: Int] { [:] }
+    func shutdown() {}
 }
 
 private actor PresentationQuery: AppUsageQuerying {
@@ -345,6 +347,7 @@ private actor PresentationCoordinator: AppIngestionCoordinating {
 
 private actor PresentationInbox: AppPricingInboxWatching {
     func start() {}
+    func quiesce() {}
     func stop() {}
     func status() -> PricingCatalogStatus? { nil }
     func updates() -> AsyncStream<PricingCatalogStatus> { AsyncStream { $0.finish() } }

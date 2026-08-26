@@ -401,6 +401,8 @@ private actor RuntimeLedger: AppLedgerRuntime {
     }
     func usageRows(in interval: DateInterval?, calendar: Calendar) -> [DailyUsageRow] { [] }
     func skippedRecordCount() -> Int { 0 }
+    func skippedRecordCountsByProvider() -> [Provider: Int] { [:] }
+    func shutdown() { recorder.append("ledger.shutdown") }
 }
 
 private actor RuntimeQuery: AppUsageQuerying {
@@ -525,6 +527,7 @@ private actor RuntimePricingInbox: AppPricingInboxWatching {
     let recorder: OrderedRecorder
     init(recorder: OrderedRecorder) { self.recorder = recorder }
     func start() { recorder.append("inbox.start") }
+    func quiesce() {}
     func stop() { recorder.append("inbox.stop") }
     func status() -> PricingCatalogStatus? { nil }
     func updates() -> AsyncStream<PricingCatalogStatus> { AsyncStream { $0.finish() } }
