@@ -135,6 +135,22 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(setup.access.stopCount, 2)
     }
 
+    func testUnavailableDisplayCurrencyCannotBeSelectedOrPersisted() async throws {
+        let setup = try makeSetup(approved: true, grantedProviders: [.codex])
+        defer { setup.cleanup() }
+        await setup.model.start()
+
+        setup.model.select(displayCurrency: .jpy)
+
+        XCTAssertEqual(setup.model.selectedDisplayCurrency, .usd)
+        XCTAssertEqual(setup.preferences.selectedDisplayCurrency, .usd)
+
+        setup.model.select(displayCurrency: .eur)
+
+        XCTAssertEqual(setup.model.selectedDisplayCurrency, .eur)
+        XCTAssertEqual(setup.preferences.selectedDisplayCurrency, .eur)
+    }
+
     func testImportCachesEveryTrendRangeAndRangeSelectionDoesNotQuery() async throws {
         let setup = try makeSetup(approved: false, grantedProviders: Set(Provider.allCases))
         defer { setup.cleanup() }
