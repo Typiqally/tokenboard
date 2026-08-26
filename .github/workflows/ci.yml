@@ -20,6 +20,10 @@ jobs:
           fetch-depth: 0
       - name: Run tests
         run: swift test
+      - name: Verify companion asset inventory
+        run: Scripts/verify-asset-rights.sh development
+      - name: Verify tooling contracts
+        run: Scripts/test-tooling-contracts.sh
       - name: Build release app
         run: Scripts/build-app.sh release universal
       - name: Verify signed bundle

@@ -53,7 +53,7 @@ func write(_ cgImage: CGImage, to url: URL, jpegQuality: Double?) throws {
         at: url.deletingLastPathComponent(),
         withIntermediateDirectories: true
     )
-    try data.write(to: url)
+    try data.write(to: url, options: .atomic)
 }
 
 // MARK: - Crops

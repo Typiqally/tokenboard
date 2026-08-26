@@ -15,6 +15,7 @@ fi
 script_dir=${0:A:h}
 repository_root=${script_dir:h}
 cd "$repository_root"
+"$repository_root/Scripts/verify-asset-rights.sh" development
 
 destination="$repository_root/.build/$configuration/Tokenboard.app"
 if [[ "$destination" != "$repository_root/.build/"* ]]; then
@@ -49,9 +50,17 @@ ditto Resources/Info.plist "$staging_app/Contents/Info.plist"
 if [[ -f Resources/tokenboard-pricing.json ]]; then
   ditto Resources/tokenboard-pricing.json "$staging_app/Contents/Resources/tokenboard-pricing.json"
 fi
-if [[ -d Resources/Companions ]]; then
-  ditto Resources/Companions "$staging_app/Contents/Resources/Companions"
-fi
+companion_source="$repository_root/Resources/Companions"
+companion_destination="$staging_app/Contents/Resources/Companions"
+companion_manifest="$companion_source/rights-manifest.json"
+mkdir -p "$companion_destination"
+ditto "$companion_source/README.md" "$companion_destination/README.md"
+ditto "$companion_manifest" "$companion_destination/rights-manifest.json"
+companion_group_count=$(/usr/bin/plutil -extract assetGroups raw -o - -- "$companion_manifest")
+for (( index = 0; index < companion_group_count; index++ )); do
+  bundle_path=$(/usr/bin/plutil -extract "assetGroups.$index.bundlePath" raw -o - -- "$companion_manifest")
+  ditto "$companion_source/$bundle_path" "$companion_destination/$bundle_path"
+done
 
 sign_identity=${TOKENBOARD_SIGN_IDENTITY:--}
 sign_arguments=(--force --sign "$sign_identity" --entitlements Resources/Tokenboard.entitlements)

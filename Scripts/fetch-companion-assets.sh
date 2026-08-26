@@ -16,22 +16,62 @@ if (( $# != 1 )); then
   exit 64
 fi
 raw_root=${1:A}
+script_dir=${0:A:h}
+hash_manifest="$script_dir/companion-source-hashes.sha256"
+verify_manifest_only=${TOKENBOARD_VERIFY_ASSET_MANIFEST_ONLY:-0}
+typeset -A requested_assets
 
 fetch_asset() {
   local source_url=$1
-  local destination="$raw_root/$2"
-  local temporary_path="${destination}.download"
+  local relative_path=$2
+  local destination="$raw_root/$relative_path"
+  if [[ -n ${requested_assets[$relative_path]-} ]]; then
+    print -u2 "duplicate source asset request: $relative_path"
+    exit 65
+  fi
+  requested_assets[$relative_path]=1
+  local expected_hash=$(/usr/bin/awk -v path="$relative_path" '$2 == path { print $1 }' "$hash_manifest")
+  if [[ ! "$expected_hash" =~ '^[0-9a-f]{64}$' ]]; then
+    print -u2 "missing or invalid source hash: $relative_path"
+    exit 65
+  fi
+  if [[ "$verify_manifest_only" == "1" ]]; then
+    return
+  fi
   mkdir -p "${destination:h}"
+  if [[ -e "$destination" ]]; then
+    local existing_hash=$(/usr/bin/shasum -a 256 "$destination" | /usr/bin/awk '{ print $1 }')
+    if [[ "$existing_hash" == "$expected_hash" ]]; then
+      return
+    fi
+    print -u2 "refusing to replace mismatched existing asset: $relative_path"
+    exit 73
+  fi
+  local temporary_path=$(/usr/bin/mktemp "${destination:h}/.${destination:t}.XXXXXX")
   curl \
     --location \
     --fail \
     --silent \
     --show-error \
     --retry 3 \
+    --proto '=https' \
+    --tlsv1.2 \
+    --max-time 120 \
     --user-agent 'Tokenboard companion asset bundler (local development)' \
     "$source_url" \
-    --output "$temporary_path"
-  mv "$temporary_path" "$destination"
+    --output "$temporary_path" || {
+      /bin/rm -f -- "$temporary_path"
+      return 1
+    }
+  local actual_hash=$(/usr/bin/shasum -a 256 "$temporary_path" | /usr/bin/awk '{ print $1 }')
+  if [[ "$actual_hash" != "$expected_hash" ]]; then
+    /bin/rm -f -- "$temporary_path"
+    print -u2 "source hash mismatch: $relative_path"
+    exit 65
+  fi
+  /bin/chmod 0644 "$temporary_path"
+  /bin/ln -- "$temporary_path" "$destination"
+  /bin/rm -f -- "$temporary_path"
 }
 
 # --- Pokémon -----------------------------------------------------------------
@@ -122,6 +162,28 @@ fetch_asset 'https://minecraft.wiki/images/Chainmail_Armor_JE2_BE2.png' 'minecra
 fetch_asset 'https://minecraft.wiki/images/Iron_Armor_JE2_BE2.png' 'minecraft/characters/iron.png'
 fetch_asset 'https://minecraft.wiki/images/Diamond_Armor_JE2_BE2.png' 'minecraft/characters/diamond.png'
 fetch_asset 'https://minecraft.wiki/images/Netherite_Armor_JE2.png' 'minecraft/characters/netherite.png'
+
+manifest_count=0
+while read -r source_hash source_path; do
+  if [[ ! "$source_hash" =~ '^[0-9a-f]{64}$' || -z "$source_path" ]]; then
+    print -u2 "invalid companion source hash manifest entry"
+    exit 65
+  fi
+  if [[ -z ${requested_assets[$source_path]-} ]]; then
+    print -u2 "unused companion source hash: $source_path"
+    exit 65
+  fi
+  (( manifest_count += 1 ))
+done < "$hash_manifest"
+if (( manifest_count != ${#requested_assets} )); then
+  print -u2 "companion source request count does not match hash manifest"
+  exit 65
+fi
+
+if [[ "$verify_manifest_only" == "1" ]]; then
+  print "Companion source manifest verified"
+  exit 0
+fi
 
 print "Raw companion source material downloaded to $raw_root"
 print "Bake it with: swift Scripts/bake-companion-assets.swift $raw_root"

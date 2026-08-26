@@ -181,7 +181,7 @@ final class PixelCanvas {
             at: url.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        try png.write(to: url)
+        try png.write(to: url, options: .atomic)
     }
 }
 
