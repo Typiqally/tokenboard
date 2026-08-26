@@ -481,10 +481,7 @@ public actor SQLiteLedger: LedgerStore {
                       decimal >= 0,
                       decimal <= 100_000,
                       DecimalString(decimal: decimal).rawValue == storedPrice,
-                      let provenanceComponents = URLComponents(string: storedProvenance),
-                      provenanceComponents.scheme?.lowercased() == "https",
-                      provenanceComponents.host != nil,
-                      let provenanceURL = provenanceComponents.url else {
+                      let provenanceURL = SecureHTTPSURL.parse(storedProvenance) else {
                     throw LedgerError.corruptData("stored pricing rate is invalid")
                 }
                 values.append(StoredPriceRate(
@@ -570,11 +567,8 @@ public actor SQLiteLedger: LedgerStore {
                 let effectiveDate = try requiredText(statement, at: 3)
                 let rawProvenance = try requiredText(statement, at: 4)
                 let verifiedAt = try requiredText(statement, at: 5)
-                guard Self.isGregorianDay(effectiveDate), Self.isGregorianDay(verifiedAt),
-                      let components = URLComponents(string: rawProvenance),
-                      components.scheme?.lowercased() == "https",
-                      components.host != nil,
-                      let provenanceURL = components.url else {
+                guard GregorianDay.isValid(effectiveDate), GregorianDay.isValid(verifiedAt),
+                      let provenanceURL = SecureHTTPSURL.parse(rawProvenance) else {
                     throw LedgerError.corruptData("stored exchange-rate metadata is invalid")
                 }
                 if records[catalogID] == nil {
@@ -812,30 +806,6 @@ public actor SQLiteLedger: LedgerStore {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter.string(from: Date())
-    }
-
-    private static func isGregorianDay(_ value: String) -> Bool {
-        let bytes = Array(value.utf8)
-        guard bytes.count == 10,
-              bytes[4] == 0x2D,
-              bytes[7] == 0x2D,
-              bytes.enumerated().allSatisfy({ index, byte in
-                  index == 4 || index == 7 || (0x30...0x39).contains(byte)
-              }) else { return false }
-        let year = bytes[0...3].reduce(0) { $0 * 10 + Int($1 - 0x30) }
-        let month = bytes[5...6].reduce(0) { $0 * 10 + Int($1 - 0x30) }
-        let day = bytes[8...9].reduce(0) { $0 * 10 + Int($1 - 0x30) }
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
-        guard let date = calendar.date(from: DateComponents(
-            calendar: calendar,
-            timeZone: calendar.timeZone,
-            year: year,
-            month: month,
-            day: day
-        )) else { return false }
-        let roundTrip = calendar.dateComponents([.year, .month, .day], from: date)
-        return roundTrip.year == year && roundTrip.month == month && roundTrip.day == day
     }
 
     private func loadOrCreatePrivacyHasher(using connection: SQLiteConnection) throws -> PrivacyHasher {

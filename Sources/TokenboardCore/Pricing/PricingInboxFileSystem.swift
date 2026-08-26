@@ -91,15 +91,24 @@ final class POSIXPricingCatalogFileSystem: PricingCatalogFileSystem, @unchecked 
         guard file >= 0 else { throw PricingCatalogError.catalogUnavailable }
         defer { Darwin.close(file) }
 
-        var status = stat()
-        guard fstat(file, &status) == 0 else {
+        var initialStatus = stat()
+        guard fstat(file, &initialStatus) == 0 else {
             throw PricingCatalogError.catalogUnavailable
         }
-        guard status.st_mode & S_IFMT == S_IFREG else {
+        guard initialStatus.st_mode & S_IFMT == S_IFREG else {
             throw PricingCatalogError.catalogNotRegularFile
         }
-        guard status.st_nlink == 1 else {
+        guard initialStatus.st_nlink == 1 else {
             throw PricingCatalogError.catalogHasMultipleLinks
+        }
+        guard initialStatus.st_uid == geteuid(),
+              fchmod(file, S_IRUSR | S_IWUSR) == 0 else {
+            throw PricingCatalogError.catalogUnavailable
+        }
+        var status = stat()
+        guard fstat(file, &status) == 0,
+              status.st_mode & (S_IRWXU | S_IRWXG | S_IRWXO) == (S_IRUSR | S_IWUSR) else {
+            throw PricingCatalogError.catalogUnavailable
         }
         guard status.st_size >= 0, status.st_size <= 1_048_576 else {
             throw PricingCatalogError.catalogTooLarge
@@ -107,20 +116,31 @@ final class POSIXPricingCatalogFileSystem: PricingCatalogFileSystem, @unchecked 
 
         var data = Data()
         data.reserveCapacity(Int(status.st_size))
-        var buffer = [UInt8](repeating: 0, count: 64 * 1_024)
-        while true {
-            let count = Darwin.read(file, &buffer, buffer.count)
-            if count == 0 { break }
-            if count < 0 {
-                if errno == EINTR { continue }
-                throw PricingCatalogError.catalogUnavailable
-            }
-            guard data.count + count <= 1_048_576 else {
-                throw PricingCatalogError.catalogTooLarge
-            }
-            data.append(buffer, count: count)
+        do {
+            try BoundedDescriptorRead.consume(
+                descriptor: file,
+                exactByteCount: Int64(status.st_size)
+            ) { data.append($0) }
+        } catch is BoundedDescriptorReadError {
+            throw PricingCatalogError.catalogUnavailable
+        }
+        var after = stat()
+        guard fstat(file, &after) == 0,
+              Self.sameFile(status, after) else {
+            throw PricingCatalogError.catalogUnavailable
         }
         return PricingCatalogOpenedFile(data: data)
+    }
+
+    private static func sameFile(_ lhs: stat, _ rhs: stat) -> Bool {
+        lhs.st_dev == rhs.st_dev
+            && lhs.st_ino == rhs.st_ino
+            && lhs.st_mode == rhs.st_mode
+            && lhs.st_uid == rhs.st_uid
+            && lhs.st_nlink == rhs.st_nlink
+            && lhs.st_size == rhs.st_size
+            && lhs.st_mtimespec.tv_sec == rhs.st_mtimespec.tv_sec
+            && lhs.st_mtimespec.tv_nsec == rhs.st_mtimespec.tv_nsec
     }
 
     func replaceCanonical(_ data: Data, name: String) throws {
@@ -165,9 +185,11 @@ final class POSIXPricingCatalogFileSystem: PricingCatalogFileSystem, @unchecked 
             throw PricingCatalogError.insecureManagedDirectory(name)
         }
         var status = stat()
-        guard fstat(descriptor, &status) == 0,
+        guard fchmod(descriptor, S_IRWXU) == 0,
+              fstat(descriptor, &status) == 0,
               status.st_mode & S_IFMT == S_IFDIR,
-              status.st_uid == geteuid() else {
+              status.st_uid == geteuid(),
+              status.st_mode & (S_IRWXU | S_IRWXG | S_IRWXO) == S_IRWXU else {
             Darwin.close(descriptor)
             throw PricingCatalogError.insecureManagedDirectory(name)
         }

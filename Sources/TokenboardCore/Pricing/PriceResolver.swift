@@ -320,40 +320,9 @@ public struct PriceResolver: Sendable {
     }
 
     private func validateGregorianDay(_ value: String) throws {
-        let bytes = Array(value.utf8)
-        guard bytes.count == 10,
-              bytes[4] == 0x2D,
-              bytes[7] == 0x2D,
-              bytes.enumerated().allSatisfy({ index, byte in
-                  index == 4 || index == 7 || (0x30...0x39).contains(byte)
-              }) else {
+        guard GregorianDay.isValid(value) else {
             throw PriceResolverError.invalidEffectiveDate(value)
         }
-
-        let year = decimalValue(bytes[0...3])
-        let month = decimalValue(bytes[5...6])
-        let day = decimalValue(bytes[8...9])
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.locale = Locale(identifier: "en_US_POSIX")
-        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
-        let components = DateComponents(
-            calendar: calendar,
-            timeZone: calendar.timeZone,
-            year: year,
-            month: month,
-            day: day
-        )
-        guard let date = calendar.date(from: components) else {
-            throw PriceResolverError.invalidEffectiveDate(value)
-        }
-        let roundTrip = calendar.dateComponents([.year, .month, .day], from: date)
-        guard roundTrip.year == year, roundTrip.month == month, roundTrip.day == day else {
-            throw PriceResolverError.invalidEffectiveDate(value)
-        }
-    }
-
-    private func decimalValue(_ bytes: ArraySlice<UInt8>) -> Int {
-        bytes.reduce(0) { $0 * 10 + Int($1 - 0x30) }
     }
 
     private func effectiveRecord(
