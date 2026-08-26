@@ -160,6 +160,24 @@ final class UsageHistoryQueryServiceTests: XCTestCase {
         XCTAssertNil(snapshot.comparison.percentChange)
     }
 
+    func testBulkHistoryReadsUsageAndPricingOnlyOnce() async throws {
+        let ledger = HistoryQueryTestLedger(rows: [])
+
+        let snapshots = try await UsageQueryService(ledger: ledger).history(
+            ranges: UsageHistoryRange.allCases,
+            now: date("2026-08-11T10:00:00Z"),
+            calendar: amsterdamCalendar()
+        )
+
+        let usageQueries = await ledger.usageQueryCount()
+        let hourlyQueries = await ledger.hourlyUsageQueryCount()
+        let pricingQueries = await ledger.pricingSnapshotCallCount()
+        XCTAssertEqual(Set(snapshots.keys), Set(UsageHistoryRange.allCases))
+        XCTAssertEqual(usageQueries, 1)
+        XCTAssertEqual(hourlyQueries, 1)
+        XCTAssertEqual(pricingQueries, 1)
+    }
+
     private func row(
         day value: String,
         provider: Provider,
@@ -226,6 +244,7 @@ private actor HistoryQueryTestLedger: LedgerStore {
     private let hourlyRows: [HourlyUsageRow]
     private var queryIntervals: [DateInterval?] = []
     private var pricingCalls = 0
+    private var hourlyQueryCount = 0
 
     init(rows: [DailyUsageRow], hourlyRows: [HourlyUsageRow] = []) {
         self.rows = rows
@@ -256,6 +275,7 @@ private actor HistoryQueryTestLedger: LedgerStore {
         in interval: DateInterval?,
         calendar: Calendar
     ) -> [HourlyUsageRow] {
+        hourlyQueryCount += 1
         guard let interval else { return hourlyRows }
         return hourlyRows.filter { interval.contains($0.hourStart) }
     }
@@ -296,5 +316,7 @@ private actor HistoryQueryTestLedger: LedgerStore {
     }
 
     func lastInterval() -> DateInterval? { queryIntervals.last ?? nil }
+    func usageQueryCount() -> Int { queryIntervals.count }
+    func hourlyUsageQueryCount() -> Int { hourlyQueryCount }
     func pricingSnapshotCallCount() -> Int { pricingCalls }
 }
