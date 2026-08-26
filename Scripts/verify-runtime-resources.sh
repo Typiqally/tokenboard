@@ -50,7 +50,16 @@ trap cleanup EXIT
   --entitlements "$repository_root/Resources/Tokenboard.entitlements" \
   "$probe_app" >/dev/null
 
-"$probe_executable" >"$probe_root/stdout" 2>"$probe_root/stderr" &
+# Command-line defaults live in NSArgumentDomain and therefore outrank any
+# values retained by macOS in the fixed ResourceGate sandbox. In particular,
+# stale security-scoped bookmarks must never turn an idle-resource probe into
+# an import benchmark over a developer's real source folders.
+"$probe_executable" \
+  -sourceBookmark.claude_code "" \
+  -sourceBookmark.codex "" \
+  -historicalImportApproved NO \
+  -selectedCompanionTheme none \
+  >"$probe_root/stdout" 2>"$probe_root/stderr" &
 probe_pid=$!
 /bin/sleep 5
 if ! /bin/kill -0 "$probe_pid" 2>/dev/null; then
