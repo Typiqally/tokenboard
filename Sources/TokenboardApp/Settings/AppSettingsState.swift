@@ -56,6 +56,16 @@ struct SettingsDiagnosticsState: Equatable, Sendable {
             .codex: CodexAdapter.parserVersion
         ]
     )
+
+    static func current(health: TokenboardHealth) -> SettingsDiagnosticsState {
+        SettingsDiagnosticsState(
+            health: health,
+            parserVersions: [
+                .claudeCode: ClaudeCodeAdapter.parserVersion,
+                .codex: CodexAdapter.parserVersion
+            ]
+        )
+    }
 }
 
 enum DatabaseRecoveryDisposition: Equatable, Sendable {

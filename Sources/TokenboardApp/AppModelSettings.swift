@@ -236,31 +236,27 @@ extension AppModel {
         commitSettingsState(next)
         do {
             try await databaseRecovery.retryPreservation()
-            next = settingsState
-            next.isRestoringDatabase = false
-            next.databaseRecoveryDisposition = .requiresRelaunch
-            next.statusMessage = "Recovery artifact preserved and verified · Tokenboard retains at most the newest two local pre-restore snapshots · Quit and reopen Tokenboard"
-            commitSettingsState(next)
+            finishRecoveryOperation(
+                disposition: .requiresRelaunch,
+                status: "Recovery artifact preserved and verified · Tokenboard retains at most the newest two local pre-restore snapshots · Quit and reopen Tokenboard"
+            )
         } catch let recoveryError as DatabaseRecoveryError
             where recoveryError == .cleanupPending {
-            next = settingsState
-            next.isRestoringDatabase = false
-            next.databaseRecoveryDisposition = .requiresRelaunch
-            next.statusMessage = "Recovery artifact preserved and verified · After cleanup, Tokenboard retains at most the newest two local pre-restore snapshots · Reopen Tokenboard"
-            commitSettingsState(next)
+            finishRecoveryOperation(
+                disposition: .requiresRelaunch,
+                status: "Recovery artifact preserved and verified · After cleanup, Tokenboard retains at most the newest two local pre-restore snapshots · Reopen Tokenboard"
+            )
         } catch let recoveryError as DatabaseRecoveryError
             where recoveryError == .preservationFailed {
-            next = settingsState
-            next.isRestoringDatabase = false
-            next.databaseRecoveryDisposition = .preservationFailed
-            next.statusMessage = "The recovery artifact could not be retained · Reveal Data or quit Tokenboard"
-            commitSettingsState(next)
+            finishRecoveryOperation(
+                disposition: .preservationFailed,
+                status: "The recovery artifact could not be retained · Reveal Data or quit Tokenboard"
+            )
         } catch {
-            next = settingsState
-            next.isRestoringDatabase = false
-            next.databaseRecoveryDisposition = .preservationRetryRequired
-            next.statusMessage = "Recovery artifact preservation failed · Reveal Data and retry"
-            commitSettingsState(next)
+            finishRecoveryOperation(
+                disposition: .preservationRetryRequired,
+                status: "Recovery artifact preservation failed · Reveal Data and retry"
+            )
         }
     }
 
@@ -274,90 +270,91 @@ extension AppModel {
                 guard let self else { return }
                 try await self.prepareForDatabaseRecovery().get()
             }
-            nextSettings = settingsState
-            nextSettings.isRestoringDatabase = false
-            nextSettings.databaseRecoveryDisposition = .requiresRelaunch
-            nextSettings.statusMessage = "Backup from \(backup.modificationDate.formatted(date: .abbreviated, time: .shortened)) restored and verified · Tokenboard retains at most the newest two local pre-restore snapshots · Quit and reopen Tokenboard"
-            commitSettingsState(nextSettings)
-            publishStoppedState()
+            finishRecoveryOperation(
+                disposition: .requiresRelaunch,
+                status: "Backup from \(backup.modificationDate.formatted(date: .abbreviated, time: .shortened)) restored and verified · Tokenboard retains at most the newest two local pre-restore snapshots · Quit and reopen Tokenboard",
+                publishStopped: true
+            )
         } catch let recoveryError as DatabaseRecoveryError
             where recoveryError == .cleanupPending
                 || recoveryError == .restoreFailedCleanupPending
                 || recoveryError == .rollbackCompleted {
-            nextSettings = settingsState
-            nextSettings.isRestoringDatabase = false
-            nextSettings.databaseRecoveryDisposition = .requiresRelaunch
-            nextSettings.statusMessage = recoveryError == .cleanupPending
-                ? "Restore completed and verified · A recovery artifact was preserved for cleanup; afterward Tokenboard retains at most the newest two local pre-restore snapshots · Quit and reopen Tokenboard"
-                : "Original database rollback completed · A recovery artifact was preserved for cleanup; afterward Tokenboard retains at most the newest two local pre-restore snapshots · Quit or Reveal Data"
-            commitSettingsState(nextSettings)
-            publishStoppedState()
+            finishRecoveryOperation(
+                disposition: .requiresRelaunch,
+                status: recoveryError == .cleanupPending
+                    ? "Restore completed and verified · A recovery artifact was preserved for cleanup; afterward Tokenboard retains at most the newest two local pre-restore snapshots · Quit and reopen Tokenboard"
+                    : "Original database rollback completed · A recovery artifact was preserved for cleanup; afterward Tokenboard retains at most the newest two local pre-restore snapshots · Quit or Reveal Data",
+                publishStopped: true
+            )
         } catch let recoveryError as DatabaseRecoveryError
             where recoveryError == .preservationRetryRequired {
-            nextSettings = settingsState
-            nextSettings.isRestoringDatabase = false
-            nextSettings.databaseRecoveryDisposition = .preservationRetryRequired
-            nextSettings.statusMessage = "Recovery changed the database; a verified recovery snapshot is held open by Tokenboard until preservation succeeds · Reveal Data and retry"
-            commitSettingsState(nextSettings)
-            publishStoppedState()
+            finishRecoveryOperation(
+                disposition: .preservationRetryRequired,
+                status: "Recovery changed the database; a verified recovery snapshot is held open by Tokenboard until preservation succeeds · Reveal Data and retry",
+                publishStopped: true
+            )
         } catch let recoveryError as DatabaseRecoveryError
             where recoveryError == .preservationFailed {
-            nextSettings = settingsState
-            nextSettings.isRestoringDatabase = false
-            nextSettings.databaseRecoveryDisposition = .preservationFailed
-            nextSettings.statusMessage = "Restore changed the database, but the recovery artifact could not be retained · Reveal Data or quit Tokenboard"
-            commitSettingsState(nextSettings)
-            publishStoppedState()
+            finishRecoveryOperation(
+                disposition: .preservationFailed,
+                status: "Restore changed the database, but the recovery artifact could not be retained · Reveal Data or quit Tokenboard",
+                publishStopped: true
+            )
         } catch let recoveryError as DatabaseRecoveryError {
-            nextSettings = settingsState
-            nextSettings.isRestoringDatabase = false
             if recoveryBarrierTask != nil {
-                nextSettings.databaseRecoveryDisposition = .requiresRelaunch
-                nextSettings.statusMessage = "Restore could not complete after local writers stopped · Quit and reopen Tokenboard"
-                commitSettingsState(nextSettings)
-                publishStoppedState()
+                finishRecoveryOperation(
+                    disposition: .requiresRelaunch,
+                    status: "Restore could not complete after local writers stopped · Quit and reopen Tokenboard",
+                    publishStopped: true
+                )
             } else if case let .backupTooLarge(maximumBytes) = recoveryError {
-                nextSettings.statusMessage = "Migration backup exceeds the supported \(Self.mebibytes(maximumBytes)) MiB restore limit; the database was not changed"
-                commitSettingsState(nextSettings)
+                finishRecoveryOperation(
+                    status: "Migration backup exceeds the supported \(Self.mebibytes(maximumBytes)) MiB restore limit; the database was not changed"
+                )
             } else {
-                nextSettings.statusMessage = "Restore failed safely · Existing database and backup were preserved"
-                commitSettingsState(nextSettings)
+                finishRecoveryOperation(
+                    status: "Restore failed safely · Existing database and backup were preserved"
+                )
             }
         } catch {
-            nextSettings = settingsState
-            nextSettings.isRestoringDatabase = false
             if recoveryBarrierTask != nil {
-                nextSettings.databaseRecoveryDisposition = .requiresRelaunch
-                nextSettings.statusMessage = "Restore could not complete after local writers stopped · Quit and reopen Tokenboard"
+                finishRecoveryOperation(
+                    disposition: .requiresRelaunch,
+                    status: "Restore could not complete after local writers stopped · Quit and reopen Tokenboard",
+                    publishStopped: true
+                )
             } else {
-                nextSettings.statusMessage = "Restore failed safely · Existing database and backup were preserved"
+                finishRecoveryOperation(
+                    status: "Restore failed safely · Existing database and backup were preserved"
+                )
             }
-            commitSettingsState(nextSettings)
-            if recoveryBarrierTask != nil {
-                publishStoppedState()
-            }
+        }
+    }
+
+    private func finishRecoveryOperation(
+        disposition: DatabaseRecoveryDisposition? = nil,
+        status: String,
+        publishStopped: Bool = false
+    ) {
+        var next = settingsState
+        next.isRestoringDatabase = false
+        if let disposition {
+            next.databaseRecoveryDisposition = disposition
+        }
+        next.statusMessage = status
+        commitSettingsState(next)
+        if publishStopped {
+            publishStoppedState()
         }
     }
 
     func performRefreshSettings(statusMessage: String?) async {
         if case .recoveryRequired = state.health.database {
             await performLoadRecoveryBackups()
-            commitSettingsState(AppSettingsState(
-                sources: sourceSettings(),
+            commitSettingsState(settingsSnapshot(
                 pricing: settingsState.pricing,
-                diagnostics: SettingsDiagnosticsState(
-                    health: state.health,
-                    parserVersions: [
-                        .claudeCode: ClaudeCodeAdapter.parserVersion,
-                        .codex: CodexAdapter.parserVersion
-                    ]
-                ),
                 statusMessage: statusMessage ?? settingsState.statusMessage,
-                isLoading: false,
-                isSourceMutationInProgress: false,
-                recoveryBackups: settingsState.recoveryBackups,
-                isRestoringDatabase: settingsState.isRestoringDatabase,
-                databaseRecoveryDisposition: settingsState.databaseRecoveryDisposition
+                sourceMutationInProgress: false
             ))
             return
         }
@@ -394,8 +391,7 @@ extension AppModel {
             )
             commitState(published)
 
-            commitSettingsState(AppSettingsState(
-                sources: sourceSettings(),
+            commitSettingsState(settingsSnapshot(
                 pricing: PricingSettingsState(
                     activeModels: activeModelPricing(
                         in: pricing,
@@ -407,24 +403,33 @@ extension AppModel {
                     catalogStatus: catalogStatus,
                     coveragePeriod: state.selectedPeriod
                 ),
-                diagnostics: SettingsDiagnosticsState(
-                    health: published.health,
-                    parserVersions: [
-                        .claudeCode: ClaudeCodeAdapter.parserVersion,
-                        .codex: CodexAdapter.parserVersion
-                    ]
-                ),
                 statusMessage: statusMessage,
-                isLoading: false,
-                isSourceMutationInProgress: sourceMutation != nil,
-                recoveryBackups: settingsState.recoveryBackups,
-                isRestoringDatabase: settingsState.isRestoringDatabase,
-                databaseRecoveryDisposition: settingsState.databaseRecoveryDisposition
+                sourceMutationInProgress: sourceMutation != nil,
+                diagnosticsHealth: published.health
             ))
         } catch {
             setSettingsLoading(false)
             setSettingsStatus("Settings unavailable: \(Self.errorDescription(error))")
         }
+    }
+
+    private func settingsSnapshot(
+        pricing: PricingSettingsState,
+        statusMessage: String?,
+        sourceMutationInProgress: Bool,
+        diagnosticsHealth: TokenboardHealth? = nil
+    ) -> AppSettingsState {
+        AppSettingsState(
+            sources: sourceSettings(),
+            pricing: pricing,
+            diagnostics: .current(health: diagnosticsHealth ?? state.health),
+            statusMessage: statusMessage,
+            isLoading: false,
+            isSourceMutationInProgress: sourceMutationInProgress,
+            recoveryBackups: settingsState.recoveryBackups,
+            isRestoringDatabase: settingsState.isRestoringDatabase,
+            databaseRecoveryDisposition: settingsState.databaseRecoveryDisposition
+        )
     }
 
     func runSettingsOperation(
