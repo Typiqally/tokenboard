@@ -33,9 +33,9 @@ enum CompanionSettingsPresentation {
 }
 
 enum CompanionSettingsLayout {
-    static let navigatorWidth: CGFloat = 210
-    static let navigatorThumbnailSize = CGSize(width: 52, height: 28)
-    static let navigatorRowMinimumHeight: CGFloat = 40
+    static let galleryColumnCount = 3
+    static let galleryThumbnailHeight: CGFloat = 72
+    static let galleryCardMinimumHeight: CGFloat = 112
     static let minimumPreviewWidth: CGFloat = 340
     static let maximumSceneWidth: CGFloat = 812
 }
@@ -317,8 +317,8 @@ struct CompanionSettingsPanel: View {
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
-            HStack(alignment: .top, spacing: 16) {
-                CompanionThemeNavigator(model: model, date: context.date)
+            VStack(alignment: .leading, spacing: 16) {
+                CompanionThemeGallery(model: model, date: context.date)
 
                 Divider()
 
@@ -351,7 +351,7 @@ struct CompanionSettingsPanel: View {
     }
 }
 
-private struct CompanionThemeNavigator: View {
+private struct CompanionThemeGallery: View {
     @ObservedObject var model: AppModel
     let date: Date
 
@@ -360,12 +360,18 @@ private struct CompanionThemeNavigator: View {
             selected: model.companionState.theme
         )
 
-        VStack(spacing: 6) {
+        LazyVGrid(
+            columns: Array(
+                repeating: GridItem(.flexible(minimum: 150), spacing: 12),
+                count: CompanionSettingsLayout.galleryColumnCount
+            ),
+            spacing: 12
+        ) {
             ForEach(options) { option in
                 Button {
                     Task { await model.select(companionTheme: option.theme) }
                 } label: {
-                    CompanionThemeNavigatorLabel(
+                    CompanionThemeGalleryLabel(
                         theme: option.theme,
                         isSelected: option.isSelected,
                         presentation: presentation(for: option.theme)
@@ -376,12 +382,11 @@ private struct CompanionThemeNavigator: View {
                 .accessibilityValue(option.accessibilityValue)
             }
         }
-        .frame(width: CompanionSettingsLayout.navigatorWidth)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Companion theme")
     }
 
-    // Navigator thumbnails show a fixed, art-directed stage per theme so every
+    // Gallery thumbnails show a fixed, art-directed stage per theme so every
     // thumbnail is immediately recognizable regardless of current progress.
     // Pokémon still follows the day's starter family.
     private func presentation(for theme: CompanionTheme) -> CompanionPresentation? {
@@ -392,13 +397,13 @@ private struct CompanionThemeNavigator: View {
     }
 }
 
-private struct CompanionThemeNavigatorLabel: View {
+private struct CompanionThemeGalleryLabel: View {
     let theme: CompanionTheme
     let isSelected: Bool
     let presentation: CompanionPresentation?
 
     var body: some View {
-        HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 7) {
             ZStack {
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
                     .fill(Color(nsColor: .underPageBackgroundColor))
@@ -410,44 +415,44 @@ private struct CompanionThemeNavigatorLabel: View {
                         .font(.system(size: 17, weight: .medium))
                         .foregroundStyle(.tertiary)
                 }
+
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 17, weight: .semibold))
+                        .symbolRenderingMode(.palette)
+                        .foregroundStyle(.white, Color.accentColor)
+                        .padding(7)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                        .accessibilityHidden(true)
+                }
             }
-            .frame(
-                width: CompanionSettingsLayout.navigatorThumbnailSize.width,
-                height: CompanionSettingsLayout.navigatorThumbnailSize.height
-            )
+            .frame(maxWidth: .infinity)
+            .frame(height: CompanionSettingsLayout.galleryThumbnailHeight)
             .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
 
             Text(theme.title)
                 .font(.system(size: 12, weight: .medium))
-                .lineLimit(1)
+                .lineLimit(2)
                 .frame(maxWidth: .infinity, alignment: .leading)
-
-            if isSelected {
-                Image(systemName: "checkmark.circle.fill")
-                    .symbolRenderingMode(.palette)
-                    .foregroundStyle(.white, Color.accentColor)
-                    .accessibilityHidden(true)
-            }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 5)
+        .padding(8)
         .frame(
             maxWidth: .infinity,
-            minHeight: CompanionSettingsLayout.navigatorRowMinimumHeight,
+            minHeight: CompanionSettingsLayout.galleryCardMinimumHeight,
             alignment: .leading
         )
         .background {
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(isSelected ? Color.accentColor.opacity(0.12) : .clear)
         }
         .overlay {
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .strokeBorder(
                     isSelected ? Color.accentColor : Color(nsColor: .separatorColor),
                     lineWidth: isSelected ? 1.5 : 1
                 )
         }
-        .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }
 

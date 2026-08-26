@@ -32,6 +32,8 @@ extension CompanionScenePlan {
             return CompanionBiome.forMinecraft(stage: stage).plan(stage: stage, seed: seed)
         case .seasonalSettlement:
             return banishedSettlement(stage: stage, seed: seed)
+        case .frozenIndustry:
+            return frostpunkCity(stage: stage, seed: seed)
         }
     }
 
@@ -42,6 +44,154 @@ extension CompanionScenePlan {
             .union(bands.map(\.key))
             .union(glows.map(\.key))
             .union(actors.map(\.key))
+    }
+}
+
+// MARK: - Frostpunk: frozen industry around the Generator
+
+private extension CompanionScenePlan {
+    static func frostpunkCity(stage: Int, seed: UInt64) -> CompanionScenePlan {
+        let corridor = frostpunkCorridor(stage: stage)
+        let citizenCount = min(6, 2 + stage / 2)
+        var actors = [
+            CompanionActorField(
+                key: "frostpunk/workers",
+                body: .biped,
+                sprites: CompanionActorSpriteCatalog.frostpunkCitizens,
+                count: citizenCount,
+                route: .errand(
+                    home: corridor.home,
+                    site: corridor.site,
+                    period: 31,
+                    workShare: 0.18
+                ),
+                height: 4.8...6.2,
+                tint: CompanionSceneTint(0.78, 0.81, 0.84),
+                accent: CompanionSceneTint(0.93, 0.54, 0.24),
+                opacity: 0.95,
+                spread: 0.035,
+                variation: 0
+            )
+        ]
+        if stage >= 8 {
+            actors.append(
+                CompanionActorField(
+                    key: "frostpunk/automaton",
+                    body: .quadruped,
+                    sprites: [CompanionActorSpriteCatalog.frostpunkAutomaton],
+                    count: 1,
+                    route: .errand(
+                        home: corridor.home,
+                        site: corridor.site,
+                        period: 38,
+                        workShare: 0.24
+                    ),
+                    height: 12.5...13.5,
+                    tint: CompanionSceneTint(0.40, 0.42, 0.43),
+                    accent: CompanionSceneTint(0.96, 0.44, 0.15),
+                    opacity: 0.98,
+                    variation: 0
+                )
+            )
+        }
+
+        let storm = stage == 10
+        let snowCount = storm ? 58 : min(34, 16 + stage * 2)
+        return CompanionScenePlan(
+            signature: .frozenIndustry,
+            stage: stage,
+            seed: seed,
+            backgroundDrift: .still,
+            fields: [
+                CompanionParticleField(
+                    key: "frostpunk/generator-smoke",
+                    shape: .mote,
+                    tint: CompanionSceneTint(0.70, 0.76, 0.80),
+                    count: min(22, 10 + stage),
+                    lifetime: 13,
+                    spawnX: 0.30...0.68,
+                    spawnY: 0.18...0.48,
+                    size: 1.8...3.8,
+                    opacity: 0.12...0.30,
+                    drift: .travel(dx: 0.10, dy: -0.40, sway: 0.028, swayPeriod: 5.2),
+                    fade: .rise,
+                    growth: 2.4
+                ),
+                CompanionParticleField(
+                    key: "frostpunk/snow",
+                    shape: .mote,
+                    tint: CompanionSceneTint(0.94, 0.98, 1.0),
+                    count: snowCount,
+                    lifetime: storm ? 5.8 : 9.2,
+                    spawnX: -0.08...1.02,
+                    spawnY: -0.10...0.62,
+                    size: 1.0...2.7,
+                    opacity: 0.25...(storm ? 0.78 : 0.58),
+                    drift: .travel(
+                        dx: storm ? 0.42 : 0.18,
+                        dy: storm ? 0.56 : 0.64,
+                        sway: storm ? 0.05 : 0.025,
+                        swayPeriod: 3.5
+                    )
+                )
+            ],
+            bands: [
+                CompanionShadowBandField(
+                    key: "frostpunk/storm-front",
+                    count: storm ? 2 : 1,
+                    width: storm ? 0.72 : 0.52,
+                    skew: -0.18,
+                    period: storm ? 22 : 48,
+                    opacity: storm ? 0.20 : 0.075,
+                    tint: CompanionSceneTint(0.06, 0.12, 0.17),
+                    top: 0,
+                    bottom: 1
+                )
+            ],
+            glows: [
+                CompanionGlowSpec(
+                    key: "frostpunk/generator-glow",
+                    x: 0.50,
+                    y: 0.68,
+                    radius: 32 + Double(stage),
+                    tint: CompanionSceneTint(1.0, 0.38, 0.08),
+                    opacity: storm ? 0.17 : 0.12,
+                    flickerDepth: 0.24,
+                    flickerPeriod: 3.4
+                )
+            ],
+            actors: actors,
+            wash: CompanionWashSpec(
+                tint: storm
+                    ? CompanionSceneTint(0.42, 0.58, 0.72)
+                    : CompanionSceneTint(0.62, 0.74, 0.84),
+                opacity: storm ? 0.075 : 0.028,
+                amplitude: storm ? 0.018 : 0.006,
+                period: 34
+            )
+        )
+    }
+
+    /// Safe ground corridors are authored per crop so inhabitants remain on
+    /// streets and snowfields instead of walking across roofs or machinery.
+    static func frostpunkCorridor(
+        stage: Int
+    ) -> (home: CompanionScenePoint, site: CompanionScenePoint) {
+        let points: [(CompanionScenePoint, CompanionScenePoint)] = [
+            (CompanionScenePoint(0.18, 0.80), CompanionScenePoint(0.48, 0.72)),
+            (CompanionScenePoint(0.14, 0.82), CompanionScenePoint(0.52, 0.74)),
+            (CompanionScenePoint(0.44, 0.82), CompanionScenePoint(0.76, 0.70)),
+            (CompanionScenePoint(0.18, 0.72), CompanionScenePoint(0.48, 0.80)),
+            (CompanionScenePoint(0.32, 0.74), CompanionScenePoint(0.64, 0.68)),
+            (CompanionScenePoint(0.24, 0.76), CompanionScenePoint(0.55, 0.70)),
+            (CompanionScenePoint(0.34, 0.76), CompanionScenePoint(0.67, 0.69)),
+            (CompanionScenePoint(0.27, 0.80), CompanionScenePoint(0.60, 0.72)),
+            (CompanionScenePoint(0.47, 0.78), CompanionScenePoint(0.76, 0.69)),
+            (CompanionScenePoint(0.30, 0.81), CompanionScenePoint(0.64, 0.72)),
+            (CompanionScenePoint(0.21, 0.78), CompanionScenePoint(0.55, 0.70)),
+            (CompanionScenePoint(0.34, 0.81), CompanionScenePoint(0.68, 0.73))
+        ]
+        return points[min(max(stage, 0), points.count - 1)]
     }
 }
 

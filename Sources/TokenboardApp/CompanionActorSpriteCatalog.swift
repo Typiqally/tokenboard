@@ -69,6 +69,13 @@ enum CompanionActorSpriteCatalog {
         banished("purple-carrier")
     ]
 
+    static let frostpunkCitizens = [
+        frostpunk("worker"),
+        frostpunk("engineer"),
+        frostpunk("child")
+    ]
+    static let frostpunkAutomaton = frostpunk("automaton")
+
     static let minecraftChicken = minecraft("chicken", facesRight: false)
     static let minecraftPig = minecraft("pig", facesRight: false)
     static let minecraftVillager = minecraft("villager", facesRight: false)
@@ -105,6 +112,13 @@ enum CompanionActorSpriteCatalog {
     private static func banished(_ name: String) -> CompanionActorSprite {
         CompanionActorSprite(
             resource: "Banished/actors/\(name).png",
+            facesRight: true
+        )
+    }
+
+    private static func frostpunk(_ name: String) -> CompanionActorSprite {
+        CompanionActorSprite(
+            resource: "Frostpunk/actors/\(name).png",
             facesRight: true
         )
     }

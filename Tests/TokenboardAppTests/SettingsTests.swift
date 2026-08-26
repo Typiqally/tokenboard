@@ -65,14 +65,14 @@ final class SettingsTests: XCTestCase {
 
         let renderer = ImageRenderer(
             content: CompanionSettingsPanel(model: setup.model)
-            .frame(width: 780, height: 520, alignment: .topLeading)
+            .frame(width: 780, height: 760, alignment: .topLeading)
             .padding(16)
             .background(Color(nsColor: .windowBackgroundColor))
             .environment(\.colorScheme, .dark)
         )
         renderer.scale = 2
         let image = try XCTUnwrap(renderer.nsImage)
-        XCTAssertEqual(image.size, NSSize(width: 812, height: 552))
+        XCTAssertEqual(image.size, NSSize(width: 812, height: 792))
 
         if let path = ProcessInfo.processInfo.environment[
             "TOKENBOARD_SETTINGS_SNAPSHOT_PATH"

@@ -41,6 +41,7 @@ final class CompanionSceneActorTests: XCTestCase {
         XCTAssertEqual(routesByTheme[.forest], ["patrol", "perch"])
         XCTAssertEqual(routesByTheme[.village], ["patrol", "perch"])
         XCTAssertEqual(routesByTheme[.banished], ["errand", "patrol"])
+        XCTAssertEqual(routesByTheme[.frostpunk], ["errand"])
     }
 
     func testASettlementGetsBusierAsItAges() {

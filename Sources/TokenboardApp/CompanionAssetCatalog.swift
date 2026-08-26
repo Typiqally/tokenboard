@@ -227,6 +227,13 @@ enum CompanionAssetCatalog {
         "10-first-hard-winter", "11-winter-endured", "12-thriving-township"
     ]
 
+    private static let frostpunkSceneNames = [
+        "01-the-generator", "02-first-tents", "03-coal-lifeline",
+        "04-workshop-district", "05-beacon-raised", "06-steam-hubs",
+        "07-hothouse-harvest", "08-industrial-city", "09-automaton-age",
+        "10-storm-watch", "11-the-great-storm", "12-new-london-endures"
+    ]
+
     // MARK: Minecraft
 
     private static let minecraftSceneNames = [
@@ -344,6 +351,12 @@ enum CompanionAssetCatalog {
                 layers: [],
                 backgroundZoom: 1 + 0.035 * fraction
             )
+        case .frostpunk:
+            return CompanionSceneAsset(
+                backgroundResource: "Frostpunk/scenes/\(frostpunkSceneNames[stage])-\(suffix).jpg",
+                layers: [],
+                backgroundZoom: 1 + 0.025 * fraction
+            )
         }
     }
 
@@ -363,6 +376,7 @@ enum CompanionAssetCatalog {
         case .ageOfEmpiresII: 8
         case .minecraft: 2
         case .banished: 8
+        case .frostpunk: 8
         }
     }
 
@@ -376,7 +390,7 @@ enum CompanionAssetCatalog {
     ) -> String? {
         let stage = clamped(stage)
         switch theme {
-        case .none, .ageOfEmpiresII, .banished:
+        case .none, .ageOfEmpiresII, .banished, .frostpunk:
             return nil
         case .pokemon:
             guard let line = pokemonLine(for: variant) else { return nil }

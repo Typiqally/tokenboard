@@ -10,6 +10,7 @@ enum CompanionTheme: String, CaseIterable, Identifiable, Sendable {
     case ageOfEmpiresII = "age_of_empires_ii"
     case minecraft
     case banished
+    case frostpunk
 
     var id: String { rawValue }
 
@@ -23,6 +24,7 @@ enum CompanionTheme: String, CaseIterable, Identifiable, Sendable {
         case .ageOfEmpiresII: "Age of Empires II"
         case .minecraft: "Minecraft"
         case .banished: "Banished"
+        case .frostpunk: "Frostpunk"
         }
     }
 
@@ -36,6 +38,7 @@ enum CompanionTheme: String, CaseIterable, Identifiable, Sendable {
         case .ageOfEmpiresII: "Town centers advancing through the ages"
         case .minecraft: "A survivor gearing up from spawn to the End"
         case .banished: "Exiles building a settlement through the seasons"
+        case .frostpunk: "The last city growing around its generator"
         }
     }
 }
@@ -69,6 +72,8 @@ enum CompanionCatalog {
             named(["Steve"])
         case .banished:
             named(["Settlement"])
+        case .frostpunk:
+            named(["New London"])
         }
     }
 
@@ -266,6 +271,11 @@ struct CompanionPresentation: Equatable, Sendable {
              "Pasture raised", "Roads laid", "River crossing",
              "Trading post", "Market town", "Stone village",
              "First hard winter", "Winter endured", "Thriving township"]
+        case .frostpunk:
+            ["The Generator", "First tents", "Coal lifeline",
+             "Workshop district", "Beacon raised", "Steam hubs",
+             "Hothouse harvest", "Industrial city", "Automaton age",
+             "Storm watch", "The Great Storm", "New London endures"]
         }
     }
 }

@@ -42,6 +42,12 @@
       "bundlePath": "Banished",
       "redistributionStatus": "pending",
       "evidence": []
+    },
+    {
+      "id": "frostpunk",
+      "bundlePath": "Frostpunk",
+      "redistributionStatus": "pending",
+      "evidence": []
     }
   ]
 }

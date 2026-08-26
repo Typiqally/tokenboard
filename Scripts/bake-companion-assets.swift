@@ -1,7 +1,7 @@
 #!/usr/bin/env swift
 // Development-time baker for the photographic companion scenes.
 //
-// Usage: swift Scripts/bake-companion-assets.swift [--actors-only|--banished-only] <raw-root> [output-root]
+// Usage: swift Scripts/bake-companion-assets.swift [--actors-only|--banished-only|--frostpunk-only] <raw-root> [output-root]
 //
 // <raw-root> is the directory populated by Scripts/fetch-companion-assets.sh.
 // The output root defaults to Resources/Companions. The baker art-directs
@@ -941,6 +941,21 @@ let banishedScenes: [SceneBake] = [
     SceneBake(input: "banished/backgrounds/12-thriving-township.jpg", output: "Banished/scenes/12-thriving-township.jpg", crop: Crop(x: 0, y: 0.25, width: 1))
 ]
 
+let frostpunkScenes: [SceneBake] = [
+    SceneBake(input: "frostpunk/backgrounds/generator-city.jpg", output: "Frostpunk/scenes/01-the-generator.jpg", crop: Crop(x: 0, y: 0.30, width: 1)),
+    SceneBake(input: "frostpunk/backgrounds/generator-city.jpg", output: "Frostpunk/scenes/02-first-tents.jpg", crop: Crop(x: 0, y: 0.18, width: 0.92)),
+    SceneBake(input: "frostpunk/backgrounds/generator-city.jpg", output: "Frostpunk/scenes/03-coal-lifeline.jpg", crop: Crop(x: 0.08, y: 0.26, width: 0.92)),
+    SceneBake(input: "frostpunk/backgrounds/new-london.jpg", output: "Frostpunk/scenes/04-workshop-district.jpg", crop: Crop(x: 0, y: 0.28, width: 1)),
+    SceneBake(input: "frostpunk/backgrounds/city-overview.jpg", output: "Frostpunk/scenes/05-beacon-raised.jpg", crop: Crop(x: 0, y: 0.28, width: 1)),
+    SceneBake(input: "frostpunk/backgrounds/city-overview.jpg", output: "Frostpunk/scenes/06-steam-hubs.jpg", crop: Crop(x: 0, y: 0.18, width: 1)),
+    SceneBake(input: "frostpunk/backgrounds/new-london.jpg", output: "Frostpunk/scenes/07-hothouse-harvest.jpg", crop: Crop(x: 0, y: 0.18, width: 1)),
+    SceneBake(input: "frostpunk/backgrounds/industrial-city.jpg", output: "Frostpunk/scenes/08-industrial-city.jpg", crop: Crop(x: 0, y: 0.25, width: 1)),
+    SceneBake(input: "frostpunk/backgrounds/generator-city.jpg", output: "Frostpunk/scenes/09-automaton-age.jpg", crop: Crop(x: 0, y: 0.12, width: 1)),
+    SceneBake(input: "frostpunk/backgrounds/industrial-city.jpg", output: "Frostpunk/scenes/10-storm-watch.jpg", crop: Crop(x: 0, y: 0.15, width: 1)),
+    SceneBake(input: "frostpunk/backgrounds/city-overview.jpg", output: "Frostpunk/scenes/11-the-great-storm.jpg", crop: Crop(x: 0, y: 0.12, width: 1)),
+    SceneBake(input: "frostpunk/backgrounds/industrial-city.jpg", output: "Frostpunk/scenes/12-new-london-endures.jpg", crop: Crop(x: 0, y: 0.30, width: 1))
+]
+
 let banishedCitizens = [
     BanishedCitizenBake(output: "blue-walker", seed: CGPoint(x: 13, y: 34), bounds: CGRect(x: 2, y: 10, width: 24, height: 60)),
     BanishedCitizenBake(output: "dark-carrier", seed: CGPoint(x: 43, y: 47), bounds: CGRect(x: 27, y: 24, width: 36, height: 61)),
@@ -1060,6 +1075,26 @@ let actorSprites: [ActorBake] = [
         input: "minecraft/actors/silverfish.gif",
         output: "Minecraft/actors/silverfish.png",
         frameCount: 14
+    ),
+    ActorBake(
+        input: "frostpunk/actors/worker.png",
+        output: "Frostpunk/actors/worker.png",
+        frameCount: 1
+    ),
+    ActorBake(
+        input: "frostpunk/actors/engineer.png",
+        output: "Frostpunk/actors/engineer.png",
+        frameCount: 1
+    ),
+    ActorBake(
+        input: "frostpunk/actors/child.png",
+        output: "Frostpunk/actors/child.png",
+        frameCount: 1
+    ),
+    ActorBake(
+        input: "frostpunk/actors/automaton.png",
+        output: "Frostpunk/actors/automaton.png",
+        frameCount: 1
     )
 ]
 
@@ -1068,9 +1103,10 @@ let actorSprites: [ActorBake] = [
 let arguments = CommandLine.arguments
 let actorsOnly = arguments.dropFirst().first == "--actors-only"
 let banishedOnly = arguments.dropFirst().first == "--banished-only"
-let rawRootIndex = actorsOnly || banishedOnly ? 2 : 1
+let frostpunkOnly = arguments.dropFirst().first == "--frostpunk-only"
+let rawRootIndex = actorsOnly || banishedOnly || frostpunkOnly ? 2 : 1
 guard arguments.indices.contains(rawRootIndex) else {
-    print("usage: swift Scripts/bake-companion-assets.swift [--actors-only|--banished-only] <raw-root> [output-root]")
+    print("usage: swift Scripts/bake-companion-assets.swift [--actors-only|--banished-only|--frostpunk-only] <raw-root> [output-root]")
     exit(64)
 }
 let rawRoot = URL(fileURLWithPath: arguments[rawRootIndex], isDirectory: true)
@@ -1085,9 +1121,15 @@ let outputRoot = arguments.indices.contains(outputRootIndex)
 
 do {
     if !actorsOnly {
-        let sceneBakes = banishedOnly
-            ? banishedScenes
-            : osrsScenes + ageOfEmpiresScenes + pokemonScenes + minecraftScenes + banishedScenes
+        let sceneBakes: [SceneBake]
+        if banishedOnly {
+            sceneBakes = banishedScenes
+        } else if frostpunkOnly {
+            sceneBakes = frostpunkScenes
+        } else {
+            sceneBakes = osrsScenes + ageOfEmpiresScenes + pokemonScenes
+                + minecraftScenes + banishedScenes + frostpunkScenes
+        }
         for bake in sceneBakes {
             let source = try loadImage(rawRoot.appending(path: bake.input))
             let crops = [bake.crop] + derivedVariants(of: bake.crop, in: source.extent)
@@ -1118,7 +1160,7 @@ do {
             }
         }
 
-        if !banishedOnly {
+        if !banishedOnly && !frostpunkOnly {
             for name in osrsCharacters {
             let subject = try trimmedSubject(
                 rawRoot.appending(path: "osrs/characters/\(name).png")
@@ -1158,7 +1200,10 @@ do {
     }
 
     if !banishedOnly {
-        for bake in actorSprites {
+        let selectedActorSprites = frostpunkOnly
+            ? actorSprites.filter { $0.input.hasPrefix("frostpunk/") }
+            : actorSprites
+        for bake in selectedActorSprites {
             var strip = try actorSpriteStrip(
                 rawRoot.appending(path: bake.input),
                 expectedFrameCount: bake.frameCount
@@ -1173,20 +1218,22 @@ do {
             )
         }
     }
-    let banishedCitizenSheet = rawRoot.appending(path: "banished/actors/citizens.jpg")
-    for citizen in banishedCitizens {
-        let image = try banishedCitizen(
-            from: banishedCitizenSheet,
-            seed: citizen.seed,
-            bounds: citizen.bounds
-        )
-        try write(
-            image,
-            to: outputRoot.appending(path: "Banished/actors/\(citizen.output).png"),
-            jpegQuality: nil
-        )
+    if !frostpunkOnly {
+        let banishedCitizenSheet = rawRoot.appending(path: "banished/actors/citizens.jpg")
+        for citizen in banishedCitizens {
+            let image = try banishedCitizen(
+                from: banishedCitizenSheet,
+                seed: citizen.seed,
+                bounds: citizen.bounds
+            )
+            try write(
+                image,
+                to: outputRoot.appending(path: "Banished/actors/\(citizen.output).png"),
+                jpegQuality: nil
+            )
+        }
+        print("baked \(banishedCitizens.count) Banished citizens")
     }
-    print("baked \(banishedCitizens.count) Banished citizens")
 } catch {
     print("bake failed: \(error)")
     exit(1)

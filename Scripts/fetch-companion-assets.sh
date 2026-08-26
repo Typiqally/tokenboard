@@ -4,6 +4,7 @@
 # Usage: Scripts/fetch-companion-assets.sh <raw-root>
 #        TOKENBOARD_FETCH_ACTORS_ONLY=1 Scripts/fetch-companion-assets.sh <raw-root>
 #        TOKENBOARD_FETCH_PREFIX=banished Scripts/fetch-companion-assets.sh <raw-root>
+#        TOKENBOARD_FETCH_PREFIX=frostpunk Scripts/fetch-companion-assets.sh <raw-root>
 #
 # Downloads every third-party source image the companion feature is baked
 # from, into <raw-root>, using the layout expected by
@@ -221,6 +222,19 @@ fetch_asset 'https://shiningrocksoftware.com/wp-content/uploads/2021/06/s10.jpg'
 fetch_asset 'https://shiningrocksoftware.com/wp-content/uploads/2021/06/x06.jpg' 'banished/backgrounds/11-winter-endured.jpg'
 fetch_asset 'https://shiningrocksoftware.com/wp-content/uploads/2021/06/x01.jpg' 'banished/backgrounds/12-thriving-township.jpg'
 fetch_asset 'https://shiningrocksoftware.com/wp-content/uploads/2011/06/Thumb_Citizens.jpg' 'banished/actors/citizens.jpg'
+
+# --- Frostpunk ---------------------------------------------------------------
+# Official New London screenshots hosted by developer 11 bit studios. Twelve
+# authored stage crops are baked from these four clean city views. Native
+# population and automaton art is preserved by the official Frostpunk Wiki.
+fetch_asset 'https://11bitstudios.com/wp-content/uploads/2021/03/05.jpg' 'frostpunk/backgrounds/generator-city.jpg'
+fetch_asset 'https://11bitstudios.com/wp-content/uploads/2021/03/03.jpg' 'frostpunk/backgrounds/city-overview.jpg'
+fetch_asset 'https://11bitstudios.com/wp-content/uploads/2021/03/07.jpg' 'frostpunk/backgrounds/new-london.jpg'
+fetch_asset 'https://11bitstudios.com/wp-content/uploads/2021/03/01.jpg' 'frostpunk/backgrounds/industrial-city.jpg'
+fetch_asset 'https://static.wikia.nocookie.net/frostpunk_gamepedia_en/images/3/33/Worker_Icon.png/revision/latest?cb=20200824201451&format=original' 'frostpunk/actors/worker.png'
+fetch_asset 'https://static.wikia.nocookie.net/frostpunk_gamepedia_en/images/0/0d/Engineer_Icon.png/revision/latest?cb=20200824201448&format=original' 'frostpunk/actors/engineer.png'
+fetch_asset 'https://static.wikia.nocookie.net/frostpunk_gamepedia_en/images/a/ae/Child_Icon.png/revision/latest?cb=20200824201444&format=original' 'frostpunk/actors/child.png'
+fetch_asset 'https://static.wikia.nocookie.net/frostpunk_gamepedia_en/images/6/6c/Automatons.png/revision/latest?cb=20190715004425&format=original' 'frostpunk/actors/automaton.png'
 
 manifest_count=0
 while read -r source_hash source_path; do
