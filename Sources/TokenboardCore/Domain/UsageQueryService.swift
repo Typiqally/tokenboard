@@ -104,6 +104,24 @@ public struct UsageQueryService: Sendable {
         )
     }
 
+    public func history(
+        ranges: [UsageHistoryRange],
+        now: Date,
+        calendar: Calendar,
+        provider: Provider? = nil
+    ) async throws -> [UsageHistoryRange: UsageHistorySnapshot] {
+        var snapshots: [UsageHistoryRange: UsageHistorySnapshot] = [:]
+        for range in ranges {
+            snapshots[range] = try await history(
+                range: range,
+                now: now,
+                calendar: calendar,
+                provider: provider
+            )
+        }
+        return snapshots
+    }
+
     private func hourlyPoints(
         rows: [HourlyUsageRow],
         dailyRows: [DailyUsageRow],

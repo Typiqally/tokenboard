@@ -652,16 +652,12 @@ extension AppModel {
         let calendar = self.calendar
         let task = Task<Result<[UsageHistoryRange: UsageHistorySnapshot], Error>, Never> {
             do {
-                var snapshots: [UsageHistoryRange: UsageHistorySnapshot] = [:]
-                for range in UsageHistoryRange.allCases {
-                    snapshots[range] = try await queryService.history(
-                        range: range,
-                        now: requestedAt,
-                        calendar: calendar,
-                        provider: nil
-                    )
-                }
-                return .success(snapshots)
+                return .success(try await queryService.history(
+                    ranges: UsageHistoryRange.allCases,
+                    now: requestedAt,
+                    calendar: calendar,
+                    provider: nil
+                ))
             } catch {
                 return .failure(error)
             }
