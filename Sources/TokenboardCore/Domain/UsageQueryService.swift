@@ -31,29 +31,117 @@ public struct UsageQueryService: Sendable {
         calendar: Calendar,
         provider: Provider? = nil
     ) async throws -> UsageHistorySnapshot {
-        guard let today = calendar.dateInterval(of: .day, for: now),
-              let currentStart = calendar.date(
-                  byAdding: .day,
-                  value: -(range.dayCount - 1),
-                  to: today.start
-              ),
-              let previousStart = calendar.date(
-                  byAdding: .day,
-                  value: -range.dayCount,
-                  to: currentStart
-              ) else {
+        let snapshots = try await history(
+            ranges: [range],
+            now: now,
+            calendar: calendar,
+            provider: provider
+        )
+        guard let snapshot = snapshots[range] else {
+            throw UsageHistoryError.calendarArithmeticFailure
+        }
+        return snapshot
+    }
+
+    public func history(
+        ranges: [UsageHistoryRange],
+        now: Date,
+        calendar: Calendar,
+        provider: Provider? = nil
+    ) async throws -> [UsageHistoryRange: UsageHistorySnapshot] {
+        let requestedRanges = Set(ranges)
+        guard !requestedRanges.isEmpty else { return [:] }
+        guard let today = calendar.dateInterval(of: .day, for: now) else {
             throw UsageHistoryError.calendarArithmeticFailure
         }
 
-        let currentInterval = DateInterval(start: currentStart, end: today.end)
-        let previousInterval = DateInterval(start: previousStart, end: currentStart)
-        let queryInterval = DateInterval(start: previousStart, end: today.end)
+        var intervalsByRange: [UsageHistoryRange: HistoryIntervals] = [:]
+        for range in requestedRanges {
+            intervalsByRange[range] = try historyIntervals(
+                range: range,
+                today: today,
+                calendar: calendar
+            )
+        }
+        guard let queryStart = intervalsByRange.values.map(\.previous.start).min() else {
+            throw UsageHistoryError.calendarArithmeticFailure
+        }
+
+        let queryInterval = DateInterval(start: queryStart, end: today.end)
         let queriedRows = try await ledger.usageRows(in: queryInterval, calendar: calendar)
         let rows = queriedRows.filter { provider == nil || $0.provider == provider }
-        let currentStartDay = LocalDay(date: currentStart, calendar: calendar).value
-        let currentRows = rows.filter { $0.localDay.value >= currentStartDay }
-        let previousRows = rows.filter { $0.localDay.value < currentStartDay }
         let pricing = try await ledger.pricingSnapshot()
+
+        let hourlyRows: [HourlyUsageRow]
+        if requestedRanges.contains(.today) {
+            let queriedHourlyRows = try await ledger.hourlyUsageRows(in: today, calendar: calendar)
+            hourlyRows = queriedHourlyRows.filter { provider == nil || $0.provider == provider }
+        } else {
+            hourlyRows = []
+        }
+
+        var snapshots: [UsageHistoryRange: UsageHistorySnapshot] = [:]
+        for range in requestedRanges {
+            guard let intervals = intervalsByRange[range] else {
+                throw UsageHistoryError.calendarArithmeticFailure
+            }
+            let previousStartDay = LocalDay(
+                date: intervals.previous.start,
+                calendar: calendar
+            ).value
+            let currentStartDay = LocalDay(
+                date: intervals.current.start,
+                calendar: calendar
+            ).value
+            let rangeRows = rows.filter { $0.localDay.value >= previousStartDay }
+            let currentRows = rangeRows.filter { $0.localDay.value >= currentStartDay }
+            let previousRows = rangeRows.filter { $0.localDay.value < currentStartDay }
+            snapshots[range] = try historySnapshot(
+                range: range,
+                intervals: intervals,
+                currentRows: currentRows,
+                previousRows: previousRows,
+                hourlyRows: hourlyRows,
+                calendar: calendar,
+                provider: provider,
+                pricing: pricing
+            )
+        }
+        return snapshots
+    }
+
+    private func historyIntervals(
+        range: UsageHistoryRange,
+        today: DateInterval,
+        calendar: Calendar
+    ) throws -> HistoryIntervals {
+        guard let currentStart = calendar.date(
+            byAdding: .day,
+            value: -(range.dayCount - 1),
+            to: today.start
+        ), let previousStart = calendar.date(
+            byAdding: .day,
+            value: -range.dayCount,
+            to: currentStart
+        ) else {
+            throw UsageHistoryError.calendarArithmeticFailure
+        }
+        return HistoryIntervals(
+            current: DateInterval(start: currentStart, end: today.end),
+            previous: DateInterval(start: previousStart, end: currentStart)
+        )
+    }
+
+    private func historySnapshot(
+        range: UsageHistoryRange,
+        intervals: HistoryIntervals,
+        currentRows: [DailyUsageRow],
+        previousRows: [DailyUsageRow],
+        hourlyRows: [HourlyUsageRow],
+        calendar: Calendar,
+        provider: Provider?,
+        pricing: PricingSnapshot
+    ) throws -> UsageHistorySnapshot {
         let breakdown = try usageBreakdown(rows: currentRows, pricing: pricing)
         let previousTotal = try tokenTotal(in: previousRows)
         let delta = breakdown.tokenTotal - previousTotal
@@ -63,26 +151,18 @@ public struct UsageQueryService: Sendable {
             Decimal(delta) * 100 / Decimal(previousTotal)
         }
 
-        let points: [UsageHistoryPoint]
-        if range == .today {
-            let queriedHourlyRows = try await ledger.hourlyUsageRows(
-                in: currentInterval,
-                calendar: calendar
-            )
-            let hourlyRows = queriedHourlyRows.filter {
-                provider == nil || $0.provider == provider
-            }
-            points = try hourlyPoints(
+        let points = if range == .today {
+            try hourlyPoints(
                 rows: hourlyRows,
                 dailyRows: currentRows,
-                interval: currentInterval,
+                interval: intervals.current,
                 calendar: calendar,
                 pricing: pricing
             )
         } else {
-            points = try dailyPoints(
+            try dailyPoints(
                 rows: currentRows,
-                interval: currentInterval,
+                interval: intervals.current,
                 calendar: calendar,
                 pricing: pricing
             )
@@ -91,8 +171,8 @@ public struct UsageQueryService: Sendable {
         return UsageHistorySnapshot(
             range: range,
             provider: provider,
-            currentInterval: currentInterval,
-            previousInterval: previousInterval,
+            currentInterval: intervals.current,
+            previousInterval: intervals.previous,
             points: points,
             comparison: UsageComparison(
                 currentTokenTotal: breakdown.tokenTotal,
@@ -102,24 +182,6 @@ public struct UsageQueryService: Sendable {
             ),
             breakdown: breakdown
         )
-    }
-
-    public func history(
-        ranges: [UsageHistoryRange],
-        now: Date,
-        calendar: Calendar,
-        provider: Provider? = nil
-    ) async throws -> [UsageHistoryRange: UsageHistorySnapshot] {
-        var snapshots: [UsageHistoryRange: UsageHistorySnapshot] = [:]
-        for range in ranges {
-            snapshots[range] = try await history(
-                range: range,
-                now: now,
-                calendar: calendar,
-                provider: provider
-            )
-        }
-        return snapshots
     }
 
     private func hourlyPoints(
@@ -287,6 +349,11 @@ public struct UsageQueryService: Sendable {
 private struct ModelBreakdownKey: Hashable {
     let provider: Provider
     let observedModelID: String
+}
+
+private struct HistoryIntervals {
+    let current: DateInterval
+    let previous: DateInterval
 }
 
 private struct UsageRowKey: Hashable {
