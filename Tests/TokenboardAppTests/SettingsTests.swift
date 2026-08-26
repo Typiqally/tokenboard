@@ -36,6 +36,28 @@ final class SettingsTests: XCTestCase {
         )
     }
 
+    func testCompanionNavigatorPresentsEveryThemeInOneStableList() {
+        let options = CompanionSettingsPresentation.themeOptions(selected: .banished)
+
+        XCTAssertEqual(options.map(\.theme), CompanionTheme.allCases)
+        XCTAssertEqual(options.filter(\.isSelected).map(\.theme), [.banished])
+        XCTAssertEqual(options.last?.accessibilityLabel, "Banished. Settlement")
+        XCTAssertEqual(options.last?.accessibilityValue, "Selected")
+    }
+
+    func testCompanionNavigatorKeepsTheLiveSceneDominantAtMinimumWindowWidth() {
+        XCTAssertEqual(CompanionSettingsLayout.navigatorWidth, 210)
+        XCTAssertEqual(
+            CompanionSettingsLayout.navigatorThumbnailSize,
+            CGSize(width: 52, height: 28)
+        )
+        XCTAssertEqual(CompanionSettingsLayout.navigatorRowMinimumHeight, 40)
+        XCTAssertGreaterThan(
+            CompanionSettingsLayout.minimumPreviewWidth,
+            CompanionSettingsLayout.navigatorWidth
+        )
+    }
+
     func testDiagnosticsCollectsCurrentSourceIssuesBehindTechnicalDetails() {
         let health = TokenboardHealth(
             claude: .warning(issue: .truncatedLog, message: "Imported log was truncated"),
