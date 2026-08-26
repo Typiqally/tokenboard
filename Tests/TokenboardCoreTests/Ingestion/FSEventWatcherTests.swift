@@ -4,6 +4,10 @@ import XCTest
 @testable import TokenboardCore
 
 final class FSEventWatcherTests: XCTestCase {
+    func testProductionWatcherDoesNotSchedulePeriodicReconciliation() {
+        XCTAssertFalse(FSEventWatcher().usesPeriodicReconciliation)
+    }
+
     func testNativeWatcherDeliversFilesystemChangesWithoutManualRefresh() async throws {
         let root = FileManager.default.temporaryDirectory
             .appending(path: "tokenboard-native-watcher-\(UUID().uuidString)")
