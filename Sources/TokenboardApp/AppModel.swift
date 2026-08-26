@@ -256,6 +256,25 @@ final class AppModel: ObservableObject {
     }
 
     func companionDailyTokenTotal(at date: Date) -> Int64 {
+        companionDailyTokenTotal(for: state, at: date)
+    }
+
+    func companionPresentation(
+        for state: AppPublishedState,
+        at date: Date
+    ) -> CompanionPresentation? {
+        CompanionPresentation.make(
+            state: state.companion,
+            dailyTokenTotal: companionDailyTokenTotal(for: state, at: date),
+            date: date,
+            calendar: calendar
+        )
+    }
+
+    private func companionDailyTokenTotal(
+        for state: AppPublishedState,
+        at date: Date
+    ) -> Int64 {
         CompanionDailyTokenSource.total(
             from: state.historyState.snapshots?[.today],
             at: date,
