@@ -627,6 +627,27 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(setup.model.state.lifecycle, .shuttingDown)
     }
 
+    func testRestoreFailureAfterShutdownRequiresRelaunch() async throws {
+        let recoveryFiles = try await makeRecoveryBackup()
+        defer { try? FileManager.default.removeItem(at: recoveryFiles.root) }
+        let recovery = SettingsRecovery(
+            backup: recoveryFiles.backup,
+            restoreError: .backupChanged
+        )
+        let setup = try makeSetup(databaseRecovery: recovery)
+        defer { setup.cleanup() }
+        publishRecoveryRequired(in: setup.model)
+        await setup.model.refreshSettings()
+
+        await setup.model.restoreLatestBackup()
+
+        let didAwaitShutdown = await recovery.didAwaitShutdown()
+        XCTAssertTrue(didAwaitShutdown)
+        XCTAssertEqual(setup.model.state.lifecycle, .stopped)
+        XCTAssertTrue(setup.model.requiresDatabaseRecoveryRelaunch)
+        XCTAssertTrue(setup.model.settingsState.statusMessage?.contains("Quit and reopen") == true)
+    }
+
     func testTerminationRefusesStrictCloseFailureAndCanRetryWithoutRestartingWriters() async throws {
         let setup = try makeSetup(
             ledgerShutdownError: SettingsError.injected
