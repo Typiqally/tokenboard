@@ -211,6 +211,23 @@ struct CompanionPresentation: Equatable, Sendable {
         )
     }
 
+    static func shelfPreview(
+        from live: CompanionPresentation
+    ) -> CompanionPresentation {
+        let stage = CompanionAssetCatalog.shelfPreviewStage(for: live.theme)
+        return CompanionPresentation(
+            theme: live.theme,
+            variant: live.variant,
+            stage: stage,
+            scenery: 0,
+            seed: live.seed,
+            stageTitle: stageTitles(for: live.theme)[stage],
+            progressFraction: 0,
+            tokensUntilNextStage: nil,
+            accessibilityLabel: "\(live.theme.title) preview"
+        )
+    }
+
     private static func stageTitles(for theme: CompanionTheme) -> [String] {
         switch theme {
         case .none:

@@ -247,7 +247,9 @@ final class RichPopoverController: NSObject, NSPopoverDelegate {
             .merge(with: center.publisher(for: .NSSystemTimeZoneDidChange))
             .sink { [weak self] _ in
                 guard let self, let model = self.model else { return }
-                self.updateStatus(for: model.state)
+                Task { @MainActor in
+                    await model.refreshForCalendarChange(.current)
+                }
             }
             .store(in: &calendarObservations)
     }

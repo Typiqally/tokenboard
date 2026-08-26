@@ -24,13 +24,15 @@ struct PricingSettingsState: Equatable, Sendable {
     var exchangeRates: ExchangeRateSnapshot?
     var activeCatalogID: String?
     var catalogStatus: PricingCatalogStatus?
+    var coveragePeriod: CalendarPeriod?
 
     static let empty = PricingSettingsState(
         activeModels: [],
         unpricedUsage: [],
         exchangeRates: nil,
         activeCatalogID: nil,
-        catalogStatus: nil
+        catalogStatus: nil,
+        coveragePeriod: nil
     )
 }
 

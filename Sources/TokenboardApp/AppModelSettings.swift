@@ -27,7 +27,9 @@ extension AppModel {
                         path: PricingInbox.temporaryCatalogFilename
                     )
                 ),
-                coverageTargets: settingsState.pricing.unpricedUsage.map {
+                coverageTargets: (settingsState.pricing.coveragePeriod == state.selectedPeriod
+                    ? settingsState.pricing.unpricedUsage
+                    : []).map {
                     PricingResearchTarget(
                         provider: $0.provider,
                         observedModelID: $0.observedModelID
@@ -387,7 +389,8 @@ extension AppModel {
                     unpricedUsage: unpricedUsage,
                     exchangeRates: pricing.latestExchangeRates,
                     activeCatalogID: pricing.catalogIDs.last,
-                    catalogStatus: catalogStatus
+                    catalogStatus: catalogStatus,
+                    coveragePeriod: state.selectedPeriod
                 ),
                 diagnostics: SettingsDiagnosticsState(
                     health: published.health,

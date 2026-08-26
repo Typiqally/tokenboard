@@ -120,7 +120,10 @@ struct PricingSettingsView: View {
 
             Text(PricingOverviewCopy.unpricedUsage)
                 .font(.headline)
-            if pricing.unpricedUsage.isEmpty {
+            if pricing.coveragePeriod != model.selectedPeriod {
+                Text("Refreshing pricing coverage…")
+                    .foregroundStyle(.secondary)
+            } else if pricing.unpricedUsage.isEmpty {
                 Text("All observed usage in this period has pricing.")
                     .foregroundStyle(.secondary)
             } else {

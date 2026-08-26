@@ -294,7 +294,7 @@ private extension CompanionScenePlan {
         seed: UInt64,
         layers: [CompanionSceneLayer]
     ) -> CompanionScenePlan {
-        let night = stage >= CompanionAssetCatalog.villageLitStageThreshold
+        let night = stage >= CompanionAssetCatalog.villageNightStageThreshold
         var fields = chimneys(over: layers, night: night)
 
         if night {

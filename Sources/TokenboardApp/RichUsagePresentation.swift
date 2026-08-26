@@ -284,19 +284,23 @@ enum UsageHistoryPresentation {
                 accessibilityTitle: "New usage activity \(spokenSuffix)"
             )
         }
-        let rounded = Int(NSDecimalNumber(decimal: percent).doubleValue.rounded())
+        var source = percent
+        var rounded = Decimal()
+        NSDecimalRound(&rounded, &source, 0, .plain)
+        let magnitude = rounded < 0 ? -rounded : rounded
+        let formatted = NSDecimalNumber(decimal: magnitude).stringValue
         if rounded > 0 {
             return UsageComparisonPresentation(
-                title: "+\(rounded)% \(visualSuffix)",
+                title: "+\(formatted)% \(visualSuffix)",
                 systemImageName: "arrow.up.right",
-                accessibilityTitle: "Usage increased \(rounded) percent \(spokenSuffix)"
+                accessibilityTitle: "Usage increased \(formatted) percent \(spokenSuffix)"
             )
         }
         if rounded < 0 {
             return UsageComparisonPresentation(
-                title: "−\(abs(rounded))% \(visualSuffix)",
+                title: "−\(formatted)% \(visualSuffix)",
                 systemImageName: "arrow.down.right",
-                accessibilityTitle: "Usage decreased \(abs(rounded)) percent \(spokenSuffix)"
+                accessibilityTitle: "Usage decreased \(formatted) percent \(spokenSuffix)"
             )
         }
         return UsageComparisonPresentation(

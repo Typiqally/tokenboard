@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import TokenboardCore
 
@@ -18,10 +19,14 @@ final class HistoryViewModel: ObservableObject {
     private weak var model: AppModel?
     private var loadTask: Task<Void, Never>?
     private var loadGeneration: UInt64 = 0
+    private var stateObservation: AnyCancellable?
 
     init(model: AppModel, request: HistoryOpenRequest) {
         self.model = model
         self.request = request
+        stateObservation = model.$state.sink { [weak self] state in
+            self?.receive(state)
+        }
         load(request)
     }
 
@@ -70,6 +75,18 @@ final class HistoryViewModel: ObservableObject {
     func cancel() {
         loadTask?.cancel()
         loadTask = nil
+    }
+
+    private func receive(_ state: AppPublishedState) {
+        guard request.provider == nil,
+              let refreshed = state.historyState.snapshots?[request.range] else { return }
+        snapshot = refreshed
+        if let selectedPointID,
+           !refreshed.points.contains(where: { $0.selectionID == selectedPointID }) {
+            self.selectedPointID = nil
+        }
+        isLoading = false
+        errorMessage = nil
     }
 
     func load(_ request: HistoryOpenRequest, ignoreCache: Bool = false) {

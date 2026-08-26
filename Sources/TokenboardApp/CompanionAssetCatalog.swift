@@ -176,6 +176,7 @@ enum CompanionAssetCatalog {
     /// Windows light up from the sunset stage onward. The scene's motion
     /// reads the same threshold so lit artwork and lit windows never disagree.
     static let villageLitStageThreshold = 8
+    static let villageNightStageThreshold = 9
 
     // MARK: Old School RuneScape
 

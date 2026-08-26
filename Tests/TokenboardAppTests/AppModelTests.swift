@@ -327,7 +327,7 @@ final class AppModelTests: XCTestCase {
         var origin = try XCTUnwrap(object["origin"] as? [String: Any])
         origin["kind"] = originKind
         if originKind == "web_research" {
-            origin["url"] = "https://prices.example/catalog"
+            origin["url"] = "https://developers.openai.com/api/docs/pricing"
         }
         object["origin"] = origin
         return try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])

@@ -48,7 +48,7 @@ final class AppModel: ObservableObject {
     let bundledCatalogData: Data
     let applicationPaths: ApplicationPaths
     let now: @Sendable () -> Date
-    let calendar: Calendar
+    private(set) var calendar: Calendar
     let discovery: any LogDiscovering
     let pasteboard: any AppPlainTextCopying
     let localDataRevealer: any AppLocalDataRevealing
@@ -197,11 +197,15 @@ final class AppModel: ObservableObject {
               !isDatabaseRecoveryActionLocked,
               state.lifecycle != .stopped,
               state.lifecycle != .shuttingDown else { return }
+        let refreshesPricingCoverage = settingsState.pricing.coveragePeriod != nil
         preferences.selectedPeriod = period
         var next = state
         next.selectedPeriod = period
         state = next
         await requeryWithoutScanning()
+        if refreshesPricingCoverage {
+            await refreshSettings()
+        }
     }
 
     func select(displayMetric: DisplayMetric) async {
@@ -254,6 +258,17 @@ final class AppModel: ObservableObject {
 
     func companionDailyTokenTotal(at date: Date) -> Int64 {
         companionDailyTokenTotal(for: state, at: date)
+    }
+
+    func refreshForCalendarChange(_ updatedCalendar: Calendar) async {
+        guard !isDatabaseRestoreInProgress,
+              !isDatabaseRecoveryActionLocked,
+              state.lifecycle == .ready else { return }
+        calendar = updatedCalendar
+        await queryUsagePresentations()
+        if settingsState.pricing.coveragePeriod != nil {
+            await refreshSettings()
+        }
     }
 
     func companionPresentation(

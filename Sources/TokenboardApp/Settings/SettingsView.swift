@@ -326,19 +326,7 @@ private struct CompanionThemeShelf: View {
         var state = model.state
         state.companion.theme = theme
         guard let live = model.companionPresentation(for: state, at: date) else { return nil }
-        let shelfStage = CompanionAssetCatalog.shelfPreviewStage(for: theme)
-        return CompanionPresentation(
-            theme: live.theme,
-            variant: live.variant,
-            stage: shelfStage,
-            // Scenery 0 keeps every shelf thumbnail on its vetted plate.
-            scenery: 0,
-            seed: live.seed,
-            stageTitle: live.stageTitle,
-            progressFraction: live.progressFraction,
-            tokensUntilNextStage: live.tokensUntilNextStage,
-            accessibilityLabel: "\(theme.title) preview"
-        )
+        return CompanionPresentation.shelfPreview(from: live)
     }
 }
 

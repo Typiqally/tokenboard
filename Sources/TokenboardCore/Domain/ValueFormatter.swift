@@ -2,7 +2,7 @@ import Foundation
 
 public enum ValueFormatter {
     public static func compactTokens(_ value: Int64) -> String {
-        let absolute = abs(value)
+        let absolute = value.magnitude
         if absolute < 1_000 { return String(value) }
         if absolute < 1_000_000 { return scaled(value, divisor: 1_000, suffix: "K") }
         if absolute < 1_000_000_000 { return scaled(value, divisor: 1_000_000, suffix: "M") }
