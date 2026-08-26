@@ -19,12 +19,16 @@ jobs:
         uses: actions/checkout@v4
       - name: Run tests
         run: swift test
+      - name: Run import resource benchmark
+        run: Scripts/benchmark-import.sh
       - name: Verify public asset clearance
         run: Scripts/verify-asset-rights.sh release
       - name: Package universal app
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: Scripts/package-release.sh "${RELEASE_TAG#v}" .build/artifacts
+      - name: Verify idle runtime resources
+        run: Scripts/verify-runtime-resources.sh .build/release/Tokenboard.app
       - name: Retain verified artifacts
         uses: actions/upload-artifact@v4
         with:
