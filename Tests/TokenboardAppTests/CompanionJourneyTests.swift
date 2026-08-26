@@ -3,6 +3,7 @@ import Foundation
 import SwiftUI
 import XCTest
 @testable import TokenboardApp
+import TokenboardCore
 
 final class CompanionJourneyTests: XCTestCase {
     func testMilestoneThresholdsAndStageBoundsStayStable() {
@@ -26,43 +27,35 @@ final class CompanionJourneyTests: XCTestCase {
         XCTAssertEqual(CompanionJourney.fraction(for: 1_000_000_000), 1, accuracy: 0.0001)
     }
 
-    func testActivationStartsAtZeroAndOnlyFuturePositiveDeltasAdvance() {
-        let activated = CompanionProgress.activate(at: 500_000_000)
-        XCTAssertEqual(activated.earnedTokens, 0)
-        XCTAssertEqual(activated.lastObservedLifetimeTotal, 500_000_000)
-
-        let advanced = activated.observing(lifetimeTotal: 770_000_000)
-        XCTAssertEqual(advanced.earnedTokens, 270_000_000)
-        XCTAssertEqual(advanced.lastObservedLifetimeTotal, 770_000_000)
-        XCTAssertEqual(advanced.stage, 3)
-    }
-
-    func testLowerLifetimeTotalRebasesWithoutLosingEarnedProgress() {
-        let progress = CompanionProgress(
-            earnedTokens: 16_000_000,
-            lastObservedLifetimeTotal: 900_000_000,
-            lastAcknowledgedStage: 2
+    func testDailyTokenSourceUsesOnlyTheCurrentTodaySnapshot() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Europe/Amsterdam")!
+        let date = calendar.date(from: DateComponents(year: 2026, month: 8, day: 26))!
+        let today = try XCTUnwrap(calendar.dateInterval(of: .day, for: date))
+        let yesterdayDate = try XCTUnwrap(
+            calendar.date(byAdding: .day, value: -1, to: date)
         )
-
-        let rebased = progress.observing(lifetimeTotal: 20_000)
-        XCTAssertEqual(rebased.earnedTokens, 16_000_000)
-        XCTAssertEqual(rebased.lastObservedLifetimeTotal, 20_000)
-        XCTAssertEqual(rebased.lastAcknowledgedStage, 2)
-
-        let resumed = rebased.observing(lifetimeTotal: 30_000)
-        XCTAssertEqual(resumed.earnedTokens, 16_010_000)
-    }
-
-    func testProgressSaturatesInsteadOfOverflowing() {
-        let progress = CompanionProgress(
-            earnedTokens: Int64.max - 2,
-            lastObservedLifetimeTotal: 5,
-            lastAcknowledgedStage: 7
-        )
+        let yesterday = try XCTUnwrap(calendar.dateInterval(of: .day, for: yesterdayDate))
 
         XCTAssertEqual(
-            progress.observing(lifetimeTotal: Int64.max).earnedTokens,
-            Int64.max
+            CompanionDailyTokenSource.total(
+                from: historySnapshot(tokenTotal: 94_711_097, interval: today),
+                at: date,
+                calendar: calendar
+            ),
+            94_711_097
+        )
+        XCTAssertEqual(
+            CompanionDailyTokenSource.total(
+                from: historySnapshot(tokenTotal: 1_400_000_000, interval: yesterday),
+                at: date,
+                calendar: calendar
+            ),
+            0
+        )
+        XCTAssertEqual(
+            CompanionDailyTokenSource.total(from: nil, at: date, calendar: calendar),
+            0
         )
     }
 
@@ -114,16 +107,12 @@ final class CompanionJourneyTests: XCTestCase {
         let state = CompanionState(
             theme: .oldSchoolRuneScape,
             showInMenuBar: true,
-            progress: CompanionProgress(
-                earnedTokens: 275_000_000,
-                lastObservedLifetimeTotal: 500_000_000,
-                lastAcknowledgedStage: 1
-            ),
             seed: 19
         )
 
         let presentation = try XCTUnwrap(CompanionPresentation.make(
             state: state,
+            dailyTokenTotal: 275_000_000,
             date: date,
             calendar: calendar
         ))
@@ -134,7 +123,7 @@ final class CompanionJourneyTests: XCTestCase {
             presentation.progressFraction, 5_000_000.0 / 90_000_000.0, accuracy: 0.0001
         )
         XCTAssertEqual(presentation.tokensUntilNextStage, 85_000_000)
-        XCTAssertTrue(presentation.showsMilestone)
+        XCTAssertFalse(presentation.showsMilestone)
         XCTAssertTrue(presentation.accessibilityLabel.contains("Old School RuneScape"))
         XCTAssertFalse(presentation.variant.title.isEmpty)
     }
@@ -305,7 +294,6 @@ final class CompanionJourneyTests: XCTestCase {
         let state = CompanionState(
             theme: .forest,
             showInMenuBar: false,
-            progress: CompanionProgress.activate(at: 0),
             seed: 11
         )
         let start = calendar.date(from: DateComponents(year: 2026, month: 8, day: 20))!
@@ -387,7 +375,6 @@ final class CompanionJourneyTests: XCTestCase {
             let state = CompanionState(
                 theme: theme,
                 showInMenuBar: false,
-                progress: CompanionProgress.activate(at: 0),
                 seed: 7
             )
             let live = try XCTUnwrap(
@@ -429,5 +416,33 @@ final class CompanionJourneyTests: XCTestCase {
         let bitmap = try XCTUnwrap(NSBitmapImageRep(data: representation))
         let png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
         try png.write(to: directoryURL.appending(path: "\(name).png"))
+    }
+
+    private func historySnapshot(
+        tokenTotal: Int64,
+        interval: DateInterval
+    ) -> UsageHistorySnapshot {
+        UsageHistorySnapshot(
+            range: .today,
+            provider: nil,
+            currentInterval: interval,
+            previousInterval: interval,
+            points: [],
+            comparison: UsageComparison(
+                currentTokenTotal: tokenTotal,
+                previousTokenTotal: 0,
+                tokenDelta: tokenTotal,
+                percentChange: nil
+            ),
+            breakdown: UsageBreakdown(
+                tokenTotal: tokenTotal,
+                knownAPIEquivalentUSD: 0,
+                unpricedTokens: 0,
+                exchangeRates: nil,
+                providers: [],
+                models: [],
+                tokenTypes: []
+            )
+        )
     }
 }

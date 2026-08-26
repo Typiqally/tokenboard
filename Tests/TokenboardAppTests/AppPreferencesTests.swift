@@ -17,7 +17,6 @@ final class AppPreferencesTests: XCTestCase {
         XCTAssertFalse(preferences.historicalImportApproved)
         XCTAssertEqual(preferences.selectedCompanionTheme, .none)
         XCTAssertFalse(preferences.showCompanionInMenuBar)
-        XCTAssertNil(preferences.companionProgress)
 
         preferences.selectedPeriod = .thisYear
         preferences.selectedDisplayMetric = .apiValue
@@ -26,11 +25,6 @@ final class AppPreferencesTests: XCTestCase {
         preferences.selectedCompanionTheme = .forest
         preferences.showCompanionInMenuBar = true
         preferences.companionSeed = 42
-        preferences.companionProgress = CompanionProgress(
-            earnedTokens: 4_000_000,
-            lastObservedLifetimeTotal: 50_000_000,
-            lastAcknowledgedStage: 1
-        )
 
         let persisted = defaults.persistentDomain(forName: suiteName) ?? [:]
         XCTAssertEqual(
@@ -38,9 +32,7 @@ final class AppPreferencesTests: XCTestCase {
             [
                 "selectedPeriod", "selectedDisplayMetric", "selectedDisplayCurrency",
                 "historicalImportApproved", "selectedCompanionTheme",
-                "showCompanionInMenuBar", "companionSeed", "companionProgressInitialized",
-                "companionEarnedTokens", "companionLastObservedLifetimeTotal",
-                "companionLastAcknowledgedStage"
+                "showCompanionInMenuBar", "companionSeed"
             ]
         )
         XCTAssertEqual(persisted["selectedPeriod"] as? String, "this_year")
@@ -50,10 +42,6 @@ final class AppPreferencesTests: XCTestCase {
         XCTAssertEqual(persisted["selectedCompanionTheme"] as? String, "forest")
         XCTAssertEqual(persisted["showCompanionInMenuBar"] as? Bool, true)
         XCTAssertEqual(persisted["companionSeed"] as? String, "42")
-        XCTAssertEqual(persisted["companionProgressInitialized"] as? Bool, true)
-        XCTAssertEqual(persisted["companionEarnedTokens"] as? NSNumber, 4_000_000)
-        XCTAssertEqual(persisted["companionLastObservedLifetimeTotal"] as? NSNumber, 50_000_000)
-        XCTAssertEqual(persisted["companionLastAcknowledgedStage"] as? NSNumber, 1)
         XCTAssertFalse(persisted.values.compactMap { $0 as? String }.contains { value in
             value.contains("/Users/") || value.contains("warning") || value.contains("project")
         })
@@ -75,5 +63,22 @@ final class AppPreferencesTests: XCTestCase {
         defaults.set("castle", forKey: "selectedCompanionTheme")
 
         XCTAssertEqual(AppPreferences(defaults: defaults).selectedCompanionTheme, .none)
+    }
+
+    func testLegacyCompanionProgressIsRemovedInsteadOfUsedAsASecondTokenSource() {
+        let suiteName = "AppPreferencesTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: "companionProgressInitialized")
+        defaults.set(1_422_581_001, forKey: "companionEarnedTokens")
+        defaults.set(104_310_953_065, forKey: "companionLastObservedLifetimeTotal")
+        defaults.set(11, forKey: "companionLastAcknowledgedStage")
+
+        _ = AppPreferences(defaults: defaults)
+
+        XCTAssertNil(defaults.object(forKey: "companionProgressInitialized"))
+        XCTAssertNil(defaults.object(forKey: "companionEarnedTokens"))
+        XCTAssertNil(defaults.object(forKey: "companionLastObservedLifetimeTotal"))
+        XCTAssertNil(defaults.object(forKey: "companionLastAcknowledgedStage"))
     }
 }

@@ -159,50 +159,40 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(rangesAfterSelection, queriedRanges)
     }
 
-    func testCompanionStartsAtEnablementAndKeepsAdvancingWhileHidden() async throws {
-        let setup = try makeSetup(approved: false, grantedProviders: [])
+    func testCompanionUsesTodayHistoryWithoutPersistingASecondTokenTotal() async throws {
+        let setup = try makeSetup(approved: true, grantedProviders: Set(Provider.allCases))
         defer { setup.cleanup() }
-        await setup.ledger.setLifetimeTotal(500_000_000)
+        await setup.query.setHistoryTokenTotal(94_711_097)
+        await setup.model.start()
 
         await setup.model.select(companionTheme: .forest)
+        let dailyTokenTotal = setup.model.companionDailyTokenTotal(at: setup.model.now())
+        let presentation = try XCTUnwrap(CompanionPresentation.make(
+            state: setup.model.companionState,
+            dailyTokenTotal: dailyTokenTotal,
+            date: setup.model.now(),
+            calendar: setup.model.calendar
+        ))
 
         XCTAssertEqual(setup.model.companionState.theme, .forest)
-        XCTAssertEqual(setup.model.companionState.progress?.earnedTokens, 0)
-        XCTAssertEqual(
-            setup.model.companionState.progress?.lastObservedLifetimeTotal,
-            500_000_000
-        )
+        XCTAssertEqual(dailyTokenTotal, 94_711_097)
+        XCTAssertEqual(presentation.stage, 1)
         XCTAssertEqual(setup.preferences.selectedCompanionTheme, .forest)
-
-        await setup.ledger.setLifetimeTotal(504_000_000)
-        await setup.model.refreshCompanionProgress()
-        XCTAssertEqual(setup.model.companionState.progress?.earnedTokens, 4_000_000)
-
-        await setup.model.select(companionTheme: .none)
-        await setup.ledger.setLifetimeTotal(520_000_000)
-        await setup.model.refreshCompanionProgress()
-        XCTAssertEqual(setup.model.companionState.theme, .none)
-        XCTAssertEqual(setup.model.companionState.progress?.earnedTokens, 20_000_000)
-
-        await setup.model.select(companionTheme: .pokemon)
-        XCTAssertEqual(setup.model.companionState.progress?.earnedTokens, 20_000_000)
+        let persisted = setup.defaults.persistentDomain(forName: setup.suiteName) ?? [:]
+        XCTAssertFalse(persisted.keys.contains { $0.hasPrefix("companionEarned") })
+        XCTAssertFalse(persisted.keys.contains { $0.hasPrefix("companionLastObserved") })
+        XCTAssertFalse(persisted.keys.contains { $0.hasPrefix("companionProgress") })
     }
 
-    func testCompanionMenuBarChoicePersistsAndMilestoneAcknowledgesOnce() async throws {
+    func testCompanionMenuBarChoicePersists() async throws {
         let setup = try makeSetup(approved: false, grantedProviders: [])
         defer { setup.cleanup() }
-        await setup.ledger.setLifetimeTotal(10)
         await setup.model.select(companionTheme: .village)
 
         setup.model.setShowCompanionInMenuBar(true)
-        await setup.ledger.setLifetimeTotal(90_000_010)
-        await setup.model.refreshCompanionProgress()
 
         XCTAssertTrue(setup.model.companionState.showInMenuBar)
-        XCTAssertTrue(setup.model.companionState.progress?.hasUnacknowledgedMilestone == true)
-        setup.model.acknowledgeCompanionMilestone()
-        XCTAssertFalse(setup.model.companionState.progress?.hasUnacknowledgedMilestone == true)
-        XCTAssertEqual(setup.preferences.companionProgress?.lastAcknowledgedStage, 1)
+        XCTAssertTrue(setup.preferences.showCompanionInMenuBar)
     }
 
     private func makeSetup(
@@ -249,6 +239,8 @@ final class AppModelTests: XCTestCase {
             coordinator: coordinator,
             access: access,
             recorder: recorder,
+            defaults: defaults,
+            suiteName: suiteName,
             cleanup: { defaults.removePersistentDomain(forName: suiteName) }
         )
     }
@@ -290,6 +282,8 @@ private struct ModelSetup {
     let coordinator: RuntimeCoordinator
     let access: RuntimeBookmarkAccess
     let recorder: OrderedRecorder
+    let defaults: UserDefaults
+    let suiteName: String
     let cleanup: () -> Void
 }
 
@@ -339,6 +333,7 @@ private actor RuntimeLedger: AppLedgerRuntime {
 private actor RuntimeQuery: AppUsageQuerying {
     let recorder: OrderedRecorder
     private var historyRanges: [UsageHistoryRange] = []
+    private var historyTokenTotal: Int64 = 321
     init(recorder: OrderedRecorder) { self.recorder = recorder }
 
     func summary(period: CalendarPeriod, now: Date, calendar: Calendar) -> UsageSummary {
@@ -373,13 +368,13 @@ private actor RuntimeQuery: AppUsageQuerying {
             previousInterval: interval,
             points: [],
             comparison: UsageComparison(
-                currentTokenTotal: 321,
+                currentTokenTotal: historyTokenTotal,
                 previousTokenTotal: 300,
-                tokenDelta: 21,
+                tokenDelta: historyTokenTotal - 300,
                 percentChange: 7
             ),
             breakdown: UsageBreakdown(
-                tokenTotal: 321,
+                tokenTotal: historyTokenTotal,
                 knownAPIEquivalentUSD: Decimal(string: "1.25")!,
                 unpricedTokens: 0,
                 exchangeRates: nil,
@@ -391,6 +386,7 @@ private actor RuntimeQuery: AppUsageQuerying {
     }
 
     func queriedHistoryRanges() -> [UsageHistoryRange] { historyRanges }
+    func setHistoryTokenTotal(_ value: Int64) { historyTokenTotal = value }
 }
 
 private actor RuntimeCoordinator: AppIngestionCoordinating {
