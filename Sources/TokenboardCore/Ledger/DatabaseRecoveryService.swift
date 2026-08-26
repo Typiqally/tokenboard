@@ -240,7 +240,9 @@ public actor DatabaseRecoveryService {
                 from: backupDescriptor,
                 to: restoreDescriptor,
                 operation: .restoreCopyChunk,
-                syncOperation: .syncStagedRestore
+                syncOperation: .syncStagedRestore,
+                expectedByteCount: confirmedBackup.identity.size,
+                sourceChanged: .backupChanged
             )
             guard copiedDigest == confirmedBackup.identity.digest,
                   try identity(of: backupDescriptor) == confirmedBackup.identity else {
@@ -254,7 +256,9 @@ public actor DatabaseRecoveryService {
             let rollbackDigest = try copy(
                 from: databaseDescriptor,
                 to: rollbackDescriptor,
-                syncOperation: .syncRollbackSnapshot
+                syncOperation: .syncRollbackSnapshot,
+                expectedByteCount: databaseIdentity.size,
+                sourceChanged: .unsafeDatabase
             )
             guard rollbackDigest == databaseIdentity.digest,
                   try identity(of: databaseDescriptor) == databaseIdentity else {
@@ -484,7 +488,8 @@ public actor DatabaseRecoveryService {
                 from: pending.snapshot,
                 to: artifact,
                 operation: .preservationCopyChunk,
-                expectedByteCount: pending.identity.size
+                expectedByteCount: pending.identity.size,
+                sourceChanged: .preservationFailed
             )
             guard digest == pending.identity.digest,
                   try identity(of: pending.snapshot) == pending.identity,
@@ -574,7 +579,9 @@ public actor DatabaseRecoveryService {
                 from: snapshot,
                 to: install,
                 operation: .rollbackCopyChunk,
-                syncOperation: .syncRollbackInstall
+                syncOperation: .syncRollbackInstall,
+                expectedByteCount: snapshotIdentity.size,
+                sourceChanged: .rollbackFailed
             )
             guard copiedDigest == snapshotIdentity.digest,
                   try identity(of: snapshot) == snapshotIdentity else {
@@ -1196,7 +1203,15 @@ public actor DatabaseRecoveryService {
         guard fstat(descriptor, &before) == 0, Self.isRegular(before) else {
             throw posixFailure()
         }
-        let digest = try digest(of: descriptor)
+        let digest: String
+        do {
+            digest = try BoundedDescriptorRead.digest(
+                descriptor: descriptor,
+                exactByteCount: Int64(before.st_size)
+            )
+        } catch is BoundedDescriptorReadError {
+            throw DatabaseRecoveryError.backupChanged
+        }
         var after = stat()
         guard fstat(descriptor, &after) == 0,
               RecoveryFileIdentity.sameMetadata(before, after) else {
@@ -1205,71 +1220,44 @@ public actor DatabaseRecoveryService {
         return RecoveryFileIdentity(information: after, digest: digest)
     }
 
-    private func digest(of descriptor: Int32) throws -> String {
-        guard lseek(descriptor, 0, SEEK_SET) >= 0 else { throw posixFailure() }
-        var hasher = SHA256()
-        var buffer = [UInt8](repeating: 0, count: 64 * 1024)
-        while true {
-            let count = Darwin.read(descriptor, &buffer, buffer.count)
-            if count == 0 { break }
-            guard count > 0 else {
-                if errno == EINTR { continue }
-                throw posixFailure()
-            }
-            hasher.update(data: Data(buffer[0..<count]))
-        }
-        guard lseek(descriptor, 0, SEEK_SET) >= 0 else { throw posixFailure() }
-        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
-    }
-
     private func copy(
         from source: Int32,
         to destination: Int32,
         operation: DatabaseRecoveryFileOperation? = nil,
         syncOperation: DatabaseRecoveryFileOperation? = nil,
-        expectedByteCount: Int64? = nil
+        expectedByteCount: Int64,
+        sourceChanged: DatabaseRecoveryError
     ) throws -> String {
-        guard lseek(source, 0, SEEK_SET) >= 0 else { throw posixFailure() }
         var hasher = SHA256()
-        var buffer = [UInt8](repeating: 0, count: 64 * 1024)
-        var copiedByteCount: Int64 = 0
-        while true {
-            let count = Darwin.read(source, &buffer, buffer.count)
-            if count == 0 { break }
-            guard count > 0 else {
-                if errno == EINTR { continue }
-                throw posixFailure()
-            }
-            let (nextCount, overflowed) = copiedByteCount.addingReportingOverflow(Int64(count))
-            guard !overflowed,
-                  expectedByteCount.map({ nextCount <= $0 }) ?? true else {
-                throw DatabaseRecoveryError.preservationFailed
-            }
-            copiedByteCount = nextCount
-            hasher.update(data: Data(buffer[0..<count]))
-            var written = 0
-            while written < count {
-                let result = buffer.withUnsafeBytes { bytes in
-                    Darwin.write(
-                        destination,
-                        bytes.baseAddress!.advanced(by: written),
-                        count - written
-                    )
+        do {
+            try BoundedDescriptorRead.consume(
+                descriptor: source,
+                exactByteCount: expectedByteCount
+            ) { data in
+                hasher.update(data: data)
+                let count = data.count
+                var written = 0
+                while written < count {
+                    let result = data.withUnsafeBytes { bytes in
+                        Darwin.write(
+                            destination,
+                            bytes.baseAddress!.advanced(by: written),
+                            count - written
+                        )
+                    }
+                    guard result > 0 else {
+                        if result < 0, errno == EINTR { continue }
+                        throw posixFailure()
+                    }
+                    written += result
+                    if let operation { try fileOperationHandler(operation) }
                 }
-                guard result > 0 else {
-                    if result < 0, errno == EINTR { continue }
-                    throw posixFailure()
-                }
-                written += result
-                if let operation { try fileOperationHandler(operation) }
             }
-        }
-        guard expectedByteCount.map({ copiedByteCount == $0 }) ?? true else {
-            throw DatabaseRecoveryError.preservationFailed
+        } catch is BoundedDescriptorReadError {
+            throw sourceChanged
         }
         if let syncOperation { try fileOperationHandler(syncOperation) }
         guard fsync(destination) == 0 else { throw posixFailure() }
-        guard lseek(source, 0, SEEK_SET) >= 0 else { throw posixFailure() }
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
