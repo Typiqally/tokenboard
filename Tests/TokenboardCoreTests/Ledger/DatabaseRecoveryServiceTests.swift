@@ -166,6 +166,25 @@ final class DatabaseRecoveryServiceTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: invalidCanonical), invalidBytes)
     }
 
+    func testAvailableBackupsRejectsAnUnboundedCandidateInventory() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let database = directory.appending(path: "ledger.sqlite")
+        let backups = directory.appending(path: "Backups", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: backups, withIntermediateDirectories: true)
+        try Data("database".utf8).write(to: database)
+        for index in 0...DatabaseRecoveryService.maximumBackupCandidates {
+            try Data().write(to: backups.appending(path: "ledger-v1-\(index).sqlite"))
+        }
+        let service = DatabaseRecoveryService(databaseURL: database, backupDirectory: backups)
+
+        await assertRecoveryError(.backupInventoryTooLarge(
+            maximumCandidates: DatabaseRecoveryService.maximumBackupCandidates
+        )) {
+            _ = try await service.availableBackups()
+        }
+    }
+
     func testRestoreWaitsForShutdownThenRestoresLatestValidRows() async throws {
         let setup = try await makePopulatedLedger(quantity: 41)
         defer { try? FileManager.default.removeItem(at: setup.directory) }
