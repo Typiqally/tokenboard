@@ -9,6 +9,8 @@ public enum PricingCatalogValidationError: Error, Equatable, Sendable {
     case invalidInterval(String)
     case invalidURL(String)
     case invalidOrigin
+    case invalidProvenance(provider: Provider)
+    case invalidExchangeRateProvenance
     case invalidExchangeRateSnapshot(String)
     case duplicateModel(String)
     case duplicateEffectiveStart(String)
@@ -86,6 +88,13 @@ public struct PricingCatalogValidator: Sendable {
                 try validateInterval(from: rate.effectiveFrom, to: rate.effectiveTo)
                 try validateDate(rate.verifiedAt)
                 let provenanceURL = try validatedURL(rate.provenanceURL)
+                guard Self.allowedHosts(for: model.provider).contains(
+                    provenanceURL.host?.lowercased() ?? ""
+                ) else {
+                    throw PricingCatalogValidationError.invalidProvenance(
+                        provider: model.provider
+                    )
+                }
 
                 var prices: [UsageMetric: Decimal] = [:]
                 for (rawMetric, price) in rate.prices {
@@ -165,6 +174,9 @@ public struct PricingCatalogValidator: Sendable {
         try validateDate(snapshot.effectiveDate)
         try validateDate(snapshot.verifiedAt)
         let provenanceURL = try validatedURL(snapshot.provenanceURL)
+        guard provenanceURL.absoluteString == Self.ecbProvenanceURL else {
+            throw PricingCatalogValidationError.invalidExchangeRateProvenance
+        }
 
         let expectedCodes = Set(DisplayCurrency.allCases.map(\.rawValue))
         guard Set(snapshot.rates.keys) == expectedCodes else {
@@ -218,7 +230,9 @@ public struct PricingCatalogValidator: Sendable {
             }
             try validateRepositoryPath(components.percentEncodedPath)
         case .officialResearch, .webResearch:
-            break
+            guard Self.allOfficialHosts.contains(host) else {
+                throw PricingCatalogValidationError.invalidOrigin
+            }
         }
     }
 
@@ -403,6 +417,13 @@ public struct PricingCatalogValidator: Sendable {
             < (rhs.effectiveFrom, rhs.effectiveTo ?? "", rhs.provenanceURL.absoluteString, rhs.verifiedAt)
     }
 
+    private static func allowedHosts(for provider: Provider) -> Set<String> {
+        switch provider {
+        case .claudeCode: anthropicHosts
+        case .codex: openAIHosts
+        }
+    }
+
     private static func aliasKeyOrder(_ lhs: AliasKey, _ rhs: AliasKey) -> Bool {
         (lhs.provider.rawValue, lhs.observedModelID) < (rhs.provider.rawValue, rhs.observedModelID)
     }
@@ -420,6 +441,18 @@ public struct PricingCatalogValidator: Sendable {
         .inputCacheWrite1h,
         .output
     ]
+    private static let anthropicHosts: Set<String> = [
+        "anthropic.com", "www.anthropic.com", "platform.claude.com",
+        "docs.anthropic.com", "www-cdn.anthropic.com",
+    ]
+    private static let openAIHosts: Set<String> = [
+        "openai.com", "www.openai.com", "platform.openai.com",
+        "help.openai.com", "developers.openai.com",
+    ]
+    private static let ecbHosts: Set<String> = ["www.ecb.europa.eu"]
+    private static let allOfficialHosts = anthropicHosts.union(openAIHosts).union(ecbHosts)
+    private static let ecbProvenanceURL =
+        "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml"
     private static let allowedIdentifierBytes = Set(
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._:-".utf8
     )
