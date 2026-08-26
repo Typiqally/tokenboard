@@ -312,7 +312,7 @@ struct SettingsView: View {
     }
 }
 
-private struct CompanionSettingsPanel: View {
+struct CompanionSettingsPanel: View {
     @ObservedObject var model: AppModel
 
     var body: some View {
