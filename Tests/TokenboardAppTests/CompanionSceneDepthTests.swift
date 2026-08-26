@@ -47,6 +47,65 @@ final class CompanionSceneDepthTests: XCTestCase {
         )
     }
 
+    func testBrandedPopulationsActuallyPassBehindCanonicalForegroundSubjects() throws {
+        let examples: [(CompanionTheme, Int)] = [
+            (.pokemon, 2),
+            (.oldSchoolRuneScape, 0),
+            (.minecraft, 1)
+        ]
+
+        for (theme, stage) in examples {
+            let variant = try XCTUnwrap(CompanionCatalog.variants(for: theme).first)
+            let asset = try XCTUnwrap(
+                CompanionAssetCatalog.scene(
+                    theme: theme,
+                    variant: variant,
+                    stage: stage,
+                    fraction: 0.5,
+                    seed: 7
+                )
+            )
+            let placements = asset.layers.enumerated().map { index, layer in
+                CompanionScenePlacement(
+                    layer: layer,
+                    index: index,
+                    rect: .zero,
+                    windows: []
+                )
+            }
+            let plan = CompanionScenePlan.make(
+                theme: theme,
+                stage: stage,
+                seed: 7,
+                layers: asset.layers
+            )
+
+            let actorPaintsBehind = (0...240).contains { step in
+                let actors = plan.frame(
+                    at: Double(step) * 0.1,
+                    isMoving: true
+                ).actors
+                let order = CompanionSceneDepth.painterOrder(
+                    placements: placements,
+                    actors: actors
+                )
+                guard let firstSubject = order.firstIndex(where: {
+                    if case .placement = $0 { return true }
+                    return false
+                }) else { return false }
+                return order[..<firstSubject].contains {
+                    if case .actor = $0 { return true }
+                    return false
+                }
+            }
+
+            XCTAssertTrue(
+                actorPaintsBehind,
+                "\(theme.title) still paints every inhabitant over its foreground subject"
+            )
+        }
+    }
+
     private func placement(id: String, groundY: Double) -> CompanionScenePlacement {
         CompanionScenePlacement(
             layer: CompanionSceneLayer(
