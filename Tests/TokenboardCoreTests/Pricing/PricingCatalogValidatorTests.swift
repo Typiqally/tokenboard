@@ -338,6 +338,25 @@ final class PricingCatalogValidatorTests: XCTestCase {
         }
     }
 
+    func testModelIdentifiersUseThePersistenceSafetyPolicy() {
+        for invalidCanonical in [".gpt-test", "gpt:test"] {
+            assertValidationError(.invalidIdentifier("canonical model ID")) {
+                _ = try validate(valid.replacingOccurrences(
+                    of: #""canonicalModelID": "gpt-test""#,
+                    with: #""canonicalModelID": "\#(invalidCanonical)""#
+                ))
+            }
+        }
+        for invalidObserved in ["_gpt-test", "gpt:test"] {
+            assertValidationError(.invalidIdentifier("observed model ID")) {
+                _ = try validate(valid.replacingOccurrences(
+                    of: #""observedModelID":"gpt-test""#,
+                    with: #""observedModelID":"\#(invalidObserved)""#
+                ))
+            }
+        }
+    }
+
     func testResearchProvenanceRequiresStructurallySafeHTTPSURLs() throws {
         let decoded = try load(valid)
         let invalidOrigin = PricingCatalog(

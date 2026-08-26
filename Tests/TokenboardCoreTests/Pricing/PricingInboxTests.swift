@@ -19,6 +19,29 @@ final class PricingInboxTests: XCTestCase {
         XCTAssertEqual(status, .current(catalogID: "authoritative-current"))
     }
 
+    func testCurrentCatalogPermissionsAreRestrictedToTheOwnerBeforeUse() async throws {
+        let setup = try makeSetup()
+        try FileManager.default.createDirectory(
+            at: setup.currentURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try catalogData(id: "private-current").write(to: setup.currentURL)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o644],
+            ofItemAtPath: setup.currentURL.path
+        )
+
+        try await setup.catalogStore.start()
+
+        let attributes = try FileManager.default.attributesOfItem(
+            atPath: setup.currentURL.path
+        )
+        let permissions = (attributes[.posixPermissions] as? NSNumber)?.intValue
+        let status = await setup.catalogStore.status()
+        XCTAssertEqual(permissions, 0o600)
+        XCTAssertEqual(status, .current(catalogID: "private-current"))
+    }
+
     func testReplacingCurrentCatalogAutomaticallyAppliesWhileRunning() async throws {
         let setup = try makeSetup()
         try await setup.catalogStore.start()
@@ -184,11 +207,11 @@ final class PricingInboxTests: XCTestCase {
     }
 
     private func catalogData(id: String) -> Data {
-        Data(#"{"schemaVersion":1,"catalogID":"\#(id)","generatedAt":"2026-08-05T00:00:00Z","origin":{"kind":"web_research","url":"https://prices.example/catalog"},"models":[{"provider":"codex","canonicalModelID":"gpt-test","aliases":[{"observedModelID":"gpt-test","effectiveFrom":"2026-01-01","effectiveTo":null}],"rates":[{"effectiveFrom":"2026-01-01","effectiveTo":null,"prices":{"input_uncached":"5.00","output":"30.00"},"provenanceURL":"https://prices.example/model","verifiedAt":"2026-08-05"}]}]}"#.utf8)
+        Data(#"{"schemaVersion":1,"catalogID":"\#(id)","generatedAt":"2026-08-05T00:00:00Z","origin":{"kind":"official_research","url":"https://openai.com/api/pricing/"},"models":[{"provider":"codex","canonicalModelID":"gpt-test","aliases":[{"observedModelID":"gpt-test","effectiveFrom":"2026-01-01","effectiveTo":null}],"rates":[{"effectiveFrom":"2026-01-01","effectiveTo":null,"prices":{"input_uncached":"5.00","output":"30.00"},"provenanceURL":"https://openai.com/api/pricing/","verifiedAt":"2026-08-05"}]}]}"#.utf8)
     }
 
     private func repositoryCatalogData(id: String, generatedAt: String) -> Data {
-        Data(#"{"schemaVersion":1,"catalogID":"\#(id)","generatedAt":"\#(generatedAt)","origin":{"kind":"tokenboard_repository","url":"https://raw.githubusercontent.com/Typiqally/tokenboard/main/Resources/tokenboard-pricing.json"},"models":[{"provider":"codex","canonicalModelID":"gpt-test","aliases":[{"observedModelID":"gpt-test","effectiveFrom":"2026-01-01","effectiveTo":null}],"rates":[{"effectiveFrom":"2026-01-01","effectiveTo":null,"prices":{"input_uncached":"5.00","output":"30.00"},"provenanceURL":"https://prices.example/model","verifiedAt":"2026-08-05"}]}]}"#.utf8)
+        Data(#"{"schemaVersion":1,"catalogID":"\#(id)","generatedAt":"\#(generatedAt)","origin":{"kind":"tokenboard_repository","url":"https://raw.githubusercontent.com/Typiqally/tokenboard/main/Resources/tokenboard-pricing.json"},"models":[{"provider":"codex","canonicalModelID":"gpt-test","aliases":[{"observedModelID":"gpt-test","effectiveFrom":"2026-01-01","effectiveTo":null}],"rates":[{"effectiveFrom":"2026-01-01","effectiveTo":null,"prices":{"input_uncached":"5.00","output":"30.00"},"provenanceURL":"https://openai.com/api/pricing/","verifiedAt":"2026-08-05"}]}]}"#.utf8)
     }
 
 }
