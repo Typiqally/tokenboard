@@ -11,16 +11,21 @@ final class AppPreferences {
         static let selectedCompanionTheme = "selectedCompanionTheme"
         static let showCompanionInMenuBar = "showCompanionInMenuBar"
         static let companionSeed = "companionSeed"
-        static let companionProgressInitialized = "companionProgressInitialized"
-        static let companionEarnedTokens = "companionEarnedTokens"
-        static let companionLastObservedLifetimeTotal = "companionLastObservedLifetimeTotal"
-        static let companionLastAcknowledgedStage = "companionLastAcknowledgedStage"
+        static let legacyCompanionProgress = [
+            "companionProgressInitialized",
+            "companionEarnedTokens",
+            "companionLastObservedLifetimeTotal",
+            "companionLastAcknowledgedStage",
+        ]
     }
 
     private let defaults: UserDefaults
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        for key in Key.legacyCompanionProgress {
+            defaults.removeObject(forKey: key)
+        }
     }
 
     var selectedPeriod: CalendarPeriod {
@@ -76,35 +81,6 @@ final class AppPreferences {
             return value
         }
         set { defaults.set(String(newValue), forKey: Key.companionSeed) }
-    }
-
-    var companionProgress: CompanionProgress? {
-        get {
-            guard defaults.bool(forKey: Key.companionProgressInitialized) else { return nil }
-            return CompanionProgress(
-                earnedTokens: max(0, defaults.object(forKey: Key.companionEarnedTokens)
-                    .flatMap { ($0 as? NSNumber)?.int64Value } ?? 0),
-                lastObservedLifetimeTotal: max(0, defaults.object(forKey: Key.companionLastObservedLifetimeTotal)
-                    .flatMap { ($0 as? NSNumber)?.int64Value } ?? 0),
-                lastAcknowledgedStage: max(0, min(
-                    CompanionJourney.thresholds.count - 1,
-                    defaults.integer(forKey: Key.companionLastAcknowledgedStage)
-                ))
-            )
-        }
-        set {
-            guard let newValue else {
-                defaults.removeObject(forKey: Key.companionProgressInitialized)
-                defaults.removeObject(forKey: Key.companionEarnedTokens)
-                defaults.removeObject(forKey: Key.companionLastObservedLifetimeTotal)
-                defaults.removeObject(forKey: Key.companionLastAcknowledgedStage)
-                return
-            }
-            defaults.set(true, forKey: Key.companionProgressInitialized)
-            defaults.set(newValue.earnedTokens, forKey: Key.companionEarnedTokens)
-            defaults.set(newValue.lastObservedLifetimeTotal, forKey: Key.companionLastObservedLifetimeTotal)
-            defaults.set(newValue.lastAcknowledgedStage, forKey: Key.companionLastAcknowledgedStage)
-        }
     }
 
 }

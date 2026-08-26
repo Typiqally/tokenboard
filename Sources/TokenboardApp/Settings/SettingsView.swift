@@ -167,7 +167,7 @@ struct SettingsView: View {
                 ))
             }
 
-            Text("Every scene is built into Tokenboard. Progress stays on this Mac and continues when the companion is hidden.")
+            Text("Companion stages follow today's tokens and reset at the start of each local day. Hiding the companion does not affect today's progress.")
                 .foregroundStyle(.secondary)
         }
         .disabled(model.isDatabaseRecoveryActionLocked)
@@ -335,6 +335,7 @@ private struct CompanionThemeShelf: View {
         state.theme = theme
         guard let live = CompanionPresentation.make(
             state: state,
+            dailyTokenTotal: model.companionDailyTokenTotal(at: date),
             date: date,
             calendar: .current
         ) else { return nil }
@@ -416,6 +417,7 @@ private struct CompanionSettingsPreview: View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
             if let companion = CompanionPresentation.make(
                 state: model.companionState,
+                dailyTokenTotal: model.companionDailyTokenTotal(at: context.date),
                 date: context.date,
                 calendar: .current
             ) {

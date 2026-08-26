@@ -70,7 +70,6 @@ final class RichPopoverController: NSObject, NSPopoverDelegate {
     private let activateApplication: () -> Void
     private var stateObservation: AnyCancellable?
     private var calendarObservations: Set<AnyCancellable> = []
-    private var milestoneAcknowledgementTask: Task<Void, Never>?
     private lazy var clickAwayDismissal = PopoverClickAwayDismissal(
         monitor: GlobalMouseDownMonitor(),
         dismiss: { [weak self] in self?.popover.performClose(nil) }
@@ -168,14 +167,11 @@ final class RichPopoverController: NSObject, NSPopoverDelegate {
     func popoverDidShow(_ notification: Notification) {
         visibility.isPresented = true
         clickAwayDismissal.popoverDidShow()
-        scheduleMilestoneAcknowledgement()
     }
 
     func popoverDidClose(_ notification: Notification) {
         visibility.isPresented = false
         clickAwayDismissal.popoverDidClose()
-        milestoneAcknowledgementTask?.cancel()
-        milestoneAcknowledgementTask = nil
     }
 
     private func updateStatus(for state: AppPublishedState) {
@@ -196,9 +192,11 @@ final class RichPopoverController: NSObject, NSPopoverDelegate {
             return
         }
 
+        let currentDate = Date()
         let companion = CompanionPresentation.make(
             state: state.companion,
-            date: Date(),
+            dailyTokenTotal: model?.companionDailyTokenTotal(at: currentDate) ?? 0,
+            date: currentDate,
             calendar: .current
         )
         let image: NSImage? = companion.flatMap { companion -> NSImage? in
@@ -257,18 +255,6 @@ final class RichPopoverController: NSObject, NSPopoverDelegate {
                 self.updateStatus(for: model.state)
             }
             .store(in: &calendarObservations)
-    }
-
-    private func scheduleMilestoneAcknowledgement() {
-        milestoneAcknowledgementTask?.cancel()
-        guard let model,
-              model.companionState.isVisible,
-              model.companionState.progress?.hasUnacknowledgedMilestone == true else { return }
-        milestoneAcknowledgementTask = Task { @MainActor [weak self, weak model] in
-            try? await Task.sleep(for: .seconds(1.6))
-            guard !Task.isCancelled, self?.popover.isShown == true else { return }
-            model?.acknowledgeCompanionMilestone()
-        }
     }
 
     @objc private func togglePopover() {

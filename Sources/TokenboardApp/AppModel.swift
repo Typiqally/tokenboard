@@ -135,7 +135,6 @@ final class AppModel: ObservableObject {
             companion: CompanionState(
                 theme: preferences.selectedCompanionTheme,
                 showInMenuBar: preferences.showCompanionInMenuBar,
-                progress: preferences.companionProgress,
                 seed: preferences.companionSeed
             )
         )
@@ -246,9 +245,6 @@ final class AppModel: ObservableObject {
         var next = state
         next.companion.theme = companionTheme
         commitState(next)
-        if companionTheme != .none, next.companion.progress == nil {
-            await refreshCompanionProgress()
-        }
     }
 
     func setShowCompanionInMenuBar(_ enabled: Bool) {
@@ -259,27 +255,12 @@ final class AppModel: ObservableObject {
         commitState(next)
     }
 
-    func refreshCompanionProgress() async {
-        let previous = state.companion.progress
-        guard previous != nil || state.companion.theme != .none else { return }
-        guard let total = try? await ledger.lifetimeAdditiveTokenTotal() else { return }
-        guard state.companion.progress == previous else { return }
-        let progress = previous?.observing(lifetimeTotal: total)
-            ?? CompanionProgress.activate(at: total)
-        preferences.companionProgress = progress
-        var next = state
-        next.companion.progress = progress
-        commitState(next)
-    }
-
-    func acknowledgeCompanionMilestone() {
-        guard let progress = state.companion.progress,
-              progress.hasUnacknowledgedMilestone else { return }
-        let acknowledged = progress.acknowledgingCurrentStage()
-        preferences.companionProgress = acknowledged
-        var next = state
-        next.companion.progress = acknowledged
-        commitState(next)
+    func companionDailyTokenTotal(at date: Date) -> Int64 {
+        CompanionDailyTokenSource.total(
+            from: state.historyState.snapshots?[.today],
+            at: date,
+            calendar: calendar
+        )
     }
 
     func select(historyRange: UsageHistoryRange) {

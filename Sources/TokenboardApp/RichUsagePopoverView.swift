@@ -28,6 +28,7 @@ struct RichUsagePopoverView: View {
             )
             let companion = CompanionPresentation.make(
                 state: model.companionState,
+                dailyTokenTotal: model.companionDailyTokenTotal(at: context.date),
                 date: context.date,
                 calendar: .current
             )

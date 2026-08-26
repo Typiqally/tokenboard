@@ -1,4 +1,5 @@
 import Foundation
+import TokenboardCore
 
 enum CompanionTheme: String, CaseIterable, Identifiable, Sendable {
     case none
@@ -135,54 +136,28 @@ enum CompanionJourney {
     }
 }
 
-struct CompanionProgress: Equatable, Sendable {
-    var earnedTokens: Int64
-    var lastObservedLifetimeTotal: Int64
-    var lastAcknowledgedStage: Int
-
-    static func activate(at lifetimeTotal: Int64) -> CompanionProgress {
-        CompanionProgress(
-            earnedTokens: 0,
-            lastObservedLifetimeTotal: max(0, lifetimeTotal),
-            lastAcknowledgedStage: 0
-        )
-    }
-
-    var stage: Int { CompanionJourney.stage(for: earnedTokens) }
-    var fraction: Double { CompanionJourney.fraction(for: earnedTokens) }
-    var hasUnacknowledgedMilestone: Bool { stage > lastAcknowledgedStage }
-
-    func observing(lifetimeTotal: Int64) -> CompanionProgress {
-        let observed = max(0, lifetimeTotal)
-        guard observed > lastObservedLifetimeTotal else {
-            var rebased = self
-            rebased.lastObservedLifetimeTotal = observed
-            return rebased
-        }
-        let delta = observed - lastObservedLifetimeTotal
-        let (sum, overflow) = earnedTokens.addingReportingOverflow(delta)
-        var advanced = self
-        advanced.earnedTokens = overflow ? Int64.max : sum
-        advanced.lastObservedLifetimeTotal = observed
-        return advanced
-    }
-
-    func acknowledgingCurrentStage() -> CompanionProgress {
-        var acknowledged = self
-        acknowledged.lastAcknowledgedStage = stage
-        return acknowledged
+enum CompanionDailyTokenSource {
+    static func total(
+        from snapshot: UsageHistorySnapshot?,
+        at date: Date,
+        calendar: Calendar
+    ) -> Int64 {
+        guard let snapshot,
+              snapshot.range == .today,
+              snapshot.provider == nil,
+              snapshot.currentInterval.contains(date),
+              LocalDay(date: snapshot.currentInterval.start, calendar: calendar).value
+                == LocalDay(date: date, calendar: calendar).value else { return 0 }
+        return max(0, snapshot.breakdown.tokenTotal)
     }
 }
 
 struct CompanionState: Equatable, Sendable {
     var theme: CompanionTheme
     var showInMenuBar: Bool
-    var progress: CompanionProgress?
     var seed: UInt64
 
     var isVisible: Bool { theme != .none }
-    var stage: Int { progress?.stage ?? 0 }
-    var fraction: Double { progress?.fraction ?? 0 }
 }
 
 struct CompanionPresentation: Equatable, Sendable {
@@ -203,6 +178,7 @@ struct CompanionPresentation: Equatable, Sendable {
 
     static func make(
         state: CompanionState,
+        dailyTokenTotal: Int64 = 0,
         date: Date,
         calendar: Calendar
     ) -> CompanionPresentation? {
@@ -213,7 +189,8 @@ struct CompanionPresentation: Equatable, Sendable {
                 date: date,
                 calendar: calendar
               ) else { return nil }
-        let stage = state.stage
+        let earnedTokens = max(0, dailyTokenTotal)
+        let stage = CompanionJourney.stage(for: earnedTokens)
         let title = stageTitles(for: state.theme)[stage]
         let scenery = CompanionDailyVariantSelector.index(
             key: "\(state.theme.rawValue)/scenery/\(stage)",
@@ -229,11 +206,9 @@ struct CompanionPresentation: Equatable, Sendable {
             scenery: scenery,
             seed: state.seed,
             stageTitle: title,
-            progressFraction: state.fraction,
-            tokensUntilNextStage: state.progress.flatMap {
-                CompanionJourney.tokensUntilNextStage(for: $0.earnedTokens)
-            },
-            showsMilestone: state.progress?.hasUnacknowledgedMilestone == true,
+            progressFraction: CompanionJourney.fraction(for: earnedTokens),
+            tokensUntilNextStage: CompanionJourney.tokensUntilNextStage(for: earnedTokens),
+            showsMilestone: false,
             accessibilityLabel: "\(state.theme.title), \(variant.title), stage \(stage + 1) of \(CompanionJourney.thresholds.count), \(title)"
         )
     }

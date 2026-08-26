@@ -184,7 +184,6 @@ struct AppPublishedState: Equatable, Sendable {
         companion: CompanionState = CompanionState(
             theme: .none,
             showInMenuBar: false,
-            progress: nil,
             seed: 0
         )
     ) -> AppPublishedState {
