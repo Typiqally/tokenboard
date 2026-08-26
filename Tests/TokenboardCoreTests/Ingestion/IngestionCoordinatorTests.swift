@@ -236,7 +236,10 @@ final class IngestionCoordinatorTests: XCTestCase {
 
         let scannedURLs = await scanner.scannedURLs
         let scannedProviders = await scanner.scannedProviders
-        XCTAssertEqual(watcher.requestedRoots, [replacement.standardizedFileURL])
+        XCTAssertEqual(
+            watcher.requestedRoots.map(\.path),
+            [replacement.standardizedFileURL.path]
+        )
         XCTAssertEqual(Set(result.providers.keys), [.codex])
         XCTAssertEqual(scannedURLs, [replacementFile])
         XCTAssertEqual(scannedProviders, [.codex])
@@ -1709,7 +1712,7 @@ final class IngestionCoordinatorTests: XCTestCase {
         codexRoot: URL,
         roots: [Provider: URL]
     ) {
-        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let directory = canonicalTestTemporaryDirectory.appending(path: UUID().uuidString)
         let claudeRoot = directory.appending(path: "claude")
         let codexRoot = directory.appending(path: "codex")
         try FileManager.default.createDirectory(at: claudeRoot, withIntermediateDirectories: true)
@@ -1723,7 +1726,7 @@ final class IngestionCoordinatorTests: XCTestCase {
     }
 
     private func makeDirectory() throws -> URL {
-        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let directory = canonicalTestTemporaryDirectory.appending(path: UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory
     }
@@ -2391,7 +2394,7 @@ private struct ProviderFailingDiscovery: LogDiscovering {
     let failingRoot: URL
 
     func jsonlFiles(under root: URL) throws -> [URL] {
-        if root.standardizedFileURL == failingRoot.standardizedFileURL {
+        if root.standardizedFileURL.path == failingRoot.standardizedFileURL.path {
             throw RecordingScannerError.injected
         }
         return []

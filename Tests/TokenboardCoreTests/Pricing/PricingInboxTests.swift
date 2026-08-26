@@ -182,7 +182,7 @@ final class PricingInboxTests: XCTestCase {
         storedCatalogIDs: [String]? = nil,
         bundledCatalogData: Data? = nil
     ) throws -> CatalogSetup {
-        let root = FileManager.default.temporaryDirectory.appending(
+        let root = canonicalTestTemporaryDirectory.appending(
             path: "TokenboardPricingCatalogTests-\(UUID().uuidString)",
             directoryHint: .isDirectory
         )

@@ -1668,7 +1668,7 @@ final class DatabaseRecoveryServiceTests: XCTestCase {
     }
 
     private func makeDirectory() throws -> URL {
-        let directory = FileManager.default.temporaryDirectory
+        let directory = canonicalTestTemporaryDirectory
             .resolvingSymlinksInPath()
             .appending(path: UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

@@ -6,7 +6,7 @@ import XCTest
 
 final class DatabaseMigratorTests: XCTestCase {
     private func temporaryDirectory() throws -> URL {
-        let url = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let url = canonicalTestTemporaryDirectory.appending(path: UUID().uuidString)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }

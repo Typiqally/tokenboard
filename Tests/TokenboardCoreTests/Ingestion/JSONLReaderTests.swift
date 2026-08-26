@@ -4,7 +4,7 @@ import XCTest
 
 final class JSONLReaderTests: XCTestCase {
     func testDoesNotAdvancePastPartialFinalLine() throws {
-        let url = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let url = canonicalTestTemporaryDirectory.appending(path: UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: url) }
         try Data("first\npartial".utf8).write(to: url)
 
@@ -23,7 +23,7 @@ final class JSONLReaderTests: XCTestCase {
     }
 
     func testStopsAtRequestedCompleteLineCountWithByteAccurateOffsets() throws {
-        let url = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let url = canonicalTestTemporaryDirectory.appending(path: UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: url) }
         try Data((String(repeating: "x\n", count: 501) + "partial").utf8).write(to: url)
 
@@ -43,7 +43,7 @@ final class JSONLReaderTests: XCTestCase {
     }
 
     func testRejectsInvalidBoundsWithoutInferringTruncation() throws {
-        let url = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let url = canonicalTestTemporaryDirectory.appending(path: UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: url) }
         try Data("line\n".utf8).write(to: url)
 
@@ -68,7 +68,7 @@ final class JSONLReaderTests: XCTestCase {
     }
 
     func testEmitsEmptyNewlineTerminatedRecords() throws {
-        let url = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let url = canonicalTestTemporaryDirectory.appending(path: UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: url) }
         try Data("\n".utf8).write(to: url)
 
@@ -79,7 +79,7 @@ final class JSONLReaderTests: XCTestCase {
     }
 
     func testStopsBeforeOversizedRecordWithoutReadingLaterLines() throws {
-        let url = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let url = canonicalTestTemporaryDirectory.appending(path: UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: url) }
         try Data("ok\n12345\nlater\n".utf8).write(to: url)
 
@@ -96,8 +96,8 @@ final class JSONLReaderTests: XCTestCase {
     }
 
     func testExactRecordLimitIsAcceptedAndOversizedPartialIsBounded() throws {
-        let exact = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
-        let partial = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let exact = canonicalTestTemporaryDirectory.appending(path: UUID().uuidString)
+        let partial = canonicalTestTemporaryDirectory.appending(path: UUID().uuidString)
         defer {
             try? FileManager.default.removeItem(at: exact)
             try? FileManager.default.removeItem(at: partial)
@@ -117,7 +117,7 @@ final class JSONLReaderTests: XCTestCase {
     }
 
     func testLineEndingRefusesToAllocateBeyondRecordLimit() throws {
-        let url = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let url = canonicalTestTemporaryDirectory.appending(path: UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: url) }
         try Data("12345\n".utf8).write(to: url)
 

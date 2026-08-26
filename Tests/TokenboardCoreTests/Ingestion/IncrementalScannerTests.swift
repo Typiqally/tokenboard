@@ -11,7 +11,7 @@ final class IncrementalScannerTests: XCTestCase {
     }
 
     func testRepeatedAndRecreatedClaudeRecordsAreIdempotent() async throws {
-        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let directory = canonicalTestTemporaryDirectory.appending(path: UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let file = directory.appending(path: "source.jsonl")
@@ -216,7 +216,7 @@ final class IncrementalScannerTests: XCTestCase {
     }
 
     func testSourceProbeAcceptsProviderIdentityFallbacks() throws {
-        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let directory = canonicalTestTemporaryDirectory.appending(path: UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let claude = directory.appending(path: "claude.jsonl")
@@ -254,7 +254,7 @@ final class IncrementalScannerTests: XCTestCase {
     }
 
     func testSkippedRecordStoresDiagnosticKindAndOpaqueHashes() async throws {
-        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let directory = canonicalTestTemporaryDirectory.appending(path: UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let file = directory.appending(path: "source.jsonl")
@@ -283,7 +283,7 @@ final class IncrementalScannerTests: XCTestCase {
     }
 
     func testSQLiteStorageContainsNoRawSourceUsageLineDiagnosticOrUnsafeModelMarkers() async throws {
-        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let directory = canonicalTestTemporaryDirectory.appending(path: UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let file = directory.appending(path: "source.jsonl")
@@ -327,7 +327,7 @@ final class IncrementalScannerTests: XCTestCase {
     }
 
     func testFailedCommitRetriesFromPersistedCheckpointWithoutLossOrDuplication() async throws {
-        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let directory = canonicalTestTemporaryDirectory.appending(path: UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let file = directory.appending(path: "source.jsonl")
@@ -395,7 +395,7 @@ final class IncrementalScannerTests: XCTestCase {
     }
 
     func testMixedSourceOutcomesCommitInFiveHundredLineBatches() async throws {
-        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let directory = canonicalTestTemporaryDirectory.appending(path: UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let file = directory.appending(path: "source.jsonl")
@@ -450,7 +450,7 @@ final class IncrementalScannerTests: XCTestCase {
     }
 
     func testOversizedRecordCommitsPriorLinesThenPinsCheckpointAcrossRestart() async throws {
-        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let directory = canonicalTestTemporaryDirectory.appending(path: UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let file = directory.appending(path: "source.jsonl")
@@ -486,7 +486,7 @@ final class IncrementalScannerTests: XCTestCase {
 
     func testSpecialSourceLeavesAreRejectedPromptlyWithoutFollowing() async throws {
         for kind in ["symlink", "hardlink", "fifo"] {
-            let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+            let directory = canonicalTestTemporaryDirectory.appending(path: UUID().uuidString)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             defer { try? FileManager.default.removeItem(at: directory) }
             let outside = directory.appending(path: "outside.jsonl")
@@ -513,7 +513,7 @@ final class IncrementalScannerTests: XCTestCase {
     }
 
     func testRetainedSourceRejectsAnIntermediateDirectorySymlink() throws {
-        let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let root = canonicalTestTemporaryDirectory.appending(path: UUID().uuidString)
         let granted = root.appending(path: "granted", directoryHint: .isDirectory)
         let outside = root.appending(path: "outside", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: granted, withIntermediateDirectories: true)
@@ -536,7 +536,7 @@ final class IncrementalScannerTests: XCTestCase {
     }
 
     func testPathSwapAndAppendAfterOpenCannotRedirectOrExtendScan() async throws {
-        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let directory = canonicalTestTemporaryDirectory.appending(path: UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let source = directory.appending(path: "source.jsonl")
@@ -605,7 +605,7 @@ final class IncrementalScannerTests: XCTestCase {
         ledger: SQLiteLedger,
         scanner: IncrementalScanner
     ) {
-        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let directory = canonicalTestTemporaryDirectory.appending(path: UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let ledger = try SQLiteLedger(
             databaseURL: directory.appending(path: "ledger.sqlite"),

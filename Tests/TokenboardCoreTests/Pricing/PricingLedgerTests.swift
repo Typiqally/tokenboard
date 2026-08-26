@@ -312,7 +312,7 @@ final class PricingLedgerTests: XCTestCase {
     }
 
     private func makeLedgerWithDatabase() throws -> (ledger: SQLiteLedger, databaseURL: URL) {
-        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let directory = canonicalTestTemporaryDirectory.appending(path: UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let databaseURL = directory.appending(path: "ledger.sqlite")
         let ledger = try SQLiteLedger(

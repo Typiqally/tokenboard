@@ -4,7 +4,7 @@ import XCTest
 
 final class TokenboardPipelineTests: XCTestCase {
     func testDeletionRecreationAppendAndRevokePreserveCommittedHistoricalTotals() async throws {
-        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let directory = canonicalTestTemporaryDirectory.appending(path: UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let claude = directory.appending(path: "claude.jsonl")

@@ -5,7 +5,7 @@ import XCTest
 
 final class FSEventWatcherTests: XCTestCase {
     func testNativeWatcherDeliversFilesystemChangesWithoutManualRefresh() async throws {
-        let root = FileManager.default.temporaryDirectory
+        let root = canonicalTestTemporaryDirectory
             .appending(path: "tokenboard-native-watcher-\(UUID().uuidString)")
             .standardizedFileURL
         try FileManager.default.createDirectory(

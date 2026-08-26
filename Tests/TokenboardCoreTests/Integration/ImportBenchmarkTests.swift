@@ -38,11 +38,7 @@ private struct BenchmarkImportEnvironment {
     let calendar: Calendar
 
     static func make(claudeLogCount: Int, codexLogCount: Int) async throws -> Self {
-        let temporaryDirectory = FileManager.default.temporaryDirectory
-        let canonicalTemporaryDirectory = temporaryDirectory.path.hasPrefix("/var/")
-            ? URL(fileURLWithPath: "/private\(temporaryDirectory.path)", isDirectory: true)
-            : temporaryDirectory
-        let root = canonicalTemporaryDirectory
+        let root = canonicalTestTemporaryDirectory
             .appending(path: "tokenboard-import-benchmark-\(UUID().uuidString)")
         var completed = false
         defer {

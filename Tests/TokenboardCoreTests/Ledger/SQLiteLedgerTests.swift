@@ -65,7 +65,7 @@ final class SQLiteLedgerTests: XCTestCase {
     private let lineHash = String(repeating: "d", count: 64)
 
     private func makeDirectory() throws -> URL {
-        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let directory = canonicalTestTemporaryDirectory.appending(path: UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory
     }
