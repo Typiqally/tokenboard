@@ -341,7 +341,6 @@ private final class OrderedRecorder: @unchecked Sendable {
 private actor RuntimeLedger: AppLedgerRuntime {
     let recorder: OrderedRecorder
     private var appliedCatalog: Data?
-    private var lifetimeTotal: Int64 = 0
 
     init(recorder: OrderedRecorder, appliedCatalog: Data? = nil) {
         self.recorder = recorder
@@ -368,8 +367,6 @@ private actor RuntimeLedger: AppLedgerRuntime {
         PricingSnapshot(catalogIDs: [], rates: [], aliases: [])
     }
     func usageRows(in interval: DateInterval?, calendar: Calendar) -> [DailyUsageRow] { [] }
-    func lifetimeAdditiveTokenTotal() -> Int64 { lifetimeTotal }
-    func setLifetimeTotal(_ value: Int64) { lifetimeTotal = value }
     func skippedRecordCount() -> Int { 0 }
 }
 

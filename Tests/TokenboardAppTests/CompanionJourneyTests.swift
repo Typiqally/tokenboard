@@ -123,7 +123,6 @@ final class CompanionJourneyTests: XCTestCase {
             presentation.progressFraction, 5_000_000.0 / 90_000_000.0, accuracy: 0.0001
         )
         XCTAssertEqual(presentation.tokensUntilNextStage, 85_000_000)
-        XCTAssertFalse(presentation.showsMilestone)
         XCTAssertTrue(presentation.accessibilityLabel.contains("Old School RuneScape"))
         XCTAssertFalse(presentation.variant.title.isEmpty)
     }
@@ -223,7 +222,6 @@ final class CompanionJourneyTests: XCTestCase {
                         stageTitle: "Stage \(stage + 1)",
                         progressFraction: 0.42,
                         tokensUntilNextStage: 190_000_000,
-                        showsMilestone: true,
                         accessibilityLabel: "\(theme.title), stage \(stage + 1) of 8"
                     )
                     let renderer = ImageRenderer(
@@ -258,7 +256,6 @@ final class CompanionJourneyTests: XCTestCase {
                 stageTitle: "Stage 4",
                 progressFraction: 0.42,
                 tokensUntilNextStage: 1_000_000,
-                showsMilestone: false,
                 accessibilityLabel: "\(theme.title) progress preview"
             )
             let renderer = ImageRenderer(
@@ -300,7 +297,12 @@ final class CompanionJourneyTests: XCTestCase {
         let picks = try (0..<3).map { offset -> Int in
             let day = calendar.date(byAdding: .day, value: offset, to: start)!
             return try XCTUnwrap(
-                CompanionPresentation.make(state: state, date: day, calendar: calendar)
+                CompanionPresentation.make(
+                    state: state,
+                    dailyTokenTotal: 0,
+                    date: day,
+                    calendar: calendar
+                )
             ).scenery
         }
         XCTAssertEqual(
@@ -309,7 +311,12 @@ final class CompanionJourneyTests: XCTestCase {
             "three consecutive days must visit all three plates"
         )
         let again = try XCTUnwrap(
-            CompanionPresentation.make(state: state, date: start, calendar: calendar)
+            CompanionPresentation.make(
+                state: state,
+                dailyTokenTotal: 0,
+                date: start,
+                calendar: calendar
+            )
         ).scenery
         XCTAssertEqual(again, picks[0], "the pick must be stable within a day")
     }
@@ -328,7 +335,6 @@ final class CompanionJourneyTests: XCTestCase {
                     stageTitle: "Stage \(stage + 1)",
                     progressFraction: 0.5,
                     tokensUntilNextStage: nil,
-                    showsMilestone: false,
                     accessibilityLabel: "Pokémon, \(variant.title), stage \(stage + 1) of 8"
                 )
                 let renderer = ImageRenderer(
@@ -378,7 +384,12 @@ final class CompanionJourneyTests: XCTestCase {
                 seed: 7
             )
             let live = try XCTUnwrap(
-                CompanionPresentation.make(state: state, date: date, calendar: calendar)
+                CompanionPresentation.make(
+                    state: state,
+                    dailyTokenTotal: 0,
+                    date: date,
+                    calendar: calendar
+                )
             )
             let shelf = CompanionPresentation(
                 theme: live.theme,
@@ -389,7 +400,6 @@ final class CompanionJourneyTests: XCTestCase {
                 stageTitle: live.stageTitle,
                 progressFraction: 0,
                 tokensUntilNextStage: nil,
-                showsMilestone: false,
                 accessibilityLabel: "\(theme.title) preview"
             )
             let renderer = ImageRenderer(

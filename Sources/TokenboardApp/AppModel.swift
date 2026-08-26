@@ -22,9 +22,6 @@ final class AppModel: ObservableObject {
     var companionState: CompanionState { state.companion }
     var selectedHistoryRange: UsageHistoryRange { state.selectedHistoryRange }
     var historyState: UsageHistoryLoadState { state.historyState }
-    var selectedHistorySnapshot: UsageHistorySnapshot? {
-        state.historyState.snapshots?[state.selectedHistoryRange]
-    }
     var lastUpdated: Date? { state.lastUpdated }
     var canStartHistoricalImport: Bool { state.canStartHistoricalImport }
     var isSourceMutationInProgress: Bool { sourceMutation != nil }

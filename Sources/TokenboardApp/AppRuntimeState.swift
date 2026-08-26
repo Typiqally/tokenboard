@@ -16,7 +16,6 @@ protocol AppLedgerRuntime: Sendable {
         in interval: DateInterval?,
         calendar: Calendar
     ) async throws -> [DailyUsageRow]
-    func lifetimeAdditiveTokenTotal() async throws -> Int64
     func skippedRecordCount() async throws -> Int
     func skippedRecordCountsByProvider() async throws -> [Provider: Int]
     func shutdown() async throws
@@ -27,16 +26,6 @@ extension AppLedgerRuntime {
 
     func skippedRecordCountsByProvider() async throws -> [Provider: Int] { [:] }
 
-    func lifetimeAdditiveTokenTotal() async throws -> Int64 {
-        var total: Int64 = 0
-        for row in try await usageRows(in: nil, calendar: .current)
-            where row.aggregation == .additive {
-            let (sum, overflow) = total.addingReportingOverflow(row.quantity)
-            guard !overflow else { throw LedgerError.quantityOverflow }
-            total = sum
-        }
-        return total
-    }
 }
 
 protocol AppUsageQuerying: Sendable {
@@ -70,7 +59,6 @@ extension AppUsageQuerying {
 
 protocol AppIngestionCoordinating: Sendable {
     func results() async -> AsyncStream<IngestionBatchResult>
-    func start(roots: [Provider: URL]) async throws -> IngestionBatchResult
     func startMonitoring(roots: [Provider: URL]) async throws -> IngestionBatchResult
     func refreshAll() async -> IngestionBatchResult
     func replaceSource(

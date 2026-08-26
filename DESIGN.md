@@ -106,7 +106,6 @@ System appearance, increased contrast, reduced motion, Dynamic Type behavior, ke
 - **Ready with zero:** explicit `0 tokens` plus a quiet empty-range explanation.
 - **History refresh:** keep a valid cached snapshot visible while replacing it.
 - **Failure:** explain that the local summary or trend is unavailable and provide Settings or Retry as appropriate.
-- **Milestone:** show one quiet “reached” label on the next popover open, then acknowledge it locally. Reduced Motion removes the crossfade.
 
 ## Implementation map
 
@@ -115,9 +114,8 @@ System appearance, increased contrast, reduced motion, Dynamic Type behavior, ke
 - `HistoryWindowController`, `HistoryViewModel`, and `UsageHistoryView` own the on-demand working window.
 - `UsageSurfaceComponents` contains the shared range control, chart, provider row, typography, and disclosure row.
 - `UsageQueryService.history` produces deterministic local snapshots; `AppModel` refreshes and caches Today, 7D, 30D, and 90D snapshots after ingestion and pricing changes.
-- `CompanionJourney` owns milestones, permanent delta accumulation, and deterministic Pokémon starter variants. `CompanionAssetCatalog` maps every visible theme and stage to bundle-relative baked scenes and subject placements.
+- `CompanionJourney` maps the existing `Today` history snapshot to daily stages and deterministic Pokémon starter variants. `CompanionAssetCatalog` maps every visible theme and stage to bundle-relative baked scenes and subject placements.
 - `CompanionSceneMotion` is the pure motion vocabulary — signatures, particle fields, shadow bands, glows, washes, subject motion, and window lighting — with no AppKit or SwiftUI in it. `CompanionSceneActors` is the equally pure population layer: body plans, routes, and the attention a world's subjects answer to. `CompanionSceneDirection` holds the per-world, per-stage art direction as data. `CompanionArtwork` composes a scene once per layout and draws every frame in one `Canvas`; `CompanionWindowMap` recovers each village sprite's own window grid from its pixels; `CompanionSceneVisibility` gates motion on the host window really being on screen; `CompanionMenuIcon` renders the menu silhouettes.
-- `SQLiteLedger.lifetimeAdditiveTokenTotal` supplies an additive-only observation without a schema change.
 
 ## Guardrails
 

@@ -173,12 +173,11 @@ struct CompanionPresentation: Equatable, Sendable {
     let stageTitle: String
     let progressFraction: Double
     let tokensUntilNextStage: Int64?
-    let showsMilestone: Bool
     let accessibilityLabel: String
 
     static func make(
         state: CompanionState,
-        dailyTokenTotal: Int64 = 0,
+        dailyTokenTotal: Int64,
         date: Date,
         calendar: Calendar
     ) -> CompanionPresentation? {
@@ -208,7 +207,6 @@ struct CompanionPresentation: Equatable, Sendable {
             stageTitle: title,
             progressFraction: CompanionJourney.fraction(for: earnedTokens),
             tokensUntilNextStage: CompanionJourney.tokensUntilNextStage(for: earnedTokens),
-            showsMilestone: false,
             accessibilityLabel: "\(state.theme.title), \(variant.title), stage \(stage + 1) of \(CompanionJourney.thresholds.count), \(title)"
         )
     }

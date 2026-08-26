@@ -329,30 +329,16 @@ final class SettingsTests: XCTestCase {
         defer { setup.cleanup() }
         publishRecoveryRequired(in: setup.model)
         await setup.model.refreshSettings()
-        let menu = MenuController(model: setup.model, statusItem: TestStatusItemHost())
-        let login = LaunchAtLoginController(service: SettingsLoginService())
         var openedPricing = false
         setup.model.onOpenPricing = { openedPricing = true }
 
         let restore = Task { await setup.model.restoreBackup(recoveryFiles.backup) }
         await gate.waitUntilEntered()
 
-        XCTAssertFalse(SettingsView(model: setup.model, launchAtLogin: login).actionState.controlsEnabled)
         XCTAssertEqual(
             DatabaseRecoveryView(model: setup.model).actionState,
             DatabaseRecoveryActionState(canReveal: false, canRestore: false, canQuit: false)
         )
-        let actionable = menu.renderedMenu?.items.filter { $0.action != nil } ?? []
-        XCTAssertFalse(menu.renderedMenu?.autoenablesItems ?? true)
-        XCTAssertFalse(actionable.isEmpty)
-        XCTAssertTrue(actionable.allSatisfy { !$0.isEnabled })
-        XCTAssertTrue(menu.renderedMenu?.items
-            .flatMap { $0.submenu?.items ?? [] }
-            .filter { $0.action != nil }
-            .allSatisfy { !$0.isEnabled } == true)
-        XCTAssertTrue(menu.renderedMenu?.items
-            .compactMap(\.submenu)
-            .allSatisfy { !$0.autoenablesItems } == true)
         setup.model.revealLocalData()
         setup.model.openPricing()
         XCTAssertEqual(setup.revealer.selections, [])
@@ -397,14 +383,6 @@ final class SettingsTests: XCTestCase {
         )
         setup.model.revealLocalData()
         XCTAssertEqual(setup.revealer.selections, [[setup.paths.root]])
-        let built = NativeMenuBuilder.makeMenu(
-            state: setup.model.state,
-            startupError: nil,
-            target: nil,
-            isRestoringDatabase: setup.model.settingsState.isRestoringDatabase,
-            requiresRelaunch: setup.model.requiresDatabaseRecoveryRelaunch
-        )
-        XCTAssertTrue(built.menu.items.first { $0.title == "Quit Tokenboard" }?.isEnabled == true)
     }
 
     func testCompletedRestoreRequiresRelaunchAndKeepsSettingsReachable() async throws {
@@ -428,17 +406,6 @@ final class SettingsTests: XCTestCase {
             canRestore: false,
             canQuit: true
         ) else { throw SettingsError.injected }
-        let built = NativeMenuBuilder.makeMenu(
-            state: setup.model.state,
-            startupError: nil,
-            target: nil,
-            isRestoringDatabase: false,
-            requiresRelaunch: setup.model.requiresDatabaseRecoveryRelaunch
-        )
-        let enabledActions = built.menu.items.filter { $0.action != nil && $0.isEnabled }
-        guard enabledActions.map(\.title) == ["Settings", "Quit Tokenboard"] else {
-            throw SettingsError.injected
-        }
         setup.model.openPricing()
         setup.model.openSettings()
         await setup.model.restoreBackup(recoveryFiles.backup)
@@ -511,14 +478,7 @@ final class SettingsTests: XCTestCase {
             throw SettingsError.injected
         }
         setup.model.openSettings()
-        let built = NativeMenuBuilder.makeMenu(
-            state: setup.model.state,
-            startupError: nil,
-            target: nil,
-            preservationFailed: true
-        )
-        let enabled = built.menu.items.filter { $0.action != nil && $0.isEnabled }.map(\.title)
-        guard enabled == ["Settings", "Quit Tokenboard"], settingsOpenCount == 1 else {
+        guard settingsOpenCount == 1 else {
             throw SettingsError.injected
         }
         guard await setup.model.shutdown() else { throw SettingsError.injected }
@@ -563,7 +523,7 @@ final class SettingsTests: XCTestCase {
         }
     }
 
-    func testRetryablePreservationKeepsSettingsMenuReachableAfterWindowClose() async throws {
+    func testRetryablePreservationKeepsSettingsReachableAfterWindowClose() async throws {
         let recoveryFiles = try await makeRecoveryBackup()
         defer { try? FileManager.default.removeItem(at: recoveryFiles.root) }
         let recovery = SettingsRecovery(
@@ -580,14 +540,7 @@ final class SettingsTests: XCTestCase {
 
         setup.model.openSettings()
         setup.model.openSettings()
-        let built = NativeMenuBuilder.makeMenu(
-            state: setup.model.state,
-            startupError: nil,
-            target: nil,
-            preservationRetryRequired: true
-        )
-        let enabled = built.menu.items.filter { $0.action != nil && $0.isEnabled }.map(\.title)
-        guard settingsOpenCount == 2, enabled == ["Settings"] else {
+        guard settingsOpenCount == 2 else {
             throw SettingsError.injected
         }
     }

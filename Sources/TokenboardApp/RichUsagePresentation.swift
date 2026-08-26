@@ -2,6 +2,35 @@ import AppKit
 import Foundation
 import TokenboardCore
 
+struct RecencyPresentation: Equatable, Sendable {
+    let visualTitle: String
+    let accessibilityTitle: String
+
+    init(lastUpdated: Date?, relativeTo: Date) {
+        guard let lastUpdated else {
+            visualTitle = "Updated never"
+            accessibilityTitle = "Updated never"
+            return
+        }
+
+        let visualFormatter = RelativeDateTimeFormatter()
+        visualFormatter.unitsStyle = .abbreviated
+        let visualRelative = visualFormatter.localizedString(
+            for: lastUpdated,
+            relativeTo: relativeTo
+        )
+        visualTitle = "Updated \(visualRelative)"
+
+        let accessibilityFormatter = RelativeDateTimeFormatter()
+        accessibilityFormatter.unitsStyle = .full
+        let accessibilityRelative = accessibilityFormatter.localizedString(
+            for: lastUpdated,
+            relativeTo: relativeTo
+        )
+        accessibilityTitle = "Updated \(accessibilityRelative)"
+    }
+}
+
 enum TokenboardSurfaceMetrics {
     static let popoverSize = NSSize(width: 350, height: 500)
     static let companionPopoverSize = NSSize(width: 350, height: 596)
@@ -130,7 +159,7 @@ struct RichPopoverPresentation: Equatable, Sendable {
         startupError: String?,
         relativeTo date: Date
     ) -> RichPopoverPresentation {
-        let recency = MenuRecencyPresentation(
+        let recency = RecencyPresentation(
             lastUpdated: state.lastUpdated,
             relativeTo: date
         )

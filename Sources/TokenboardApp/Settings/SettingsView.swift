@@ -278,14 +278,6 @@ struct SettingsView: View {
         }
     }
 
-    var actionState: SettingsActionState {
-        SettingsActionState(
-            controlsEnabled: !model.settingsState.isLoading
-                && !model.isDatabaseRestoreInProgress
-                && !model.isDatabaseRecoveryActionLocked
-        )
-    }
-
     private func databaseDescription(_ state: TokenboardHealth.DatabaseState) -> String {
         switch state {
         case .healthy: "Healthy"
@@ -345,7 +337,6 @@ private struct CompanionThemeShelf: View {
             stageTitle: live.stageTitle,
             progressFraction: live.progressFraction,
             tokensUntilNextStage: live.tokensUntilNextStage,
-            showsMilestone: false,
             accessibilityLabel: "\(theme.title) preview"
         )
     }
@@ -467,10 +458,6 @@ private struct CompanionSettingsPreview: View {
             }
         }
     }
-}
-
-struct SettingsActionState: Equatable {
-    let controlsEnabled: Bool
 }
 
 @MainActor
