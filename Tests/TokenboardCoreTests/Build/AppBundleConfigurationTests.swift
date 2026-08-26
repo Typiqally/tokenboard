@@ -93,8 +93,8 @@ final class AppBundleConfigurationTests: XCTestCase {
         XCTAssertEqual(plist["LSMinimumSystemVersion"] as? String, "14.0")
         XCTAssertEqual(plist["CFBundleIdentifier"] as? String, BuildInfo.bundleIdentifier)
         XCTAssertEqual(plist["CFBundleIconFile"] as? String, "Tokenboard.icns")
-        XCTAssertEqual(plist["CFBundleShortVersionString"] as? String, "0.7.0")
-        XCTAssertEqual(plist["CFBundleVersion"] as? String, "11")
+        XCTAssertEqual(plist["CFBundleShortVersionString"] as? String, "0.7.1")
+        XCTAssertEqual(plist["CFBundleVersion"] as? String, "12")
     }
 
     func testAppIconMasterIsAFullResolutionSquarePNG() throws {
