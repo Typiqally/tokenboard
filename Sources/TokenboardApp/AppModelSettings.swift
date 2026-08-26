@@ -311,17 +311,31 @@ extension AppModel {
         } catch let recoveryError as DatabaseRecoveryError {
             nextSettings = settingsState
             nextSettings.isRestoringDatabase = false
-            if case let .backupTooLarge(maximumBytes) = recoveryError {
+            if recoveryBarrierTask != nil {
+                nextSettings.databaseRecoveryDisposition = .requiresRelaunch
+                nextSettings.statusMessage = "Restore could not complete after local writers stopped · Quit and reopen Tokenboard"
+                commitSettingsState(nextSettings)
+                publishStoppedState()
+            } else if case let .backupTooLarge(maximumBytes) = recoveryError {
                 nextSettings.statusMessage = "Migration backup exceeds the supported \(Self.mebibytes(maximumBytes)) MiB restore limit; the database was not changed"
+                commitSettingsState(nextSettings)
+            } else {
+                nextSettings.statusMessage = "Restore failed safely · Existing database and backup were preserved"
+                commitSettingsState(nextSettings)
+            }
+        } catch {
+            nextSettings = settingsState
+            nextSettings.isRestoringDatabase = false
+            if recoveryBarrierTask != nil {
+                nextSettings.databaseRecoveryDisposition = .requiresRelaunch
+                nextSettings.statusMessage = "Restore could not complete after local writers stopped · Quit and reopen Tokenboard"
             } else {
                 nextSettings.statusMessage = "Restore failed safely · Existing database and backup were preserved"
             }
             commitSettingsState(nextSettings)
-        } catch {
-            nextSettings = settingsState
-            nextSettings.isRestoringDatabase = false
-            nextSettings.statusMessage = "Restore failed safely · Existing database and backup were preserved"
-            commitSettingsState(nextSettings)
+            if recoveryBarrierTask != nil {
+                publishStoppedState()
+            }
         }
     }
 
