@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import SwiftUI
 import XCTest
 @testable import TokenboardApp
 import TokenboardCore
@@ -56,6 +57,33 @@ final class SettingsTests: XCTestCase {
             CompanionSettingsLayout.minimumPreviewWidth,
             CompanionSettingsLayout.navigatorWidth
         )
+    }
+
+    func testApprovedCompanionNavigatorRendersAsOneMasterDetailPanel() async throws {
+        let setup = try makeSetup()
+        defer { setup.cleanup() }
+        await setup.model.start()
+        await setup.model.select(companionTheme: .banished)
+
+        let renderer = ImageRenderer(
+            content: CompanionSettingsPanel(model: setup.model)
+            .frame(width: 780, height: 520, alignment: .topLeading)
+            .padding(16)
+            .background(Color(nsColor: .windowBackgroundColor))
+            .environment(\.colorScheme, .dark)
+        )
+        renderer.scale = 2
+        let image = try XCTUnwrap(renderer.nsImage)
+        XCTAssertEqual(image.size, NSSize(width: 812, height: 552))
+
+        if let path = ProcessInfo.processInfo.environment[
+            "TOKENBOARD_SETTINGS_SNAPSHOT_PATH"
+        ] {
+            let representation = try XCTUnwrap(image.tiffRepresentation)
+            let bitmap = try XCTUnwrap(NSBitmapImageRep(data: representation))
+            let png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+            try png.write(to: URL(fileURLWithPath: path))
+        }
     }
 
     func testDiagnosticsCollectsCurrentSourceIssuesBehindTechnicalDetails() {
