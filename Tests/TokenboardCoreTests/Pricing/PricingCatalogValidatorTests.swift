@@ -88,29 +88,55 @@ final class PricingCatalogValidatorTests: XCTestCase {
         )
     }
 
-    func testWebResearchCatalogAcceptsReputableHTTPSProvenance() throws {
+    func testLegacyWebResearchKindStillRequiresOfficialProvenance() throws {
         let researched = validV2
             .replacingOccurrences(
                 of: #""kind":"official_research","url":"https://openai.com/api/pricing/""#,
-                with: #""kind":"web_research","url":"https://llmprices.example/research""#
-            )
-            .replacingOccurrences(
-                of: "https://openai.com/api/pricing/",
-                with: "https://archive.example/openai-pricing"
-            )
-            .replacingOccurrences(
-                of: "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml",
-                with: "https://rates.example/usd"
+                with: #""kind":"web_research","url":"https://developers.openai.com/api/docs/pricing""#
             )
 
         let catalog = try validate(researched)
 
         XCTAssertEqual(catalog.origin.kind, .webResearch)
-        XCTAssertEqual(
-            catalog.models[0].rates[0].provenanceURL.host,
-            "archive.example"
-        )
-        XCTAssertEqual(catalog.exchangeRates?.provenanceURL.host, "rates.example")
+        XCTAssertEqual(catalog.models[0].rates[0].provenanceURL.host, "openai.com")
+        XCTAssertEqual(catalog.exchangeRates?.provenanceURL.host, "www.ecb.europa.eu")
+    }
+
+    func testRejectsUnofficialCrossProviderAndLookalikeProvenance() {
+        let cases: [(String, PricingCatalogValidationError)] = [
+            (
+                valid.replacingOccurrences(
+                    of: "https://openai.com/api/pricing/",
+                    with: "https://archive.example/openai-pricing"
+                ),
+                .invalidOrigin
+            ),
+            (
+                valid.replacingOccurrences(
+                    of: #""provenanceURL":"https://openai.com/api/pricing/""#,
+                    with: #""provenanceURL":"https://platform.claude.com/pricing""#
+                ),
+                .invalidProvenance(provider: .codex)
+            ),
+            (
+                valid.replacingOccurrences(
+                    of: #""provenanceURL":"https://openai.com/api/pricing/""#,
+                    with: #""provenanceURL":"https://openai.com.evil.example/pricing""#
+                ),
+                .invalidProvenance(provider: .codex)
+            ),
+            (
+                validV2.replacingOccurrences(
+                    of: "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml",
+                    with: "https://www.ecb.europa.eu/unrelated"
+                ),
+                .invalidExchangeRateProvenance
+            ),
+        ]
+
+        for (document, expected) in cases {
+            assertValidationError(expected) { _ = try validate(document) }
+        }
     }
 
     func testSchemaKeysRequireFXOnlyForVersion2() {
