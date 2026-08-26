@@ -24,7 +24,7 @@ final class DatabaseMigratorTests: XCTestCase {
         let names = try connection.queryStrings(
             "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
         )
-        for required in ["app_metadata", "daily_usage", "hourly_usage", "source_checkpoints", "skipped_records", "price_rates", "model_aliases", "catalog_imports", "fx_rates", "schema_migrations"] {
+        for required in ["active_catalog_import", "app_metadata", "daily_usage", "hourly_usage", "source_checkpoints", "skipped_records", "price_rates", "model_aliases", "catalog_imports", "fx_rates", "schema_migrations"] {
             XCTAssertTrue(names.contains(required), "missing \(required)")
         }
     }
@@ -47,7 +47,7 @@ final class DatabaseMigratorTests: XCTestCase {
             migrations: Migrations.all
         ).migrate()
 
-        XCTAssertEqual(try connection.userVersion, 4)
+        XCTAssertEqual(try connection.userVersion, 5)
         XCTAssertEqual(
             try connection.queryStrings("SELECT name FROM sqlite_master WHERE type='table' AND name='fx_rates';"),
             ["fx_rates"]
@@ -161,7 +161,7 @@ final class DatabaseMigratorTests: XCTestCase {
             migrations: Migrations.all
         ).migrate()
 
-        XCTAssertEqual(try connection.userVersion, 4)
+        XCTAssertEqual(try connection.userVersion, 5)
         XCTAssertEqual(
             try connection.queryStrings(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='fx_rates';"

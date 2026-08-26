@@ -337,9 +337,10 @@ public actor SQLiteLedger: LedgerStore {
         let statement = try prepare(
             """
             SELECT canonical_json
-            FROM catalog_imports
-            WHERE applied = 1
-            ORDER BY imported_at DESC, rowid DESC
+            FROM catalog_imports AS imports
+            JOIN active_catalog_import AS active
+              ON active.import_id = imports.import_id
+            WHERE active.singleton = 1
             LIMIT 1;
             """,
             using: connection
@@ -377,7 +378,6 @@ public actor SQLiteLedger: LedgerStore {
             DELETE FROM fx_rates;
             DELETE FROM model_aliases;
             DELETE FROM price_rates;
-            DELETE FROM catalog_imports;
             """)
             for model in catalog.models {
                 for alias in model.aliases {
@@ -403,13 +403,14 @@ public actor SQLiteLedger: LedgerStore {
                     using: connection
                 )
             }
-            try insertCatalogImport(
+            let importID = try insertCatalogImport(
                 catalog,
                 canonicalJSON: canonicalString,
                 origin: origin,
                 validationSummary: validationSummary,
                 using: connection
             )
+            try selectActiveCatalogImport(importID, using: connection)
             try connection.commitTransaction()
         } catch {
             try? connection.rollbackTransaction()
@@ -430,7 +431,15 @@ public actor SQLiteLedger: LedgerStore {
     }
 
     private func readCatalogIDs(using connection: SQLiteConnection) throws -> [String] {
-        let statement = try prepare("SELECT catalog_id FROM catalog_imports WHERE applied = 1 ORDER BY catalog_id;", using: connection)
+        let statement = try prepare(
+            """
+            SELECT imports.catalog_id
+            FROM active_catalog_import AS active
+            JOIN catalog_imports AS imports ON imports.import_id = active.import_id
+            WHERE active.singleton = 1;
+            """,
+            using: connection
+        )
         defer { sqlite3_finalize(statement) }
         var values: [String] = []
         while true {
@@ -536,9 +545,7 @@ public actor SQLiteLedger: LedgerStore {
             SELECT fx.catalog_id, fx.currency_code, fx.units_per_usd, fx.effective_date,
                    fx.provenance_url, fx.verified_at
             FROM fx_rates AS fx
-            JOIN catalog_imports AS imports ON imports.catalog_id = fx.catalog_id
-            WHERE imports.applied = 1
-            ORDER BY imports.imported_at, imports.rowid, fx.currency_code;
+            ORDER BY fx.catalog_id, fx.currency_code;
             """,
             using: connection
         )
@@ -764,12 +771,12 @@ public actor SQLiteLedger: LedgerStore {
         origin: String,
         validationSummary: String,
         using connection: SQLiteConnection
-    ) throws {
+    ) throws -> Int64 {
         let statement = try prepare(
             """
             INSERT INTO catalog_imports(
-              catalog_id, schema_version, origin, imported_at, applied, validation_summary, canonical_json
-            ) VALUES(?, ?, ?, ?, 1, ?, ?);
+              catalog_id, schema_version, origin, imported_at, validation_summary, canonical_json
+            ) VALUES(?, ?, ?, ?, ?, ?);
             """,
             using: connection
         )
@@ -780,6 +787,24 @@ public actor SQLiteLedger: LedgerStore {
         try bind(importTimestamp(), to: statement, at: 4, using: connection)
         try bind(validationSummary, to: statement, at: 5, using: connection)
         try bind(canonicalJSON, to: statement, at: 6, using: connection)
+        try stepDone(statement, using: connection)
+        return sqlite3_last_insert_rowid(connection.handle)
+    }
+
+    private func selectActiveCatalogImport(
+        _ importID: Int64,
+        using connection: SQLiteConnection
+    ) throws {
+        let statement = try prepare(
+            """
+            INSERT INTO active_catalog_import(singleton, import_id)
+            VALUES(1, ?)
+            ON CONFLICT(singleton) DO UPDATE SET import_id = excluded.import_id;
+            """,
+            using: connection
+        )
+        defer { sqlite3_finalize(statement) }
+        try bind(importID, to: statement, at: 1, using: connection)
         try stepDone(statement, using: connection)
     }
 

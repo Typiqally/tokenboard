@@ -363,10 +363,14 @@ final class PricingLedgerTests: XCTestCase {
         ORDER BY provider, canonical_model_id, metric, effective_from;
         """) + database.queryStrings("""
         SELECT 'import|' || quote(catalog_id) || '|' || quote(schema_version) || '|'
-               || quote(origin) || '|' || quote(imported_at) || '|' || quote(applied) || '|'
+               || quote(origin) || '|' || quote(imported_at) || '|'
                || quote(validation_summary) || '|' || hex(canonical_json)
         FROM catalog_imports
-        ORDER BY catalog_id;
+        ORDER BY import_id;
+        """) + database.queryStrings("""
+        SELECT 'active|' || quote(import_id)
+        FROM active_catalog_import
+        ORDER BY singleton;
         """)
         return Data(rows.joined(separator: "\n").utf8)
     }
