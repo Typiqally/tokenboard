@@ -152,6 +152,24 @@ final class NativePresentationTests: XCTestCase {
         )
     }
 
+    func testOpenUnfilteredHistoryTracksRefreshedModelSnapshots() throws {
+        let setup = try makeModel()
+        defer { setup.cleanup() }
+        var state = setup.model.state
+        state.historyState = .loaded([.today: historySnapshot(tokenTotal: 10)])
+        setup.model.commitState(state)
+        let viewModel = HistoryViewModel(
+            model: setup.model,
+            request: HistoryOpenRequest(provider: nil, range: .today)
+        )
+        XCTAssertEqual(viewModel.snapshot?.breakdown.tokenTotal, 10)
+
+        state.historyState = .loaded([.today: historySnapshot(tokenTotal: 20)])
+        setup.model.commitState(state)
+
+        XCTAssertEqual(viewModel.snapshot?.breakdown.tokenTotal, 20)
+    }
+
     func testOnboardingCopyAndVisibilityRemainExplicitAndConsentNeutral() throws {
         XCTAssertEqual(
             OnboardingCopy.privacy,
@@ -245,6 +263,32 @@ final class NativePresentationTests: XCTestCase {
             )
         )
         return (model, preferences, { defaults.removePersistentDomain(forName: suite) })
+    }
+
+    private func historySnapshot(tokenTotal: Int64) -> UsageHistorySnapshot {
+        let interval = DateInterval(start: .distantPast, duration: 1)
+        return UsageHistorySnapshot(
+            range: .today,
+            provider: nil,
+            currentInterval: interval,
+            previousInterval: interval,
+            points: [],
+            comparison: UsageComparison(
+                currentTokenTotal: tokenTotal,
+                previousTokenTotal: 0,
+                tokenDelta: tokenTotal,
+                percentChange: nil
+            ),
+            breakdown: UsageBreakdown(
+                tokenTotal: tokenTotal,
+                knownAPIEquivalentUSD: 0,
+                unpricedTokens: 0,
+                exchangeRates: nil,
+                providers: [],
+                models: [],
+                tokenTypes: []
+            )
+        )
     }
 }
 

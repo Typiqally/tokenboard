@@ -18,6 +18,7 @@ final class ValueFormatterTests: XCTestCase {
         XCTAssertEqual(ValueFormatter.compactTokens(842_198), "842K")
         XCTAssertEqual(ValueFormatter.compactTokens(1_250), "1.25K")
         XCTAssertEqual(ValueFormatter.compactTokens(999), "999")
+        XCTAssertEqual(ValueFormatter.compactTokens(Int64.min), "-9223372037B")
     }
 
     func testUSDUsesAnExplicitDollarPrefix() {

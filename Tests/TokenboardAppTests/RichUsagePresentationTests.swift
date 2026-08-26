@@ -86,6 +86,24 @@ final class RichUsagePresentationTests: XCTestCase {
         XCTAssertEqual(presentation.emptyMessage, "No usage recorded in this range")
     }
 
+    func testComparisonFormatsExtremePercentWithoutIntegerConversion() {
+        let percent = Decimal(Int64.max) * 100
+        let presentation = UsageHistoryPresentation.comparison(
+            UsageComparison(
+                currentTokenTotal: Int64.max,
+                previousTokenTotal: 1,
+                tokenDelta: Int64.max - 1,
+                percentChange: percent
+            ),
+            range: .today
+        )
+
+        XCTAssertEqual(
+            presentation.title,
+            "+922337203685477580700% vs yesterday"
+        )
+    }
+
     func testStartupFailureIsNeverPresentedAsLoading() {
         var state = AppPublishedState.initial(period: .today, displayMetric: .tokens)
         state.lifecycle = .failed(message: "Ledger could not be opened")

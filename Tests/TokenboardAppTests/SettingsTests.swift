@@ -214,6 +214,11 @@ final class SettingsTests: XCTestCase {
                 lastObservedDay: "2026-08-05"
             )
         ])
+        XCTAssertEqual(setup.model.settingsState.pricing.coveragePeriod, .today)
+
+        await setup.model.select(period: .thisYear)
+
+        XCTAssertEqual(setup.model.settingsState.pricing.coveragePeriod, .thisYear)
     }
 
     func testRecoveryLoadsBackupWithoutRestoringUntilExplicitActionAndUsesShutdownBarrier() async throws {

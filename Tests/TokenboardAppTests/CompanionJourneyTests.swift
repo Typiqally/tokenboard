@@ -127,6 +127,28 @@ final class CompanionJourneyTests: XCTestCase {
         XCTAssertFalse(presentation.variant.title.isEmpty)
     }
 
+    func testShelfPreviewUsesFixedRenderProgress() {
+        let variant = CompanionVariant(id: "wildwood", title: "Wildwood")
+        let live = CompanionPresentation(
+            theme: .forest,
+            variant: variant,
+            stage: 7,
+            scenery: 2,
+            seed: 17,
+            stageTitle: "Old growth",
+            progressFraction: 0.93,
+            tokensUntilNextStage: 1,
+            accessibilityLabel: "Forest preview source"
+        )
+
+        let preview = CompanionPresentation.shelfPreview(from: live)
+
+        XCTAssertEqual(preview.stage, CompanionAssetCatalog.shelfPreviewStage(for: .forest))
+        XCTAssertEqual(preview.scenery, 0)
+        XCTAssertEqual(preview.progressFraction, 0)
+        XCTAssertNil(preview.tokensUntilNextStage)
+    }
+
     @MainActor
     func testMenuIconIsTemplateSizedAndChangesWithTheJourneyStage() {
         let sapling = CompanionMenuIconRenderer.image(

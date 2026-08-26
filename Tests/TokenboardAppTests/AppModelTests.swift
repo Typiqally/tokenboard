@@ -227,6 +227,23 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(presentation.stage, 1)
     }
 
+    func testCalendarChangeRequeriesTodayAndUpdatesCompanionProgress() async throws {
+        let setup = try makeSetup(approved: true, grantedProviders: Set(Provider.allCases))
+        defer { setup.cleanup() }
+        await setup.query.setHistoryTokenTotal(0)
+        await setup.model.start()
+        await setup.model.select(companionTheme: .forest)
+        XCTAssertEqual(setup.model.companionDailyTokenTotal(at: setup.model.now()), 0)
+
+        await setup.query.setHistoryTokenTotal(100_000_000)
+        var updatedCalendar = setup.model.calendar
+        updatedCalendar.timeZone = TimeZone(identifier: "America/New_York")!
+        await setup.model.refreshForCalendarChange(updatedCalendar)
+
+        XCTAssertEqual(setup.model.calendar.timeZone.identifier, "America/New_York")
+        XCTAssertEqual(setup.model.companionDailyTokenTotal(at: setup.model.now()), 100_000_000)
+    }
+
     func testCompanionMenuBarChoicePersists() async throws {
         let setup = try makeSetup(approved: false, grantedProviders: [])
         defer { setup.cleanup() }
