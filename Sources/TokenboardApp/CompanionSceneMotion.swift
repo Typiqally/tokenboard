@@ -29,6 +29,8 @@ enum CompanionMotionSignature: String, CaseIterable, Equatable, Sendable {
     case isometricDaylight
     /// Minecraft: square particles native to the biome, and stepped motion.
     case blockyBiome
+    /// Banished: the settlement breathes with work, weather, and the year.
+    case seasonalSettlement
 
     static func of(_ theme: CompanionTheme) -> CompanionMotionSignature {
         switch theme {
@@ -39,6 +41,7 @@ enum CompanionMotionSignature: String, CaseIterable, Equatable, Sendable {
         case .oldSchoolRuneScape: .gameTick
         case .ageOfEmpiresII: .isometricDaylight
         case .minecraft: .blockyBiome
+        case .banished: .seasonalSettlement
         }
     }
 }
@@ -506,6 +509,7 @@ enum CompanionSceneMotion {
         case .gameTick: 8.4
         case .isometricDaylight: 13.7
         case .blockyBiome: 5.5
+        case .seasonalSettlement: 17.2
         }
     }
 
@@ -549,7 +553,7 @@ enum CompanionSceneMotion {
         guard isMoving else { return .still }
         let watched = attention.nearest(to: horizontalPosition)
         switch signature {
-        case .none, .isometricDaylight:
+        case .none, .isometricDaylight, .seasonalSettlement:
             return .still
         case .creatureIdle:
             return creatureIdle(

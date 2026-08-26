@@ -36,6 +36,12 @@
       "bundlePath": "Minecraft",
       "redistributionStatus": "pending",
       "evidence": []
+    },
+    {
+      "id": "banished",
+      "bundlePath": "Banished",
+      "redistributionStatus": "pending",
+      "evidence": []
     }
   ]
 }

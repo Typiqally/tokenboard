@@ -220,6 +220,13 @@ enum CompanionAssetCatalog {
         "10-imperial-age", "11-imperial-city", "12-imperial-capital"
     ]
 
+    private static let banishedSceneNames = [
+        "01-first-shelter", "02-gatherers-clearing", "03-first-harvest",
+        "04-pasture-raised", "05-roads-laid", "06-river-crossing",
+        "07-trading-post", "08-market-town", "09-stone-village",
+        "10-first-hard-winter", "11-winter-endured", "12-thriving-township"
+    ]
+
     // MARK: Minecraft
 
     private static let minecraftSceneNames = [
@@ -331,6 +338,12 @@ enum CompanionAssetCatalog {
                     )
                 ]
             )
+        case .banished:
+            return CompanionSceneAsset(
+                backgroundResource: "Banished/scenes/\(banishedSceneNames[stage])-\(suffix).jpg",
+                layers: [],
+                backgroundZoom: 1 + 0.035 * fraction
+            )
         }
     }
 
@@ -349,6 +362,7 @@ enum CompanionAssetCatalog {
         case .oldSchoolRuneScape: 2
         case .ageOfEmpiresII: 8
         case .minecraft: 2
+        case .banished: 8
         }
     }
 
@@ -362,7 +376,7 @@ enum CompanionAssetCatalog {
     ) -> String? {
         let stage = clamped(stage)
         switch theme {
-        case .none, .ageOfEmpiresII:
+        case .none, .ageOfEmpiresII, .banished:
             return nil
         case .pokemon:
             guard let line = pokemonLine(for: variant) else { return nil }

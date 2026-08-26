@@ -9,6 +9,7 @@ enum CompanionTheme: String, CaseIterable, Identifiable, Sendable {
     case oldSchoolRuneScape = "old_school_runescape"
     case ageOfEmpiresII = "age_of_empires_ii"
     case minecraft
+    case banished
 
     var id: String { rawValue }
 
@@ -21,6 +22,7 @@ enum CompanionTheme: String, CaseIterable, Identifiable, Sendable {
         case .oldSchoolRuneScape: "Old School RuneScape"
         case .ageOfEmpiresII: "Age of Empires II"
         case .minecraft: "Minecraft"
+        case .banished: "Banished"
         }
     }
 
@@ -33,6 +35,7 @@ enum CompanionTheme: String, CaseIterable, Identifiable, Sendable {
         case .oldSchoolRuneScape: "An adventurer upgrading through classic gear"
         case .ageOfEmpiresII: "Town centers advancing through the ages"
         case .minecraft: "A survivor gearing up from spawn to the End"
+        case .banished: "Exiles building a settlement through the seasons"
         }
     }
 }
@@ -64,6 +67,8 @@ enum CompanionCatalog {
             named(["Town Center"])
         case .minecraft:
             named(["Steve"])
+        case .banished:
+            named(["Settlement"])
         }
     }
 
@@ -256,6 +261,11 @@ struct CompanionPresentation: Equatable, Sendable {
             ["Fresh spawn", "Into the woods", "Village life", "Lush caves",
              "Jagged peaks", "Ancient city", "Nether wastes", "Crimson forest",
              "Nether fortress", "Stronghold", "The End", "End city"]
+        case .banished:
+            ["First shelter", "Gatherer's clearing", "First harvest",
+             "Pasture raised", "Roads laid", "River crossing",
+             "Trading post", "Market town", "Stone village",
+             "First hard winter", "Winter endured", "Thriving township"]
         }
     }
 }

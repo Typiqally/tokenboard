@@ -1,7 +1,7 @@
 #!/usr/bin/env swift
 // Development-time baker for the photographic companion scenes.
 //
-// Usage: swift Scripts/bake-companion-assets.swift [--actors-only] <raw-root> [output-root]
+// Usage: swift Scripts/bake-companion-assets.swift [--actors-only|--banished-only] <raw-root> [output-root]
 //
 // <raw-root> is the directory populated by Scripts/fetch-companion-assets.sh.
 // The output root defaults to Resources/Companions. The baker art-directs
@@ -482,6 +482,171 @@ struct ActorBake {
     var shiftsBlueToPurple = false
 }
 
+struct BanishedCitizenBake {
+    let output: String
+    /// A point inside the citizen's torso in the source sheet's top-left
+    /// coordinate space. Connected-component extraction prevents nearby
+    /// people and their shadows from leaking into the sprite.
+    let seed: CGPoint
+    /// Tight figure bounds remove the long isometric shadow; Tokenboard
+    /// supplies a route-aligned contact shadow at runtime.
+    let bounds: CGRect
+}
+
+/// Removes the white developer-sheet background while retaining the soft
+/// antialiasing around Banished's original citizen renders.
+func banishedCitizen(from url: URL, seed: CGPoint, bounds: CGRect) throws -> CGImage {
+    guard let representation = NSBitmapImageRep(data: try Data(contentsOf: url)) else {
+        throw BakeError(description: "Banished citizen sheet failed: \(url.path)")
+    }
+    let sourceWidth = representation.pixelsWide
+    let sourceHeight = representation.pixelsHigh
+    func color(atX x: Int, y: Int) -> NSColor {
+        representation.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) ?? .white
+    }
+    func isForeground(x: Int, y: Int) -> Bool {
+        let pixel = color(atX: x, y: y)
+        let lightestChannel = min(pixel.redComponent, pixel.greenComponent, pixel.blueComponent)
+        let distanceFromWhite = 1 - lightestChannel
+        return distanceFromWhite > 22.0 / 255.0
+    }
+
+    // The source sheet deliberately lets the citizens' long shadows overlap.
+    // Assigning every non-white pixel to its nearest torso is a small,
+    // deterministic instance mask: nearby citizens can never leak into one
+    // another even where those shadows touch.
+    let allSeeds = [
+        CGPoint(x: 13, y: 34), CGPoint(x: 43, y: 47),
+        CGPoint(x: 84, y: 25), CGPoint(x: 105, y: 37),
+        CGPoint(x: 57, y: 54), CGPoint(x: 99, y: 66),
+        CGPoint(x: 32, y: 81), CGPoint(x: 62, y: 88),
+        CGPoint(x: 136, y: 73), CGPoint(x: 29, y: 105),
+        CGPoint(x: 103, y: 105)
+    ]
+    func belongsToTarget(x: Int, y: Int) -> Bool {
+        guard bounds.contains(CGPoint(x: x, y: y)) else { return false }
+        let dx = Double(x) - seed.x
+        let dy = Double(y) - seed.y
+        let targetDistance = dx * dx + dy * dy
+        return allSeeds.allSatisfy { other in
+            guard other != seed else { return true }
+            let otherDX = Double(x) - other.x
+            let otherDY = Double(y) - other.y
+            return targetDistance <= otherDX * otherDX + otherDY * otherDY
+        }
+    }
+
+    var member = [Bool](repeating: false, count: sourceWidth * sourceHeight)
+    var minX = sourceWidth
+    var maxX = 0
+    var minY = sourceHeight
+    var maxY = 0
+    for y in 0..<sourceHeight {
+        for x in 0..<sourceWidth where isForeground(x: x, y: y) && belongsToTarget(x: x, y: y) {
+            member[y * sourceWidth + x] = true
+            minX = min(minX, x)
+            maxX = max(maxX, x)
+            minY = min(minY, y)
+            maxY = max(maxY, y)
+        }
+    }
+    guard minX <= maxX, minY <= maxY else {
+        throw BakeError(description: "Banished citizen mask is empty: \(seed)")
+    }
+    // Remove isolated JPEG flecks by retaining only pixels connected to the
+    // seed's nearest foreground pixel inside its Voronoi region.
+    let originalMember = member
+    let seedX = min(max(Int(seed.x.rounded()), minX), maxX)
+    let seedY = min(max(Int(seed.y.rounded()), minY), maxY)
+    var start: (Int, Int)?
+    for radius in 0...8 where start == nil {
+        for y in max(minY, seedY - radius)...min(maxY, seedY + radius) {
+            for x in max(minX, seedX - radius)...min(maxX, seedX + radius)
+            where originalMember[y * sourceWidth + x] {
+                start = (x, y)
+                break
+            }
+            if start != nil { break }
+        }
+    }
+    guard let start else {
+        throw BakeError(description: "Banished citizen seed misses mask: \(seed)")
+    }
+    member = [Bool](repeating: false, count: member.count)
+    var stack = [start]
+    member[start.1 * sourceWidth + start.0] = true
+    while let (x, y) = stack.popLast() {
+        for deltaY in -1...1 {
+            for deltaX in -1...1 where deltaX != 0 || deltaY != 0 {
+                let nextX = x + deltaX
+                let nextY = y + deltaY
+                guard (0..<sourceWidth).contains(nextX),
+                      (0..<sourceHeight).contains(nextY) else { continue }
+                let index = nextY * sourceWidth + nextX
+                guard originalMember[index], !member[index] else { continue }
+                member[index] = true
+                stack.append((nextX, nextY))
+            }
+        }
+    }
+    minX = sourceWidth
+    maxX = 0
+    minY = sourceHeight
+    maxY = 0
+    for y in 0..<sourceHeight {
+        for x in 0..<sourceWidth where member[y * sourceWidth + x] {
+            minX = min(minX, x)
+            maxX = max(maxX, x)
+            minY = min(minY, y)
+            maxY = max(maxY, y)
+        }
+    }
+
+    minX = max(0, minX - 1)
+    maxX = min(sourceWidth - 1, maxX + 1)
+    minY = max(0, minY - 1)
+    maxY = min(sourceHeight - 1, maxY + 1)
+    let width = maxX - minX + 1
+    let height = maxY - minY + 1
+    let bytesPerRow = width * 4
+    var buffer = [UInt8](repeating: 0, count: bytesPerRow * height)
+    for sourceY in minY...maxY {
+        for sourceX in minX...maxX {
+            guard member[sourceY * sourceWidth + sourceX] else { continue }
+            let pixel = color(atX: sourceX, y: sourceY)
+            let red = Int((pixel.redComponent * 255).rounded())
+            let green = Int((pixel.greenComponent * 255).rounded())
+            let blue = Int((pixel.blueComponent * 255).rounded())
+            // JPEG ringing makes the nominally white sheet vary by a few
+            // dozen levels. A firm shoulder removes that halo; the remaining
+            // ramp keeps the source render's own edge antialiasing.
+            let distanceFromWhite = 255 - min(red, green, blue)
+            let alpha = UInt8(min(255, max(0, (distanceFromWhite - 35) * 10)))
+            let scale = Double(alpha) / 255
+            let destination = ((sourceY - minY) * width + sourceX - minX) * 4
+            buffer[destination] = UInt8((Double(red) * scale).rounded())
+            buffer[destination + 1] = UInt8((Double(green) * scale).rounded())
+            buffer[destination + 2] = UInt8((Double(blue) * scale).rounded())
+            buffer[destination + 3] = alpha
+        }
+    }
+    guard let context = CGContext(
+        data: &buffer,
+        width: width,
+        height: height,
+        bitsPerComponent: 8,
+        bytesPerRow: bytesPerRow,
+        space: CGColorSpace(name: CGColorSpace.sRGB)!,
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    ) else {
+        throw BakeError(description: "Banished citizen matte context failed")
+    }
+    guard let result = context.makeImage() else {
+        throw BakeError(description: "Banished citizen matte render failed")
+    }
+    return result
+}
+
 let osrsScenes: [SceneBake] = [
     SceneBake(
         input: "osrs/backgrounds/01-lumbridge.png",
@@ -761,6 +926,31 @@ let minecraftScenes: [SceneBake] = [
     )
 ]
 
+let banishedScenes: [SceneBake] = [
+    SceneBake(input: "banished/backgrounds/01-first-shelter.jpg", output: "Banished/scenes/01-first-shelter.jpg", crop: Crop(x: 0, y: 0.12, width: 1)),
+    SceneBake(input: "banished/backgrounds/02-gatherers-clearing.jpg", output: "Banished/scenes/02-gatherers-clearing.jpg", crop: Crop(x: 0, y: 0.32, width: 1)),
+    SceneBake(input: "banished/backgrounds/03-first-harvest.jpg", output: "Banished/scenes/03-first-harvest.jpg", crop: Crop(x: 0, y: 0.30, width: 1)),
+    SceneBake(input: "banished/backgrounds/04-pasture-raised.jpg", output: "Banished/scenes/04-pasture-raised.jpg", crop: Crop(x: 0, y: 0.30, width: 1)),
+    SceneBake(input: "banished/backgrounds/05-roads-laid.jpg", output: "Banished/scenes/05-roads-laid.jpg", crop: Crop(x: 0, y: 0.30, width: 1)),
+    SceneBake(input: "banished/backgrounds/06-river-crossing.jpg", output: "Banished/scenes/06-river-crossing.jpg", crop: Crop(x: 0, y: 0.30, width: 1)),
+    SceneBake(input: "banished/backgrounds/07-trading-post.jpg", output: "Banished/scenes/07-trading-post.jpg", crop: Crop(x: 0, y: 0.28, width: 1)),
+    SceneBake(input: "banished/backgrounds/08-market-town.jpg", output: "Banished/scenes/08-market-town.jpg", crop: Crop(x: 0, y: 0.28, width: 1)),
+    SceneBake(input: "banished/backgrounds/09-stone-village.jpg", output: "Banished/scenes/09-stone-village.jpg", crop: Crop(x: 0, y: 0.25, width: 1)),
+    SceneBake(input: "banished/backgrounds/10-first-hard-winter.jpg", output: "Banished/scenes/10-first-hard-winter.jpg", crop: Crop(x: 0, y: 0.28, width: 1)),
+    SceneBake(input: "banished/backgrounds/11-winter-endured.jpg", output: "Banished/scenes/11-winter-endured.jpg", crop: Crop(x: 0, y: 0.24, width: 1)),
+    SceneBake(input: "banished/backgrounds/12-thriving-township.jpg", output: "Banished/scenes/12-thriving-township.jpg", crop: Crop(x: 0, y: 0.25, width: 1))
+]
+
+let banishedCitizens = [
+    BanishedCitizenBake(output: "blue-walker", seed: CGPoint(x: 13, y: 34), bounds: CGRect(x: 2, y: 10, width: 24, height: 60)),
+    BanishedCitizenBake(output: "dark-carrier", seed: CGPoint(x: 43, y: 47), bounds: CGRect(x: 27, y: 24, width: 36, height: 61)),
+    BanishedCitizenBake(output: "red-dress", seed: CGPoint(x: 84, y: 25), bounds: CGRect(x: 72, y: 0, width: 27, height: 65)),
+    BanishedCitizenBake(output: "yellow-carrier", seed: CGPoint(x: 99, y: 66), bounds: CGRect(x: 83, y: 39, width: 37, height: 68)),
+    BanishedCitizenBake(output: "green-worker", seed: CGPoint(x: 32, y: 81), bounds: CGRect(x: 17, y: 55, width: 48, height: 58)),
+    BanishedCitizenBake(output: "red-green-worker", seed: CGPoint(x: 136, y: 73), bounds: CGRect(x: 121, y: 48, width: 29, height: 65)),
+    BanishedCitizenBake(output: "purple-carrier", seed: CGPoint(x: 103, y: 105), bounds: CGRect(x: 87, y: 86, width: 43, height: 45))
+]
+
 let osrsCharacters = [
     "01-leather", "02-frog-leather", "03-studded-leather", "04-snakeskin",
     "05-green-dhide", "06-blue-dhide", "07-red-dhide", "08-black-dhide",
@@ -877,9 +1067,10 @@ let actorSprites: [ActorBake] = [
 
 let arguments = CommandLine.arguments
 let actorsOnly = arguments.dropFirst().first == "--actors-only"
-let rawRootIndex = actorsOnly ? 2 : 1
+let banishedOnly = arguments.dropFirst().first == "--banished-only"
+let rawRootIndex = actorsOnly || banishedOnly ? 2 : 1
 guard arguments.indices.contains(rawRootIndex) else {
-    print("usage: swift Scripts/bake-companion-assets.swift [--actors-only] <raw-root> [output-root]")
+    print("usage: swift Scripts/bake-companion-assets.swift [--actors-only|--banished-only] <raw-root> [output-root]")
     exit(64)
 }
 let rawRoot = URL(fileURLWithPath: arguments[rawRootIndex], isDirectory: true)
@@ -894,7 +1085,10 @@ let outputRoot = arguments.indices.contains(outputRootIndex)
 
 do {
     if !actorsOnly {
-        for bake in osrsScenes + ageOfEmpiresScenes + pokemonScenes + minecraftScenes {
+        let sceneBakes = banishedOnly
+            ? banishedScenes
+            : osrsScenes + ageOfEmpiresScenes + pokemonScenes + minecraftScenes + banishedScenes
+        for bake in sceneBakes {
             let source = try loadImage(rawRoot.appending(path: bake.input))
             let crops = [bake.crop] + derivedVariants(of: bake.crop, in: source.extent)
             for (variant, crop) in crops.enumerated() {
@@ -924,7 +1118,8 @@ do {
             }
         }
 
-        for name in osrsCharacters {
+        if !banishedOnly {
+            for name in osrsCharacters {
             let subject = try trimmedSubject(
                 rawRoot.appending(path: "osrs/characters/\(name).png")
             )
@@ -933,10 +1128,10 @@ do {
                 to: outputRoot.appending(path: "OldSchoolRuneScape/Characters/\(name).png"),
                 jpegQuality: nil
             )
-        }
-        print("baked \(osrsCharacters.count) OSRS characters")
+            }
+            print("baked \(osrsCharacters.count) OSRS characters")
 
-        for name in minecraftCharacters {
+            for name in minecraftCharacters {
             let subject = try trimmedSubject(
                 rawRoot.appending(path: "minecraft/characters/\(name).png")
             )
@@ -945,10 +1140,10 @@ do {
                 to: outputRoot.appending(path: "Minecraft/characters/\(name).png"),
                 jpegQuality: nil
             )
-        }
-        print("baked \(minecraftCharacters.count) Minecraft characters")
+            }
+            print("baked \(minecraftCharacters.count) Minecraft characters")
 
-        for id in pokemonArtworkIDs {
+            for id in pokemonArtworkIDs {
             let subject = try trimmedSubject(
                 rawRoot.appending(path: String(format: "pokemon/artwork/%d.png", id))
             )
@@ -957,25 +1152,41 @@ do {
                 to: outputRoot.appending(path: String(format: "Pokemon/art/%03d.png", id)),
                 jpegQuality: nil
             )
+            }
+            print("baked \(pokemonArtworkIDs.count) Pokémon artworks")
         }
-        print("baked \(pokemonArtworkIDs.count) Pokémon artworks")
     }
 
-    for bake in actorSprites {
-        var strip = try actorSpriteStrip(
-            rawRoot.appending(path: bake.input),
-            expectedFrameCount: bake.frameCount
-        )
-        if bake.shiftsBlueToPurple {
-            strip = try shiftBlueTrimToPurple(strip)
+    if !banishedOnly {
+        for bake in actorSprites {
+            var strip = try actorSpriteStrip(
+                rawRoot.appending(path: bake.input),
+                expectedFrameCount: bake.frameCount
+            )
+            if bake.shiftsBlueToPurple {
+                strip = try shiftBlueTrimToPurple(strip)
+            }
+            try write(
+                strip,
+                to: outputRoot.appending(path: bake.output),
+                jpegQuality: nil
+            )
         }
+    }
+    let banishedCitizenSheet = rawRoot.appending(path: "banished/actors/citizens.jpg")
+    for citizen in banishedCitizens {
+        let image = try banishedCitizen(
+            from: banishedCitizenSheet,
+            seed: citizen.seed,
+            bounds: citizen.bounds
+        )
         try write(
-            strip,
-            to: outputRoot.appending(path: bake.output),
+            image,
+            to: outputRoot.appending(path: "Banished/actors/\(citizen.output).png"),
             jpegQuality: nil
         )
     }
-    print("baked \(actorSprites.count) companion actor strips")
+    print("baked \(banishedCitizens.count) Banished citizens")
 } catch {
     print("bake failed: \(error)")
     exit(1)

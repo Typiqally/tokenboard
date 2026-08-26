@@ -13,7 +13,7 @@ enum CompanionMenuIconRenderer {
         stage: Int
     ) -> NSImage {
         let stage = min(max(stage, 0), CompanionJourney.thresholds.count - 1)
-        if theme == .ageOfEmpiresII {
+        if theme == .ageOfEmpiresII || theme == .banished {
             return settlementGlyph(stage: stage)
         }
         if let resource = CompanionAssetCatalog.menuIconResource(
@@ -32,6 +32,7 @@ enum CompanionMenuIconRenderer {
         case .oldSchoolRuneScape: "figure.walk"
         case .ageOfEmpiresII: "building.columns.fill"
         case .minecraft: "cube.fill"
+        case .banished: "house.and.flag.fill"
         }
         let symbol = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)
             ?? NSImage(size: iconSize)

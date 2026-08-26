@@ -59,6 +59,16 @@ enum CompanionActorSpriteCatalog {
         facesRight: false
     )
 
+    static let banishedCitizens = [
+        banished("blue-walker"),
+        banished("dark-carrier"),
+        banished("red-dress"),
+        banished("yellow-carrier"),
+        banished("green-worker"),
+        banished("red-green-worker"),
+        banished("purple-carrier")
+    ]
+
     static let minecraftChicken = minecraft("chicken", facesRight: false)
     static let minecraftPig = minecraft("pig", facesRight: false)
     static let minecraftVillager = minecraft("villager", facesRight: false)
@@ -89,6 +99,13 @@ enum CompanionActorSpriteCatalog {
             frameCount: frameCount,
             framesPerSecond: framesPerSecond,
             facesRight: facesRight
+        )
+    }
+
+    private static func banished(_ name: String) -> CompanionActorSprite {
+        CompanionActorSprite(
+            resource: "Banished/actors/\(name).png",
+            facesRight: true
         )
     }
 }

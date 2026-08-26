@@ -3,6 +3,7 @@
 #
 # Usage: Scripts/fetch-companion-assets.sh <raw-root>
 #        TOKENBOARD_FETCH_ACTORS_ONLY=1 Scripts/fetch-companion-assets.sh <raw-root>
+#        TOKENBOARD_FETCH_PREFIX=banished Scripts/fetch-companion-assets.sh <raw-root>
 #
 # Downloads every third-party source image the companion feature is baked
 # from, into <raw-root>, using the layout expected by
@@ -21,6 +22,7 @@ script_dir=${0:A:h}
 hash_manifest="$script_dir/companion-source-hashes.sha256"
 verify_manifest_only=${TOKENBOARD_VERIFY_ASSET_MANIFEST_ONLY:-0}
 fetch_actors_only=${TOKENBOARD_FETCH_ACTORS_ONLY:-0}
+fetch_prefix=${TOKENBOARD_FETCH_PREFIX:-}
 typeset -A requested_assets
 
 fetch_asset() {
@@ -38,6 +40,9 @@ fetch_asset() {
     exit 65
   fi
   if [[ "$verify_manifest_only" == "1" ]]; then
+    return
+  fi
+  if [[ -n "$fetch_prefix" && "$relative_path" != "$fetch_prefix"/* ]]; then
     return
   fi
   if [[ "$fetch_actors_only" == "1" && "$relative_path" != */actors/* ]]; then
@@ -198,6 +203,24 @@ fetch_asset 'https://minecraft.wiki/images/Goat_%28two_horns%29_JE1_BE1.png?a5c0
 fetch_asset 'https://minecraft.wiki/images/Piglin_JE1.png?a498e' 'minecraft/actors/piglin.png'
 fetch_asset 'https://minecraft.wiki/images/Hoglin_JE3.png?65eaa' 'minecraft/actors/hoglin.png'
 fetch_asset 'https://minecraft.wiki/images/Silverfish_JE1_BE1.gif?d40a7' 'minecraft/actors/silverfish.gif'
+
+# --- Banished ----------------------------------------------------------------
+# Seasonal settlement screenshots and the original citizen-model sheet,
+# hosted by developer Shining Rock Software. The baker crops these into the
+# fixed scene plates and transparent citizen sprites used at runtime.
+fetch_asset 'https://shiningrocksoftware.com/wp-content/uploads/2012/03/HunterOrchard.jpg' 'banished/backgrounds/01-first-shelter.jpg'
+fetch_asset 'https://shiningrocksoftware.com/wp-content/uploads/2021/06/x03.jpg' 'banished/backgrounds/02-gatherers-clearing.jpg'
+fetch_asset 'https://shiningrocksoftware.com/wp-content/uploads/2021/06/s06.jpg' 'banished/backgrounds/03-first-harvest.jpg'
+fetch_asset 'https://shiningrocksoftware.com/wp-content/uploads/2021/06/s02.jpg' 'banished/backgrounds/04-pasture-raised.jpg'
+fetch_asset 'https://shiningrocksoftware.com/wp-content/uploads/2013/04/PavedRoads.jpg' 'banished/backgrounds/05-roads-laid.jpg'
+fetch_asset 'https://shiningrocksoftware.com/wp-content/uploads/2021/06/s08.jpg' 'banished/backgrounds/06-river-crossing.jpg'
+fetch_asset 'https://shiningrocksoftware.com/wp-content/uploads/2021/06/s03.jpg' 'banished/backgrounds/07-trading-post.jpg'
+fetch_asset 'https://shiningrocksoftware.com/wp-content/uploads/2021/06/s05.jpg' 'banished/backgrounds/08-market-town.jpg'
+fetch_asset 'https://shiningrocksoftware.com/wp-content/uploads/2021/06/x09.jpg' 'banished/backgrounds/09-stone-village.jpg'
+fetch_asset 'https://shiningrocksoftware.com/wp-content/uploads/2021/06/s10.jpg' 'banished/backgrounds/10-first-hard-winter.jpg'
+fetch_asset 'https://shiningrocksoftware.com/wp-content/uploads/2021/06/x06.jpg' 'banished/backgrounds/11-winter-endured.jpg'
+fetch_asset 'https://shiningrocksoftware.com/wp-content/uploads/2021/06/x01.jpg' 'banished/backgrounds/12-thriving-township.jpg'
+fetch_asset 'https://shiningrocksoftware.com/wp-content/uploads/2011/06/Thumb_Citizens.jpg' 'banished/actors/citizens.jpg'
 
 manifest_count=0
 while read -r source_hash source_path; do

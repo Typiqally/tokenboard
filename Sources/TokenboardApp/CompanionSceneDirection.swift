@@ -30,6 +30,8 @@ extension CompanionScenePlan {
             return diorama(stage: stage, seed: seed)
         case .blockyBiome:
             return CompanionBiome.forMinecraft(stage: stage).plan(stage: stage, seed: seed)
+        case .seasonalSettlement:
+            return banishedSettlement(stage: stage, seed: seed)
         }
     }
 
@@ -40,6 +42,179 @@ extension CompanionScenePlan {
             .union(bands.map(\.key))
             .union(glows.map(\.key))
             .union(actors.map(\.key))
+    }
+}
+
+// MARK: - Banished: a settlement turning through the year
+
+private extension CompanionScenePlan {
+    static func banishedSettlement(stage: Int, seed: UInt64) -> CompanionScenePlan {
+        var fields = [
+            CompanionParticleField(
+                key: "banished/chimney-smoke",
+                shape: .mote,
+                tint: CompanionSceneTint(0.76, 0.75, 0.70),
+                count: min(14, 4 + stage),
+                lifetime: 12,
+                spawnX: 0.18...0.84,
+                spawnY: 0.25...0.62,
+                size: 1.6...3.1,
+                opacity: 0.12...0.28,
+                drift: .travel(dx: 0.08, dy: -0.32, sway: 0.022, swayPeriod: 5.8),
+                fade: .rise,
+                growth: 2.2
+            )
+        ]
+        if stage == 9 || stage == 10 {
+            fields.append(
+                CompanionParticleField(
+                    key: "banished/snow",
+                    shape: .mote,
+                    tint: CompanionSceneTint(0.96, 0.98, 1.0),
+                    count: 34,
+                    lifetime: 8.5,
+                    spawnX: -0.05...1.0,
+                    spawnY: -0.08...0.56,
+                    size: 1.2...2.8,
+                    opacity: 0.28...0.68,
+                    drift: .travel(dx: 0.16, dy: 0.60, sway: 0.035, swayPeriod: 3.8)
+                )
+            )
+        }
+        if (6...8).contains(stage) {
+            fields.append(
+                CompanionParticleField(
+                    key: "banished/autumn-leaves",
+                    shape: .leaf,
+                    tint: CompanionSceneTint(0.72, 0.38, 0.12),
+                    count: 10,
+                    lifetime: 10,
+                    spawnX: 0.0...0.94,
+                    spawnY: 0.12...0.68,
+                    size: 1.4...2.5,
+                    opacity: 0.24...0.46,
+                    drift: .travel(dx: 0.18, dy: 0.38, sway: 0.045, swayPeriod: 4.6)
+                )
+            )
+        }
+
+        let laborerCount = min(5, 2 + stage / 3)
+        let carrierCount = min(4, stage / 3)
+        let corridor = banishedCorridor(stage: stage)
+        let depthHeight = 3.6 + 3.8 * max(corridor.home.y, corridor.site.y)
+        var actors = [
+            CompanionActorField(
+                key: "banished/laborers",
+                body: .biped,
+                sprites: CompanionActorSpriteCatalog.banishedCitizens,
+                count: laborerCount,
+                route: corridor.laborRoute,
+                height: depthHeight...(depthHeight + 1.2),
+                tint: CompanionSceneTint(0.42, 0.31, 0.22),
+                accent: CompanionSceneTint(0.62, 0.52, 0.39),
+                opacity: 0.96,
+                spread: 0.035,
+                variation: 0
+            )
+        ]
+        if carrierCount > 0 {
+            actors.append(
+                CompanionActorField(
+                    key: "banished/carriers",
+                    body: .biped,
+                    sprites: CompanionActorSpriteCatalog.banishedCitizens,
+                    count: carrierCount,
+                    route: .errand(
+                        home: CompanionScenePoint(
+                            corridor.home.x,
+                            min(1.02, corridor.home.y + 0.035)
+                        ),
+                        site: CompanionScenePoint(
+                            corridor.site.x,
+                            min(1.02, corridor.site.y + 0.035)
+                        ),
+                        period: 25,
+                        workShare: 0.30
+                    ),
+                    height: (depthHeight - 0.3)...(depthHeight + 0.9),
+                    tint: CompanionSceneTint(0.42, 0.31, 0.22),
+                    accent: CompanionSceneTint(0.62, 0.52, 0.39),
+                    opacity: 0.94,
+                    spread: 0.025,
+                    variation: 0
+                )
+            )
+        }
+
+        let winter = stage == 9 || stage == 10
+        return CompanionScenePlan(
+            signature: .seasonalSettlement,
+            stage: stage,
+            seed: seed,
+            backgroundDrift: .still,
+            fields: fields,
+            bands: [
+                CompanionShadowBandField(
+                    key: "banished/weather-front",
+                    count: 1,
+                    width: 0.62,
+                    skew: -0.08,
+                    period: 46,
+                    opacity: winter ? 0.12 : 0.065,
+                    tint: CompanionSceneTint(0.09, 0.11, 0.13),
+                    top: 0,
+                    bottom: 1
+                )
+            ],
+            glows: [],
+            actors: actors,
+            wash: CompanionWashSpec(
+                tint: winter
+                    ? CompanionSceneTint(0.64, 0.73, 0.82)
+                    : CompanionSceneTint(0.92, 0.74, 0.48),
+                opacity: winter ? 0.045 : 0.012,
+                amplitude: 0.008,
+                period: 39
+            )
+        )
+    }
+
+    /// Each source plate has its own safe piece of ground. Dense scenes use
+    /// a reversible errand inside that corridor; the two open working fields
+    /// can support a full off-screen patrol without crossing a roof.
+    static func banishedCorridor(
+        stage: Int
+    ) -> (home: CompanionScenePoint, site: CompanionScenePoint, laborRoute: CompanionActorRoute) {
+        if stage == 1 {
+            let home = CompanionScenePoint(-0.16, 0.64)
+            let site = CompanionScenePoint(1.16, 0.72)
+            return (home, site, .patrol(from: home, to: site, period: 30, pauses: 3))
+        }
+        if stage == 3 {
+            let home = CompanionScenePoint(-0.16, 0.58)
+            let site = CompanionScenePoint(1.16, 0.74)
+            return (home, site, .patrol(from: home, to: site, period: 31, pauses: 2))
+        }
+        let points: [(CompanionScenePoint, CompanionScenePoint)] = [
+            (CompanionScenePoint(0.32, 0.86), CompanionScenePoint(0.80, 0.82)),
+            (CompanionScenePoint(-0.16, 0.64), CompanionScenePoint(1.16, 0.72)),
+            (CompanionScenePoint(0.16, 0.60), CompanionScenePoint(0.63, 0.63)),
+            (CompanionScenePoint(-0.16, 0.58), CompanionScenePoint(1.16, 0.74)),
+            (CompanionScenePoint(0.18, 0.58), CompanionScenePoint(0.68, 0.70)),
+            (CompanionScenePoint(0.74, 0.56), CompanionScenePoint(1.02, 0.42)),
+            (CompanionScenePoint(0.28, 0.78), CompanionScenePoint(0.47, 0.76)),
+            (CompanionScenePoint(0.24, 0.28), CompanionScenePoint(0.55, 0.25)),
+            (CompanionScenePoint(0.40, 0.55), CompanionScenePoint(0.60, 0.68)),
+            (CompanionScenePoint(0.08, 0.82), CompanionScenePoint(0.43, 0.91)),
+            (CompanionScenePoint(0.22, 0.70), CompanionScenePoint(0.62, 0.72)),
+            (CompanionScenePoint(0.42, 0.58), CompanionScenePoint(0.60, 0.64))
+        ]
+        let pair = points[min(max(stage, 0), points.count - 1)]
+        return (
+            pair.0,
+            pair.1,
+            .errand(home: pair.0, site: pair.1, period: 27, workShare: 0.32)
+        )
     }
 }
 
