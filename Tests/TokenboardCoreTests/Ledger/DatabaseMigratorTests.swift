@@ -67,6 +67,85 @@ final class DatabaseMigratorTests: XCTestCase {
         )
     }
 
+    func testPricingImportHistoryMigrationPreservesV1V2AndV3PricingData() throws {
+        for startingVersion in 1...3 {
+            let directory = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let database = directory.appending(path: "ledger.sqlite")
+            let backups = directory.appending(path: "Backups")
+            let connection = try SQLiteConnection(url: database)
+            try DatabaseMigrator(
+                connection: connection,
+                backupDirectory: backups,
+                migrations: Array(Migrations.all.prefix(startingVersion))
+            ).migrate()
+            try connection.execute("""
+            INSERT INTO catalog_imports(
+              catalog_id, schema_version, origin, imported_at, applied,
+              validation_summary, canonical_json
+            ) VALUES(
+              'legacy-catalog', 1, 'agent_generated_catalog',
+              '2026-08-05T12:00:00.000Z', 1, 'schema_v1_valid', '{"legacy":true}'
+            );
+            INSERT INTO model_aliases VALUES(
+              'codex', 'gpt-legacy', 'gpt-legacy', '2026-01-01', NULL, 'legacy-catalog'
+            );
+            INSERT INTO price_rates VALUES(
+              'codex', 'gpt-legacy', 'input_uncached', '5', '2026-01-01', NULL,
+              'https://openai.com/api/pricing/', '2026-08-05', 'legacy-catalog'
+            );
+            """)
+            if startingVersion >= 3 {
+                try connection.execute("""
+                INSERT INTO fx_rates VALUES(
+                  'legacy-catalog', 'USD', '1', '2026-08-05',
+                  'https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml',
+                  '2026-08-05'
+                );
+                """)
+            }
+
+            try DatabaseMigrator(
+                connection: connection,
+                backupDirectory: backups,
+                migrations: Migrations.all
+            ).migrate()
+
+            XCTAssertEqual(try connection.userVersion, Int32(Migrations.all.count))
+            XCTAssertEqual(
+                try connection.queryStrings(
+                    "SELECT catalog_id || '|' || canonical_json FROM catalog_imports ORDER BY import_id;"
+                ),
+                [#"legacy-catalog|{"legacy":true}"#],
+                "starting at v\(startingVersion)"
+            )
+            XCTAssertEqual(
+                try connection.queryStrings("""
+                SELECT imports.catalog_id
+                FROM active_catalog_import AS active
+                JOIN catalog_imports AS imports ON imports.import_id = active.import_id;
+                """),
+                ["legacy-catalog"],
+                "starting at v\(startingVersion)"
+            )
+            XCTAssertEqual(
+                try connection.queryStrings("SELECT observed_model_id FROM model_aliases;"),
+                ["gpt-legacy"]
+            )
+            XCTAssertEqual(
+                try connection.queryStrings("SELECT usd_per_million FROM price_rates;"),
+                ["5"]
+            )
+            if startingVersion >= 3 {
+                XCTAssertEqual(
+                    try connection.queryStrings("SELECT currency_code FROM fx_rates;"),
+                    ["USD"]
+                )
+            }
+            try connection.close()
+        }
+    }
+
     func testLegacyCompactSchemaMigrationsDefinitionCanUpgrade() throws {
         let directory = try temporaryDirectory()
         let connection = try SQLiteConnection(url: directory.appending(path: "ledger.sqlite"))
