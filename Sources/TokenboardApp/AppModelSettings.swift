@@ -375,8 +375,9 @@ extension AppModel {
             let rows = try await ledger.usageRows(in: interval, calendar: calendar)
             let skippedCount = try await ledger.skippedRecordCount()
             let catalogStatus = await pricingInbox.status()
-            let resolution = try PriceResolver().resolve(rows: rows, pricing: pricing)
-            let unpricedUsage = try PriceResolver().unpricedUsage(rows: rows, pricing: pricing)
+            let priceResolver = try PriceResolver(pricing: pricing)
+            let resolution = try priceResolver.resolve(rows: rows)
+            let unpricedUsage = try priceResolver.unpricedUsage(rows: rows)
             let pricingHealth: TokenboardHealth.PricingState
             if case .invalid = catalogStatus {
                 pricingHealth = .warning(

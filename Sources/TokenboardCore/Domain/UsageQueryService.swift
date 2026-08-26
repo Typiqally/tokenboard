@@ -71,6 +71,7 @@ public struct UsageQueryService: Sendable {
         let queriedRows = try await ledger.usageRows(in: queryInterval, calendar: calendar)
         let rows = queriedRows.filter { provider == nil || $0.provider == provider }
         let pricing = try await ledger.pricingSnapshot()
+        let priceResolver = try PriceResolver(pricing: pricing)
 
         let hourlyRows: [HourlyUsageRow]
         if requestedRanges.contains(.today) {
@@ -104,7 +105,8 @@ public struct UsageQueryService: Sendable {
                 hourlyRows: hourlyRows,
                 calendar: calendar,
                 provider: provider,
-                pricing: pricing
+                pricing: pricing,
+                priceResolver: priceResolver
             )
         }
         return snapshots
@@ -140,9 +142,14 @@ public struct UsageQueryService: Sendable {
         hourlyRows: [HourlyUsageRow],
         calendar: Calendar,
         provider: Provider?,
-        pricing: PricingSnapshot
+        pricing: PricingSnapshot,
+        priceResolver: PriceResolver
     ) throws -> UsageHistorySnapshot {
-        let breakdown = try usageBreakdown(rows: currentRows, pricing: pricing)
+        let breakdown = try usageBreakdown(
+            rows: currentRows,
+            pricing: pricing,
+            priceResolver: priceResolver
+        )
         let previousTotal = try tokenTotal(in: previousRows)
         let delta = breakdown.tokenTotal - previousTotal
         let percentChange: Decimal? = if previousTotal == 0 {
@@ -157,14 +164,16 @@ public struct UsageQueryService: Sendable {
                 dailyRows: currentRows,
                 interval: intervals.current,
                 calendar: calendar,
-                pricing: pricing
+                pricing: pricing,
+                priceResolver: priceResolver
             )
         } else {
             try dailyPoints(
                 rows: currentRows,
                 interval: intervals.current,
                 calendar: calendar,
-                pricing: pricing
+                pricing: pricing,
+                priceResolver: priceResolver
             )
         }
 
@@ -189,7 +198,8 @@ public struct UsageQueryService: Sendable {
         dailyRows: [DailyUsageRow],
         interval: DateInterval,
         calendar: Calendar,
-        pricing: PricingSnapshot
+        pricing: PricingSnapshot,
+        priceResolver: PriceResolver
     ) throws -> [UsageHistoryPoint] {
         var rowsByHour = Dictionary(grouping: rows, by: \.hourStart)
         var recordedTotals: [UsageRowKey: Int64] = [:]
@@ -223,7 +233,11 @@ public struct UsageQueryService: Sendable {
             let hourRows = rowsByHour[hourStart, default: []].map(\.dailyRow)
             let breakdown = hourRows.isEmpty
                 ? nil
-                : try usageBreakdown(rows: hourRows, pricing: pricing)
+                : try usageBreakdown(
+                    rows: hourRows,
+                    pricing: pricing,
+                    priceResolver: priceResolver
+                )
             points.append(UsageHistoryPoint(
                 localDay: LocalDay(date: hourStart, calendar: calendar),
                 hourStart: hourStart,
@@ -242,7 +256,8 @@ public struct UsageQueryService: Sendable {
         rows: [DailyUsageRow],
         interval: DateInterval,
         calendar: Calendar,
-        pricing: PricingSnapshot
+        pricing: PricingSnapshot,
+        priceResolver: PriceResolver
     ) throws -> [UsageHistoryPoint] {
         let rowsByDay = Dictionary(grouping: rows, by: { $0.localDay.value })
 
@@ -253,7 +268,11 @@ public struct UsageQueryService: Sendable {
             let dayRows = rowsByDay[day.value] ?? []
             let breakdown = dayRows.isEmpty
                 ? nil
-                : try usageBreakdown(rows: dayRows, pricing: pricing)
+                : try usageBreakdown(
+                    rows: dayRows,
+                    pricing: pricing,
+                    priceResolver: priceResolver
+                )
             points.append(UsageHistoryPoint(
                 localDay: day,
                 tokenTotal: breakdown?.tokenTotal ?? 0,
@@ -269,9 +288,10 @@ public struct UsageQueryService: Sendable {
 
     private func usageBreakdown(
         rows: [DailyUsageRow],
-        pricing: PricingSnapshot
+        pricing: PricingSnapshot,
+        priceResolver: PriceResolver
     ) throws -> UsageBreakdown {
-        let resolution = try PriceResolver().resolve(rows: rows, pricing: pricing)
+        let resolution = try priceResolver.resolve(rows: rows)
         return UsageBreakdown(
             tokenTotal: resolution.tokenTotal,
             knownAPIEquivalentUSD: resolution.knownUSD,

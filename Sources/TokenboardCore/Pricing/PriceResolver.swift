@@ -89,28 +89,44 @@ public enum PriceResolverError: Error, Equatable, Sendable {
 }
 
 public struct PriceResolver: Sendable {
-    public init() {}
+    private let aliases: [AliasKey: [StoredModelAlias]]
+    private let rates: [RateKey: [StoredPriceRate]]
+
+    public init() {
+        aliases = [:]
+        rates = [:]
+    }
+
+    public init(pricing: PricingSnapshot) throws {
+        aliases = try Self.indexedAliases(pricing.aliases)
+        rates = try Self.indexedRates(pricing.rates)
+    }
 
     public func resolve(
         rows: [DailyUsageRow],
         pricing: PricingSnapshot
     ) throws -> PriceResolution {
-        try analyze(rows: rows, pricing: pricing).resolution
+        try PriceResolver(pricing: pricing).resolve(rows: rows)
+    }
+
+    public func resolve(rows: [DailyUsageRow]) throws -> PriceResolution {
+        try analyze(rows: rows).resolution
     }
 
     public func unpricedUsage(
         rows: [DailyUsageRow],
         pricing: PricingSnapshot
     ) throws -> [UnpricedUsageGroup] {
-        try analyze(rows: rows, pricing: pricing).unpricedUsage
+        try PriceResolver(pricing: pricing).unpricedUsage(rows: rows)
+    }
+
+    public func unpricedUsage(rows: [DailyUsageRow]) throws -> [UnpricedUsageGroup] {
+        try analyze(rows: rows).unpricedUsage
     }
 
     private func analyze(
-        rows: [DailyUsageRow],
-        pricing: PricingSnapshot
+        rows: [DailyUsageRow]
     ) throws -> (resolution: PriceResolution, unpricedUsage: [UnpricedUsageGroup]) {
-        let aliases = try indexedAliases(pricing.aliases)
-        let rates = try indexedRates(pricing.rates)
         var tokenTotal: Int64 = 0
         var knownUSD = Decimal.zero
         var unpricedTokens: Int64 = 0
@@ -233,7 +249,7 @@ public struct PriceResolver: Sendable {
         )
     }
 
-    private func indexedAliases(
+    private static func indexedAliases(
         _ aliases: [StoredModelAlias]
     ) throws -> [AliasKey: [StoredModelAlias]] {
         var result: [AliasKey: [StoredModelAlias]] = [:]
@@ -268,7 +284,7 @@ public struct PriceResolver: Sendable {
         return result
     }
 
-    private func indexedRates(
+    private static func indexedRates(
         _ rates: [StoredPriceRate]
     ) throws -> [RateKey: [StoredPriceRate]] {
         var result: [RateKey: [StoredPriceRate]] = [:]
@@ -309,7 +325,7 @@ public struct PriceResolver: Sendable {
         return result
     }
 
-    private func validateInterval(from: String, to: String?) throws {
+    private static func validateInterval(from: String, to: String?) throws {
         try validateGregorianDay(from)
         if let to {
             try validateGregorianDay(to)
@@ -319,7 +335,7 @@ public struct PriceResolver: Sendable {
         }
     }
 
-    private func validateGregorianDay(_ value: String) throws {
+    private static func validateGregorianDay(_ value: String) throws {
         guard GregorianDay.isValid(value) else {
             throw PriceResolverError.invalidEffectiveDate(value)
         }
@@ -390,7 +406,7 @@ public struct PriceResolver: Sendable {
     }
 }
 
-private struct AliasKey: Hashable {
+private struct AliasKey: Hashable, Sendable {
     let provider: Provider
     let observedModelID: String
 
@@ -404,7 +420,7 @@ private struct AliasKey: Hashable {
     }
 }
 
-private struct RateKey: Hashable {
+private struct RateKey: Hashable, Sendable {
     let provider: Provider
     let canonicalModelID: String
     let metric: UsageMetric
