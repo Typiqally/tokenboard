@@ -9,7 +9,7 @@ Model IDs that do not meet Tokenboard's strict content-safe identifier rules are
 - You grant each source root with the native macOS folder picker. The App Sandbox grant is app-scoped and read-only.
 - Tokenboard never edits or deletes Claude Code or Codex logs.
 - Historical import starts only after explicit grants and your Start Historical Import action.
-- Filesystem monitoring uses native events plus a periodic, read-only comparison of JSONL size and modification dates. There is no helper process, daemon, or analytics/telemetry channel.
+- Filesystem monitoring uses native events without periodic polling. There is no helper process, daemon, or analytics/telemetry channel.
 - Launch at Login is off by default and uses the main app only.
 - Companion artwork is downloaded only during development and compiled into the app. Theme selection, menu-icon visibility, and one random local variant seed are stored in `UserDefaults`; stages derive from the existing `Today` aggregate. The running app never downloads or uploads artwork or journey state.
 

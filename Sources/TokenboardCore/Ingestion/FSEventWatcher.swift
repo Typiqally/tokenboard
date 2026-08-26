@@ -301,10 +301,12 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
     private var lastAcknowledgedEventID: UInt64?
     private var checkpointResetPending = false
 
+    public var usesPeriodicReconciliation: Bool { pollingInterval != nil }
+
     public convenience init() {
         self.init(
             driver: NativeFSEventStreamDriver(),
-            pollingInterval: .seconds(2)
+            pollingInterval: nil
         )
     }
 
