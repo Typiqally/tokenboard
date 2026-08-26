@@ -409,33 +409,12 @@ public struct PriceResolver: Sendable {
 private struct AliasKey: Hashable, Sendable {
     let provider: Provider
     let observedModelID: String
-
-    static func == (lhs: AliasKey, rhs: AliasKey) -> Bool {
-        lhs.provider == rhs.provider && lhs.observedModelID == rhs.observedModelID
-    }
-
-    func hash(into hasher: inout Hasher) {
-        hasher.combine(provider.rawValue)
-        hasher.combine(observedModelID)
-    }
 }
 
 private struct RateKey: Hashable, Sendable {
     let provider: Provider
     let canonicalModelID: String
     let metric: UsageMetric
-
-    static func == (lhs: RateKey, rhs: RateKey) -> Bool {
-        lhs.provider == rhs.provider
-            && lhs.canonicalModelID == rhs.canonicalModelID
-            && lhs.metric == rhs.metric
-    }
-
-    func hash(into hasher: inout Hasher) {
-        hasher.combine(provider.rawValue)
-        hasher.combine(canonicalModelID)
-        hasher.combine(metric.rawValue)
-    }
 }
 
 private struct UnpricedGroupKey: Hashable {

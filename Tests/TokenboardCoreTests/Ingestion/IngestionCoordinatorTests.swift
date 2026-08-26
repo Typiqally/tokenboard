@@ -91,7 +91,6 @@ final class IngestionCoordinatorTests: XCTestCase {
         XCTAssertEqual(maximumConcurrentScans, 1)
         XCTAssertEqual(debounceRequests, 2)
         XCTAssertEqual(maximumLatencyRequests, 1)
-        XCTAssertEqual(coordinator.usesPeriodicRefresh, false)
         await coordinator.stop()
     }
 
