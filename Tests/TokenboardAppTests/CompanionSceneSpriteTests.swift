@@ -14,7 +14,8 @@ final class CompanionSceneSpriteTests: XCTestCase {
             (.oldSchoolRuneScape, "OldSchoolRuneScape/Actors/"),
             (.ageOfEmpiresII, "AgeOfEmpiresII/actors/"),
             (.minecraft, "Minecraft/actors/"),
-            (.banished, "Banished/actors/")
+            (.banished, "Banished/actors/"),
+            (.frostpunk, "Frostpunk/actors/")
         ]
 
         for entry in brandedThemes {
@@ -58,7 +59,8 @@ final class CompanionSceneSpriteTests: XCTestCase {
             .oldSchoolRuneScape,
             .ageOfEmpiresII,
             .minecraft,
-            .banished
+            .banished,
+            .frostpunk
         ] {
             for stage in 0..<CompanionJourney.thresholds.count {
                 XCTAssertFalse(
@@ -97,7 +99,7 @@ final class CompanionSceneSpriteTests: XCTestCase {
 
     func testBakedSpriteStripsMatchTheirCatalogFrameCounts() throws {
         let sprites = Set(
-            [CompanionTheme.pokemon, .oldSchoolRuneScape, .ageOfEmpiresII, .minecraft, .banished]
+            [CompanionTheme.pokemon, .oldSchoolRuneScape, .ageOfEmpiresII, .minecraft, .banished, .frostpunk]
                 .flatMap { theme in
                     (0..<CompanionJourney.thresholds.count).flatMap { stage in
                         plan(for: theme, stage: stage).actors.flatMap(\.sprites)

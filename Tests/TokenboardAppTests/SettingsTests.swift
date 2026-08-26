@@ -37,33 +37,31 @@ final class SettingsTests: XCTestCase {
         )
     }
 
-    func testCompanionNavigatorPresentsEveryThemeInOneStableList() {
-        let options = CompanionSettingsPresentation.themeOptions(selected: .banished)
+    func testCompanionGalleryPresentsEveryThemeInOneStableGrid() {
+        let options = CompanionSettingsPresentation.themeOptions(selected: .frostpunk)
 
         XCTAssertEqual(options.map(\.theme), CompanionTheme.allCases)
-        XCTAssertEqual(options.filter(\.isSelected).map(\.theme), [.banished])
-        XCTAssertEqual(options.last?.accessibilityLabel, "Banished. Settlement")
+        XCTAssertEqual(options.count, 9)
+        XCTAssertEqual(options.filter(\.isSelected).map(\.theme), [.frostpunk])
+        XCTAssertEqual(options.last?.accessibilityLabel, "Frostpunk. New London")
         XCTAssertEqual(options.last?.accessibilityValue, "Selected")
     }
 
-    func testCompanionNavigatorKeepsTheLiveSceneDominantAtMinimumWindowWidth() {
-        XCTAssertEqual(CompanionSettingsLayout.navigatorWidth, 210)
-        XCTAssertEqual(
-            CompanionSettingsLayout.navigatorThumbnailSize,
-            CGSize(width: 52, height: 28)
-        )
-        XCTAssertEqual(CompanionSettingsLayout.navigatorRowMinimumHeight, 40)
+    func testCompanionGalleryUsesABalancedThreeByThreeLayout() {
+        XCTAssertEqual(CompanionSettingsLayout.galleryColumnCount, 3)
+        XCTAssertEqual(CompanionSettingsLayout.galleryThumbnailHeight, 72)
+        XCTAssertGreaterThanOrEqual(CompanionSettingsLayout.galleryCardMinimumHeight, 112)
         XCTAssertGreaterThan(
             CompanionSettingsLayout.minimumPreviewWidth,
-            CompanionSettingsLayout.navigatorWidth
+            CompanionSettingsLayout.galleryThumbnailHeight
         )
     }
 
-    func testApprovedCompanionNavigatorRendersAsOneMasterDetailPanel() async throws {
+    func testApprovedCompanionGalleryRendersAsGridWithLivePreview() async throws {
         let setup = try makeSetup()
         defer { setup.cleanup() }
         await setup.model.start()
-        await setup.model.select(companionTheme: .banished)
+        await setup.model.select(companionTheme: .frostpunk)
 
         let renderer = ImageRenderer(
             content: CompanionSettingsPanel(model: setup.model)

@@ -62,7 +62,7 @@ final class CompanionJourneyTests: XCTestCase {
     func testThemeCatalogIncludesCleanDefaultAndApprovedVariantCounts() {
         XCTAssertEqual(
             CompanionTheme.allCases,
-            [.none, .pokemon, .forest, .village, .oldSchoolRuneScape, .ageOfEmpiresII, .minecraft, .banished]
+            [.none, .pokemon, .forest, .village, .oldSchoolRuneScape, .ageOfEmpiresII, .minecraft, .banished, .frostpunk]
         )
         XCTAssertEqual(CompanionCatalog.variants(for: .none).count, 0)
         XCTAssertEqual(CompanionCatalog.variants(for: .pokemon).count, 12)
@@ -72,6 +72,7 @@ final class CompanionJourneyTests: XCTestCase {
         XCTAssertEqual(CompanionCatalog.variants(for: .ageOfEmpiresII).count, 1)
         XCTAssertEqual(CompanionCatalog.variants(for: .minecraft).count, 1)
         XCTAssertEqual(CompanionCatalog.variants(for: .banished).count, 1)
+        XCTAssertEqual(CompanionCatalog.variants(for: .frostpunk).count, 1)
     }
 
     func testDailyVariantIsStableAndVisitsEveryVariantBeforeRepeating() {
