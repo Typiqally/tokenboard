@@ -15,7 +15,7 @@ final class RetainedSourceFile: @unchecked Sendable {
     init(url: URL) throws {
         let descriptor = Darwin.open(
             url.path,
-            O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
+            O_RDONLY | O_CLOEXEC | O_NOFOLLOW_ANY | O_NONBLOCK
         )
         guard descriptor >= 0 else { throw RetainedSourceFileError.unsafeSource }
         var information = stat()
