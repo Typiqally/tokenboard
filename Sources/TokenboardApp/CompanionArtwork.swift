@@ -370,9 +370,9 @@ struct CompanionSceneCanvas: View {
 
     // MARK: Inhabitants
 
-    /// The scene's own people and animals. Nothing here is a sprite: each is
-    /// built from the same handful of rectangles the worlds are drawn in, so
-    /// a village can be populated without another frame of artwork.
+    /// The scene's own people and animals. Branded worlds draw their authentic
+    /// bundled strips; Forest and Village retain Tokenboard's original body
+    /// plans so those worlds stay wholly original artwork.
     private func draw(
         actors: [CompanionActor],
         motion: CompanionBackgroundMotion,
@@ -397,16 +397,75 @@ struct CompanionSceneCanvas: View {
                     y: (ground.y / grid).rounded() * grid
                 )
             }
-            switch actor.body {
-            case .biped:
-                drawContactShadow(for: actor, at: ground, height: height, in: &context)
-                drawBiped(actor, at: ground, height: height, in: &context)
-            case .quadruped:
-                drawContactShadow(for: actor, at: ground, height: height, in: &context)
-                drawQuadruped(actor, at: ground, height: height, in: &context)
-            case .flier:
-                drawFlier(actor, at: ground, height: height, in: &context)
+            if let sprite = actor.sprite {
+                if actor.body != .flier || actor.pose == .perched || actor.pose == .idle {
+                    drawContactShadow(for: actor, at: ground, height: height, in: &context)
+                }
+                drawSprite(
+                    sprite,
+                    frame: actor.spriteFrame ?? 0,
+                    for: actor,
+                    at: ground,
+                    height: height,
+                    in: &context
+                )
+            } else {
+                switch actor.body {
+                case .biped:
+                    drawContactShadow(for: actor, at: ground, height: height, in: &context)
+                    drawBiped(actor, at: ground, height: height, in: &context)
+                case .quadruped:
+                    drawContactShadow(for: actor, at: ground, height: height, in: &context)
+                    drawQuadruped(actor, at: ground, height: height, in: &context)
+                case .flier:
+                    drawFlier(actor, at: ground, height: height, in: &context)
+                }
             }
+        }
+    }
+
+    /// Draws one equal-width cell from a baked horizontal strip. Clipping the
+    /// actor-sized cell and shifting the whole strip is cheaper than creating
+    /// a separate image object for every frame at runtime.
+    private func drawSprite(
+        _ sprite: CompanionActorSprite,
+        frame: Int,
+        for actor: CompanionActor,
+        at ground: CGPoint,
+        height: CGFloat,
+        in context: inout GraphicsContext
+    ) {
+        guard let image = CompanionAssetImageStore.image(resource: sprite.resource) else {
+            return
+        }
+        let frames = max(1, sprite.frameCount)
+        let cellAspect = CompanionAssetImageStore.aspectRatio(resource: sprite.resource)
+            / Double(frames)
+        let width = max(1, height * cellAspect)
+        let cell = CGRect(
+            x: ground.x - width / 2,
+            y: ground.y - height,
+            width: width,
+            height: height
+        )
+        let index = min(max(frame, 0), frames - 1)
+        let sourceFacing: Double = sprite.facesRight ? 1 : -1
+        let flips = actor.facing != sourceFacing
+
+        context.drawLayer { layer in
+            layer.clip(to: Path(cell))
+            if flips {
+                layer.translateBy(x: ground.x, y: ground.y)
+                layer.scaleBy(x: -1, y: 1)
+                layer.translateBy(x: -ground.x, y: -ground.y)
+            }
+            let strip = CGRect(
+                x: cell.minX - CGFloat(index) * width,
+                y: cell.minY,
+                width: width * CGFloat(frames),
+                height: height
+            )
+            layer.draw(resolved(image, in: layer), in: strip)
         }
     }
 

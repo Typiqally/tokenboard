@@ -1,7 +1,7 @@
 #!/usr/bin/env swift
 // Development-time baker for the photographic companion scenes.
 //
-// Usage: swift Scripts/bake-companion-assets.swift <raw-root> [output-root]
+// Usage: swift Scripts/bake-companion-assets.swift [--actors-only] <raw-root> [output-root]
 //
 // <raw-root> is the directory populated by Scripts/fetch-companion-assets.sh.
 // The output root defaults to Resources/Companions. The baker art-directs
@@ -10,6 +10,7 @@
 
 import AppKit
 import CoreImage
+import ImageIO
 
 let sceneSize = CGSize(width: 1240, height: 336)
 let sceneAspect = sceneSize.width / sceneSize.height
@@ -372,6 +373,97 @@ func trimmedSubject(_ url: URL, padding: Int = 3) throws -> CGImage {
     return trimmed
 }
 
+/// Bakes a still image or animated GIF into one equal-width horizontal strip.
+/// Union alpha bounds keep animation centered, and the height ceiling avoids
+/// shipping wiki-resolution renders for actors shown at thirteen points or less.
+func actorSpriteStrip(
+    _ url: URL,
+    maximumCellHeight: Int = 96,
+    expectedFrameCount: Int
+) throws -> CGImage {
+    guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
+        throw BakeError(description: "unreadable actor source: \(url.path)")
+    }
+    let frameCount = CGImageSourceGetCount(source)
+    guard frameCount == expectedFrameCount else {
+        throw BakeError(
+            description: "unexpected frame count for \(url.lastPathComponent): "
+                + "\(frameCount), expected \(expectedFrameCount)"
+        )
+    }
+    let frames = try (0..<frameCount).map { index -> CGImage in
+        guard let frame = CGImageSourceCreateImageAtIndex(source, index, nil) else {
+            throw BakeError(description: "unreadable actor frame \(index): \(url.path)")
+        }
+        return frame
+    }
+    guard let first = frames.first,
+          frames.allSatisfy({ $0.width == first.width && $0.height == first.height }) else {
+        throw BakeError(description: "actor frames change canvas size: \(url.path)")
+    }
+
+    func visibleBounds(of frame: CGImage) -> CGRect? {
+        let rep = NSBitmapImageRep(cgImage: frame)
+        var minX = rep.pixelsWide, minY = rep.pixelsHigh, maxX = -1, maxY = -1
+        for y in 0..<rep.pixelsHigh {
+            for x in 0..<rep.pixelsWide {
+                if (rep.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.02 {
+                    minX = min(minX, x); maxX = max(maxX, x)
+                    minY = min(minY, y); maxY = max(maxY, y)
+                }
+            }
+        }
+        guard maxX >= minX, maxY >= minY else { return nil }
+        return CGRect(x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1)
+    }
+
+    guard let firstBounds = visibleBounds(of: first) else {
+        throw BakeError(description: "fully transparent actor: \(url.path)")
+    }
+    let union = try frames.dropFirst().reduce(firstBounds) { bounds, frame in
+        guard let frameBounds = visibleBounds(of: frame) else {
+            throw BakeError(description: "fully transparent actor frame: \(url.path)")
+        }
+        return bounds.union(frameBounds)
+    }.insetBy(dx: -2, dy: -2).intersection(
+        CGRect(x: 0, y: 0, width: first.width, height: first.height)
+    ).integral
+    guard union.width > 0, union.height > 0 else {
+        throw BakeError(description: "empty actor bounds: \(url.path)")
+    }
+
+    let cellHeight = max(1, min(maximumCellHeight, Int(union.height.rounded(.up))))
+    let scale = Double(cellHeight) / union.height
+    let cellWidth = max(1, Int((union.width * scale).rounded(.up)))
+    guard let context = CGContext(
+        data: nil,
+        width: cellWidth * frameCount,
+        height: cellHeight,
+        bitsPerComponent: 8,
+        bytesPerRow: 0,
+        space: CGColorSpace(name: CGColorSpace.sRGB)!,
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    ) else {
+        throw BakeError(description: "actor strip context failed: \(url.path)")
+    }
+    context.interpolationQuality = .high
+    let stripRect = CGRect(x: 0, y: 0, width: cellWidth * frameCount, height: cellHeight)
+    context.clear(stripRect)
+    for (index, frame) in frames.enumerated() {
+        guard let cropped = frame.cropping(to: union) else {
+            throw BakeError(description: "actor crop failed: \(url.path)")
+        }
+        context.draw(
+            cropped,
+            in: CGRect(x: index * cellWidth, y: 0, width: cellWidth, height: cellHeight)
+        )
+    }
+    guard let strip = context.makeImage() else {
+        throw BakeError(description: "actor strip render failed: \(url.path)")
+    }
+    return strip
+}
+
 // MARK: - Theme bakes
 
 struct SceneBake {
@@ -381,6 +473,13 @@ struct SceneBake {
     var shiftsBlueToPurple = false
     var foreground: ForegroundPalette?
     var foregroundPhase = 0.0
+}
+
+struct ActorBake {
+    let input: String
+    let output: String
+    let frameCount: Int
+    var shiftsBlueToPurple = false
 }
 
 let osrsScenes: [SceneBake] = [
@@ -679,88 +778,204 @@ let pokemonArtworkIDs = [
     387, 388, 389, 390, 391, 392, 393, 394, 395
 ]
 
+let actorSprites: [ActorBake] = [
+    ActorBake(
+        input: "pokemon/actors/pidgey.gif",
+        output: "Pokemon/actors/pidgey.png",
+        frameCount: 24
+    ),
+    ActorBake(
+        input: "osrs/actors/man-blue.png",
+        output: "OldSchoolRuneScape/Actors/man-blue.png",
+        frameCount: 1
+    ),
+    ActorBake(
+        input: "osrs/actors/man-red.png",
+        output: "OldSchoolRuneScape/Actors/man-red.png",
+        frameCount: 1
+    ),
+    ActorBake(
+        input: "osrs/actors/man-pink.png",
+        output: "OldSchoolRuneScape/Actors/man-pink.png",
+        frameCount: 1
+    ),
+    ActorBake(
+        input: "osrs/actors/chicken.png",
+        output: "OldSchoolRuneScape/Actors/chicken.png",
+        frameCount: 1
+    ),
+    ActorBake(
+        input: "osrs/actors/seagull.png",
+        output: "OldSchoolRuneScape/Actors/seagull.png",
+        frameCount: 1
+    ),
+    ActorBake(
+        input: "aoe2/actors/villager-m-walk.gif",
+        output: "AgeOfEmpiresII/actors/villager-m-walk.png",
+        frameCount: 14,
+        shiftsBlueToPurple: true
+    ),
+    ActorBake(
+        input: "aoe2/actors/villager-f-walk.gif",
+        output: "AgeOfEmpiresII/actors/villager-f-walk.png",
+        frameCount: 15,
+        shiftsBlueToPurple: true
+    ),
+    ActorBake(
+        input: "aoe2/actors/sheep.png",
+        output: "AgeOfEmpiresII/actors/sheep.png",
+        frameCount: 1
+    ),
+    ActorBake(
+        input: "aoe2/actors/hawk.gif",
+        output: "AgeOfEmpiresII/actors/hawk.png",
+        frameCount: 10
+    ),
+    ActorBake(
+        input: "minecraft/actors/chicken.png",
+        output: "Minecraft/actors/chicken.png",
+        frameCount: 1
+    ),
+    ActorBake(
+        input: "minecraft/actors/pig.png",
+        output: "Minecraft/actors/pig.png",
+        frameCount: 1
+    ),
+    ActorBake(
+        input: "minecraft/actors/villager.png",
+        output: "Minecraft/actors/villager.png",
+        frameCount: 1
+    ),
+    ActorBake(
+        input: "minecraft/actors/bat.gif",
+        output: "Minecraft/actors/bat.png",
+        frameCount: 25
+    ),
+    ActorBake(
+        input: "minecraft/actors/goat.png",
+        output: "Minecraft/actors/goat.png",
+        frameCount: 1
+    ),
+    ActorBake(
+        input: "minecraft/actors/piglin.png",
+        output: "Minecraft/actors/piglin.png",
+        frameCount: 1
+    ),
+    ActorBake(
+        input: "minecraft/actors/hoglin.png",
+        output: "Minecraft/actors/hoglin.png",
+        frameCount: 1
+    ),
+    ActorBake(
+        input: "minecraft/actors/silverfish.gif",
+        output: "Minecraft/actors/silverfish.png",
+        frameCount: 14
+    )
+]
+
 // MARK: - Entry point
 
 let arguments = CommandLine.arguments
-guard arguments.count >= 2 else {
-    print("usage: swift Scripts/bake-companion-assets.swift <raw-root> [output-root]")
+let actorsOnly = arguments.dropFirst().first == "--actors-only"
+let rawRootIndex = actorsOnly ? 2 : 1
+guard arguments.indices.contains(rawRootIndex) else {
+    print("usage: swift Scripts/bake-companion-assets.swift [--actors-only] <raw-root> [output-root]")
     exit(64)
 }
-let rawRoot = URL(fileURLWithPath: arguments[1], isDirectory: true)
+let rawRoot = URL(fileURLWithPath: arguments[rawRootIndex], isDirectory: true)
 let scriptURL = URL(fileURLWithPath: #filePath)
 let repositoryRoot = scriptURL
     .deletingLastPathComponent()
     .deletingLastPathComponent()
-let outputRoot = arguments.count > 2
-    ? URL(fileURLWithPath: arguments[2], isDirectory: true)
+let outputRootIndex = rawRootIndex + 1
+let outputRoot = arguments.indices.contains(outputRootIndex)
+    ? URL(fileURLWithPath: arguments[outputRootIndex], isDirectory: true)
     : repositoryRoot.appending(path: "Resources/Companions")
 
 do {
-    for bake in osrsScenes + ageOfEmpiresScenes + pokemonScenes + minecraftScenes {
-        let source = try loadImage(rawRoot.appending(path: bake.input))
-        let crops = [bake.crop] + derivedVariants(of: bake.crop, in: source.extent)
-        for (variant, crop) in crops.enumerated() {
-            let image = try bakeScene(source, crop: crop)
-            var cgImage = try render(image, extent: CGRect(origin: .zero, size: sceneSize))
-            if bake.shiftsBlueToPurple {
-                cgImage = try shiftBlueTrimToPurple(cgImage)
-            }
-            if let palette = bake.foreground {
-                cgImage = try addPaintedForeground(
-                    to: cgImage,
-                    palette: palette,
-                    // The meadow band waves differently on each variant.
-                    phase: bake.foregroundPhase + Double(variant) * 1.9
+    if !actorsOnly {
+        for bake in osrsScenes + ageOfEmpiresScenes + pokemonScenes + minecraftScenes {
+            let source = try loadImage(rawRoot.appending(path: bake.input))
+            let crops = [bake.crop] + derivedVariants(of: bake.crop, in: source.extent)
+            for (variant, crop) in crops.enumerated() {
+                let image = try bakeScene(source, crop: crop)
+                var cgImage = try render(image, extent: CGRect(origin: .zero, size: sceneSize))
+                if bake.shiftsBlueToPurple {
+                    cgImage = try shiftBlueTrimToPurple(cgImage)
+                }
+                if let palette = bake.foreground {
+                    cgImage = try addPaintedForeground(
+                        to: cgImage,
+                        palette: palette,
+                        // The meadow band waves differently on each variant.
+                        phase: bake.foregroundPhase + Double(variant) * 1.9
+                    )
+                }
+                let output = variantOutputPath(
+                    bake.output,
+                    suffix: sceneryVariantSuffixes[variant]
                 )
+                try write(
+                    cgImage,
+                    to: outputRoot.appending(path: output),
+                    jpegQuality: 0.87
+                )
+                print("baked \(output)")
             }
-            let output = variantOutputPath(
-                bake.output,
-                suffix: sceneryVariantSuffixes[variant]
+        }
+
+        for name in osrsCharacters {
+            let subject = try trimmedSubject(
+                rawRoot.appending(path: "osrs/characters/\(name).png")
             )
             try write(
-                cgImage,
-                to: outputRoot.appending(path: output),
-                jpegQuality: 0.87
+                subject,
+                to: outputRoot.appending(path: "OldSchoolRuneScape/Characters/\(name).png"),
+                jpegQuality: nil
             )
-            print("baked \(output)")
         }
+        print("baked \(osrsCharacters.count) OSRS characters")
+
+        for name in minecraftCharacters {
+            let subject = try trimmedSubject(
+                rawRoot.appending(path: "minecraft/characters/\(name).png")
+            )
+            try write(
+                subject,
+                to: outputRoot.appending(path: "Minecraft/characters/\(name).png"),
+                jpegQuality: nil
+            )
+        }
+        print("baked \(minecraftCharacters.count) Minecraft characters")
+
+        for id in pokemonArtworkIDs {
+            let subject = try trimmedSubject(
+                rawRoot.appending(path: String(format: "pokemon/artwork/%d.png", id))
+            )
+            try write(
+                subject,
+                to: outputRoot.appending(path: String(format: "Pokemon/art/%03d.png", id)),
+                jpegQuality: nil
+            )
+        }
+        print("baked \(pokemonArtworkIDs.count) Pokémon artworks")
     }
 
-    for name in osrsCharacters {
-        let subject = try trimmedSubject(
-            rawRoot.appending(path: "osrs/characters/\(name).png")
+    for bake in actorSprites {
+        var strip = try actorSpriteStrip(
+            rawRoot.appending(path: bake.input),
+            expectedFrameCount: bake.frameCount
         )
+        if bake.shiftsBlueToPurple {
+            strip = try shiftBlueTrimToPurple(strip)
+        }
         try write(
-            subject,
-            to: outputRoot.appending(path: "OldSchoolRuneScape/Characters/\(name).png"),
+            strip,
+            to: outputRoot.appending(path: bake.output),
             jpegQuality: nil
         )
     }
-    print("baked \(osrsCharacters.count) OSRS characters")
-
-    for name in minecraftCharacters {
-        let subject = try trimmedSubject(
-            rawRoot.appending(path: "minecraft/characters/\(name).png")
-        )
-        try write(
-            subject,
-            to: outputRoot.appending(path: "Minecraft/characters/\(name).png"),
-            jpegQuality: nil
-        )
-    }
-    print("baked \(minecraftCharacters.count) Minecraft characters")
-
-    for id in pokemonArtworkIDs {
-        let subject = try trimmedSubject(
-            rawRoot.appending(path: String(format: "pokemon/artwork/%d.png", id))
-        )
-        try write(
-            subject,
-            to: outputRoot.appending(path: String(format: "Pokemon/art/%03d.png", id)),
-            jpegQuality: nil
-        )
-    }
-    print("baked \(pokemonArtworkIDs.count) Pokémon artworks")
+    print("baked \(actorSprites.count) companion actor strips")
 } catch {
     print("bake failed: \(error)")
     exit(1)

@@ -59,19 +59,6 @@ private extension CompanionScenePlan {
                 size: 1.8...3.4,
                 opacity: 0.28...0.55,
                 drift: .travel(dx: 0.10, dy: -0.45, sway: 0.020, swayPeriod: 5.3)
-            ),
-            // Something is always crossing the sky over a Kanto route.
-            CompanionParticleField(
-                key: "pokemon/flight",
-                shape: .chevron,
-                tint: CompanionSceneTint(0.22, 0.24, 0.30),
-                count: 3,
-                lifetime: 21,
-                spawnX: -0.18...(-0.04),
-                spawnY: 0.06...0.26,
-                size: 2.6...3.8,
-                opacity: 0.40...0.65,
-                drift: .travel(dx: 1.34, dy: 0.05, sway: 0.018, swayPeriod: 4.9)
             )
         ]
         // Victory Road and the Plateau catch the light differently: the air
@@ -108,6 +95,7 @@ private extension CompanionScenePlan {
                 CompanionActorField(
                     key: "pokemon/visitor",
                     body: .flier,
+                    sprites: [CompanionActorSpriteCatalog.pidgey],
                     count: 1,
                     route: .perch(
                         at: CompanionScenePoint(0.30, 0.925),
@@ -121,6 +109,26 @@ private extension CompanionScenePlan {
                     opacity: 0.92,
                     spread: 0.12,
                     drawsAttention: true
+                ),
+                // Real Pidgey sprites replace the old chevrons in the sky.
+                // They land at a second grass verge so the route remains a
+                // recognizable arrival instead of a stamped icon fly-by.
+                CompanionActorField(
+                    key: "pokemon/flight",
+                    body: .flier,
+                    sprites: [CompanionActorSpriteCatalog.pidgey],
+                    count: 2,
+                    route: .perch(
+                        at: CompanionScenePoint(0.72, 0.925),
+                        approachFrom: CompanionScenePoint(1.18, 0.26),
+                        period: 31,
+                        perchShare: 0.26
+                    ),
+                    height: 4.4...5.2,
+                    tint: CompanionSceneTint(1, 1, 1),
+                    accent: CompanionSceneTint(1, 1, 1),
+                    opacity: 0.92,
+                    spread: 0.16
                 )
             ],
             wash: CompanionWashSpec(
@@ -545,33 +553,6 @@ private extension CompanionScenePlan {
                     opacity: 0.13...0.26,
                     drift: .travel(dx: 0.10, dy: -0.16, sway: 0.020, swayPeriod: 7.3)
                 ),
-                // Two flocks at different heights and speeds: the map is
-                // read from above, so birds crossing it are the one moving
-                // thing an isometric town always has.
-                CompanionParticleField(
-                    key: "aoe/birds",
-                    shape: .chevron,
-                    tint: CompanionSceneTint(0.14, 0.14, 0.12),
-                    count: 4,
-                    lifetime: 24,
-                    spawnX: -0.22...(-0.04),
-                    spawnY: 0.10...0.42,
-                    size: 3.0...4.2,
-                    opacity: 0.50...0.75,
-                    drift: .travel(dx: 1.40, dy: 0.10, sway: 0.024, swayPeriod: 6.4)
-                ),
-                CompanionParticleField(
-                    key: "aoe/birds-high",
-                    shape: .chevron,
-                    tint: CompanionSceneTint(0.18, 0.18, 0.16),
-                    count: 3,
-                    lifetime: 37,
-                    spawnX: 1.06...1.22,
-                    spawnY: 0.04...0.20,
-                    size: 2.0...2.8,
-                    opacity: 0.30...0.48,
-                    drift: .travel(dx: -1.40, dy: 0.06, sway: 0.018, swayPeriod: 8.1)
-                )
             ],
             bands: [
                 // Leaning along the tile diagonal, the way anything that
@@ -589,7 +570,7 @@ private extension CompanionScenePlan {
                 )
             ],
             glows: [],
-            actors: settlement(stage: stage),
+            actors: settlement(stage: stage) + circlingHawks,
             wash: CompanionWashSpec(
                 tint: CompanionSceneTint(1.0, 0.88, 0.62),
                 opacity: 0.010,
@@ -609,6 +590,7 @@ private extension CompanionScenePlan {
             CompanionActorField(
                 key: "aoe/villagers",
                 body: .biped,
+                sprites: CompanionActorSpriteCatalog.ageVillagers,
                 count: min(6, 2 + stage / 2),
                 route: .errand(
                     home: CompanionScenePoint(0.36, 0.958),
@@ -626,6 +608,7 @@ private extension CompanionScenePlan {
             CompanionActorField(
                 key: "aoe/herd",
                 body: .quadruped,
+                sprites: [CompanionActorSpriteCatalog.ageSheep],
                 count: 3,
                 route: .wander(
                     pen: CompanionScenePoint(0.16, 0.950),
@@ -639,6 +622,49 @@ private extension CompanionScenePlan {
                 accent: CompanionSceneTint(0.36, 0.31, 0.27),
                 opacity: 0.94,
                 spread: 0.09
+            )
+        ]
+    }
+
+    /// The game's own hawk animation at two heights replaces anonymous
+    /// chevrons while retaining the slow circles of an isometric map.
+    static var circlingHawks: [CompanionActorField] {
+        [
+            CompanionActorField(
+                key: "aoe/hawks-low",
+                body: .flier,
+                sprites: [CompanionActorSpriteCatalog.ageHawk],
+                count: 4,
+                route: .wander(
+                    pen: CompanionScenePoint(0.50, 0.28),
+                    spanX: 0.58,
+                    spanY: 0.10,
+                    period: 24,
+                    linger: 0.05
+                ),
+                height: 4.6...5.8,
+                tint: CompanionSceneTint(1, 1, 1),
+                accent: CompanionSceneTint(1, 1, 1),
+                opacity: 0.74,
+                spread: 0.18
+            ),
+            CompanionActorField(
+                key: "aoe/hawks-high",
+                body: .flier,
+                sprites: [CompanionActorSpriteCatalog.ageHawk],
+                count: 3,
+                route: .wander(
+                    pen: CompanionScenePoint(0.52, 0.14),
+                    spanX: 0.56,
+                    spanY: 0.06,
+                    period: 37,
+                    linger: 0.08
+                ),
+                height: 3.2...4.0,
+                tint: CompanionSceneTint(1, 1, 1),
+                accent: CompanionSceneTint(1, 1, 1),
+                opacity: 0.50,
+                spread: 0.14
             )
         ]
     }
@@ -688,18 +714,7 @@ enum CompanionLocationWeather: String, CaseIterable, Equatable, Sendable {
     private var fields: [CompanionParticleField] {
         switch self {
         case .openAir:
-            [CompanionParticleField(
-                key: "osrs/birds",
-                shape: .chevron,
-                tint: CompanionSceneTint(0.18, 0.18, 0.16),
-                count: 2,
-                lifetime: 24,
-                spawnX: -0.16...(-0.05),
-                spawnY: 0.08...0.30,
-                size: 2.6...3.6,
-                opacity: 0.45...0.72,
-                drift: .travel(dx: 1.32, dy: 0.06, sway: 0.015, swayPeriod: 6.1)
-            )]
+            []
         case .desert:
             [CompanionParticleField(
                 key: "osrs/sand",
@@ -897,6 +912,7 @@ enum CompanionBiome: String, CaseIterable, Equatable, Sendable {
             [mob(
                 key: "mc/chickens",
                 body: .quadruped,
+                sprite: CompanionActorSpriteCatalog.minecraftChicken,
                 count: 3,
                 height: 4.6...5.4,
                 tint: CompanionSceneTint(0.94, 0.94, 0.92),
@@ -910,6 +926,7 @@ enum CompanionBiome: String, CaseIterable, Equatable, Sendable {
             [mob(
                 key: "mc/pigs",
                 body: .quadruped,
+                sprite: CompanionActorSpriteCatalog.minecraftPig,
                 count: 2,
                 height: 9.0...10.5,
                 tint: CompanionSceneTint(0.93, 0.62, 0.64),
@@ -923,6 +940,7 @@ enum CompanionBiome: String, CaseIterable, Equatable, Sendable {
             [mob(
                 key: "mc/villagers",
                 body: .biped,
+                sprite: CompanionActorSpriteCatalog.minecraftVillager,
                 count: 3,
                 height: 12.0...13.6,
                 tint: CompanionSceneTint(0.45, 0.32, 0.24),
@@ -936,6 +954,7 @@ enum CompanionBiome: String, CaseIterable, Equatable, Sendable {
             [mob(
                 key: "mc/bats",
                 body: .flier,
+                sprite: CompanionActorSpriteCatalog.minecraftBat,
                 count: 3,
                 height: 4.0...5.0,
                 tint: CompanionSceneTint(0.28, 0.22, 0.24),
@@ -952,6 +971,7 @@ enum CompanionBiome: String, CaseIterable, Equatable, Sendable {
             [mob(
                 key: "mc/goats",
                 body: .quadruped,
+                sprite: CompanionActorSpriteCatalog.minecraftGoat,
                 count: 1,
                 height: 9.5...11.0,
                 tint: CompanionSceneTint(0.92, 0.90, 0.86),
@@ -965,6 +985,7 @@ enum CompanionBiome: String, CaseIterable, Equatable, Sendable {
             [mob(
                 key: "mc/piglins",
                 body: .biped,
+                sprite: CompanionActorSpriteCatalog.minecraftPiglin,
                 count: 2,
                 height: 12.0...13.6,
                 tint: CompanionSceneTint(0.55, 0.34, 0.26),
@@ -978,6 +999,7 @@ enum CompanionBiome: String, CaseIterable, Equatable, Sendable {
             [mob(
                 key: "mc/hoglins",
                 body: .quadruped,
+                sprite: CompanionActorSpriteCatalog.minecraftHoglin,
                 count: 2,
                 height: 10.5...12.0,
                 tint: CompanionSceneTint(0.62, 0.27, 0.24),
@@ -991,6 +1013,7 @@ enum CompanionBiome: String, CaseIterable, Equatable, Sendable {
             [mob(
                 key: "mc/silverfish",
                 body: .quadruped,
+                sprite: CompanionActorSpriteCatalog.minecraftSilverfish,
                 count: 2,
                 height: 3.4...4.0,
                 tint: CompanionSceneTint(0.55, 0.57, 0.62),
@@ -1011,6 +1034,7 @@ enum CompanionBiome: String, CaseIterable, Equatable, Sendable {
     private func mob(
         key: String,
         body: CompanionActorBody,
+        sprite: CompanionActorSprite,
         count: Int,
         height: ClosedRange<Double>,
         tint: CompanionSceneTint,
@@ -1026,6 +1050,7 @@ enum CompanionBiome: String, CaseIterable, Equatable, Sendable {
         CompanionActorField(
             key: key,
             body: body,
+            sprites: [sprite],
             count: count,
             route: .wander(
                 pen: pen,
@@ -1344,6 +1369,7 @@ enum CompanionOldSchoolCrowd {
                 CompanionActorField(
                     key: "osrs/players",
                     body: .biped,
+                    sprites: CompanionActorSpriteCatalog.oldSchoolPeople,
                     count: players,
                     route: .ticked(
                         pen: CompanionScenePoint(0.52, 0.936),
@@ -1368,6 +1394,7 @@ enum CompanionOldSchoolCrowd {
                 CompanionActorField(
                     key: "osrs/chickens",
                     body: .quadruped,
+                    sprites: [CompanionActorSpriteCatalog.oldSchoolChicken],
                     count: 3,
                     route: .ticked(
                         pen: CompanionScenePoint(0.78, 0.944),
@@ -1380,6 +1407,27 @@ enum CompanionOldSchoolCrowd {
                     accent: CompanionSceneTint(0.85, 0.26, 0.20),
                     opacity: 0.95,
                     spread: 0.10
+                )
+            )
+        }
+        if CompanionLocationWeather.forOldSchool(stage: stage) == .openAir {
+            crowd.append(
+                CompanionActorField(
+                    key: "osrs/birds",
+                    body: .flier,
+                    sprites: [CompanionActorSpriteCatalog.oldSchoolSeagull],
+                    count: 2,
+                    route: .ticked(
+                        pen: CompanionScenePoint(0.52, 0.20),
+                        spanX: 0.070,
+                        spanY: 0.020,
+                        tile: 0.028
+                    ),
+                    height: 4.0...5.0,
+                    tint: CompanionSceneTint(1, 1, 1),
+                    accent: CompanionSceneTint(1, 1, 1),
+                    opacity: 0.72,
+                    spread: 0.20
                 )
             )
         }

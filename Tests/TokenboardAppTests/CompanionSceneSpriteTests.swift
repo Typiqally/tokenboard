@@ -28,7 +28,7 @@ final class CompanionSceneSpriteTests: XCTestCase {
                         XCTAssertGreaterThan(sprite.frameCount, 0)
                         XCTAssertTrue(
                             FileManager.default.fileExists(
-                                atPath: developmentResourceURL(sprite.resource).path
+                                atPath: developmentCompanionResourceURL(sprite.resource).path
                             ),
                             "Missing bundled actor sprite: \(sprite.resource)"
                         )
@@ -93,6 +93,37 @@ final class CompanionSceneSpriteTests: XCTestCase {
         }
     }
 
+    func testBakedSpriteStripsMatchTheirCatalogFrameCounts() throws {
+        let sprites = Set(
+            [CompanionTheme.pokemon, .oldSchoolRuneScape, .ageOfEmpiresII, .minecraft]
+                .flatMap { theme in
+                    (0..<CompanionJourney.thresholds.count).flatMap { stage in
+                        plan(for: theme, stage: stage).actors.flatMap(\.sprites)
+                    }
+                }
+        )
+
+        XCTAssertFalse(sprites.isEmpty)
+        for sprite in sprites {
+            let size = try XCTUnwrap(
+                pngPixelSize(at: developmentCompanionResourceURL(sprite.resource)),
+                "Missing or unreadable sprite strip: \(sprite.resource)"
+            )
+            XCTAssertGreaterThan(size.width, 0)
+            XCTAssertGreaterThan(size.height, 0)
+            XCTAssertLessThanOrEqual(
+                size.height,
+                96,
+                "\(sprite.resource) exceeds the actor-strip decode budget"
+            )
+            XCTAssertEqual(
+                size.width % sprite.frameCount,
+                0,
+                "\(sprite.resource) does not contain \(sprite.frameCount) equal-width frames"
+            )
+        }
+    }
+
     private func plan(for theme: CompanionTheme, stage: Int) -> CompanionScenePlan {
         let variant = CompanionCatalog.variants(for: theme).first!
         let layers = CompanionAssetCatalog.scene(
@@ -105,12 +136,4 @@ final class CompanionSceneSpriteTests: XCTestCase {
         return CompanionScenePlan.make(theme: theme, stage: stage, seed: seed, layers: layers)
     }
 
-    private func developmentResourceURL(_ resource: String) -> URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appending(path: "Resources/Companions")
-            .appending(path: resource)
-    }
 }

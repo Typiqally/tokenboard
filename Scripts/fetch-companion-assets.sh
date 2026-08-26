@@ -2,6 +2,7 @@
 # Development-time downloader for the raw companion source material.
 #
 # Usage: Scripts/fetch-companion-assets.sh <raw-root>
+#        TOKENBOARD_FETCH_ACTORS_ONLY=1 Scripts/fetch-companion-assets.sh <raw-root>
 #
 # Downloads every third-party source image the companion feature is baked
 # from, into <raw-root>, using the layout expected by
@@ -19,6 +20,7 @@ raw_root=${1:A}
 script_dir=${0:A:h}
 hash_manifest="$script_dir/companion-source-hashes.sha256"
 verify_manifest_only=${TOKENBOARD_VERIFY_ASSET_MANIFEST_ONLY:-0}
+fetch_actors_only=${TOKENBOARD_FETCH_ACTORS_ONLY:-0}
 typeset -A requested_assets
 
 fetch_asset() {
@@ -36,6 +38,9 @@ fetch_asset() {
     exit 65
   fi
   if [[ "$verify_manifest_only" == "1" ]]; then
+    return
+  fi
+  if [[ "$fetch_actors_only" == "1" && "$relative_path" != */actors/* ]]; then
     return
   fi
   mkdir -p "${destination:h}"
@@ -101,6 +106,12 @@ for identifier in 1 2 3 4 5 6 7 8 9 \
     "pokemon/artwork/${identifier}.png"
 done
 
+# The route visitor uses PokéAPI's preserved animated battle sprite. The baker
+# turns its GIF frames into a compact horizontal PNG strip for Canvas drawing.
+fetch_asset \
+  'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/showdown/16.gif' \
+  'pokemon/actors/pidgey.gif'
+
 # --- Old School RuneScape ----------------------------------------------------
 # Full-resolution location scapes and equipped-armour renders served by the
 # Old School RuneScape Wiki.
@@ -130,6 +141,13 @@ fetch_asset 'https://oldschool.runescape.wiki/images/Armadyl_armour_equipped_mal
 fetch_asset 'https://oldschool.runescape.wiki/images/Crystal_armour_equipped_male.png' 'osrs/characters/11-crystal.png'
 fetch_asset 'https://oldschool.runescape.wiki/images/Masori_armour_equipped_male.png' 'osrs/characters/12-masori.png'
 
+# Recognizable NPC renders for the ambient population.
+fetch_asset 'https://oldschool.runescape.wiki/images/Man_%28blue%29.png?d82a7' 'osrs/actors/man-blue.png'
+fetch_asset 'https://oldschool.runescape.wiki/images/Man_%28red%29.png?91a46' 'osrs/actors/man-red.png'
+fetch_asset 'https://oldschool.runescape.wiki/images/Man_%28pink%29.png?a7e97' 'osrs/actors/man-pink.png'
+fetch_asset 'https://oldschool.runescape.wiki/images/Chicken_%281%29.png?a7258' 'osrs/actors/chicken.png'
+fetch_asset 'https://oldschool.runescape.wiki/images/Seagull.png?4a534' 'osrs/actors/seagull.png'
+
 # --- Age of Empires II -------------------------------------------------------
 # Definitive Edition architecture-set renders (one arrangement per age, the
 # shared Dark Age set plus the West European set) served by the Age of
@@ -138,6 +156,13 @@ fetch_asset 'https://static.wikia.nocookie.net/ageofempires/images/1/12/Dark_Age
 fetch_asset 'https://static.wikia.nocookie.net/ageofempires/images/5/5c/Arch_set_West_European_Feudal_Age_AoE2DE.png/revision/latest?format=original' 'aoe2/feudal-age-set.png'
 fetch_asset 'https://static.wikia.nocookie.net/ageofempires/images/e/e6/Arch_set_West_European_Castle_Age_AoE2DE.png/revision/latest?format=original' 'aoe2/castle-age-set.png'
 fetch_asset 'https://static.wikia.nocookie.net/ageofempires/images/6/6b/Arch_set_West_European_Imperial_Age_AoE2DE.png/revision/latest?format=original' 'aoe2/imperial-age-set.png'
+
+# Original animated unit sprites and animal renders. `format=original` avoids
+# Fandom's content-negotiated WebP derivative so the pinned bytes stay stable.
+fetch_asset 'https://static.wikia.nocookie.net/ageofempires/images/d/df/Villager_m_walkanim_aoe2.gif/revision/latest?format=original' 'aoe2/actors/villager-m-walk.gif'
+fetch_asset 'https://static.wikia.nocookie.net/ageofempires/images/f/f3/Villager_f_walkanim_aoe2.gif/revision/latest?format=original' 'aoe2/actors/villager-f-walk.gif'
+fetch_asset 'https://static.wikia.nocookie.net/ageofempires/images/2/2f/Sheep_aoe2de.png/revision/latest?format=original' 'aoe2/actors/sheep.png'
+fetch_asset 'https://static.wikia.nocookie.net/ageofempires/images/5/52/Hawk_anim_aoe2.gif/revision/latest?format=original' 'aoe2/actors/hawk.gif'
 
 # --- Minecraft ---------------------------------------------------------------
 # Biome, structure, and dimension screenshots plus the canonical player and
@@ -163,6 +188,17 @@ fetch_asset 'https://minecraft.wiki/images/Iron_Armor_JE2_BE2.png' 'minecraft/ch
 fetch_asset 'https://minecraft.wiki/images/Diamond_Armor_JE2_BE2.png' 'minecraft/characters/diamond.png'
 fetch_asset 'https://minecraft.wiki/images/Netherite_Armor_JE2.png' 'minecraft/characters/netherite.png'
 
+# Current Java Edition entity renders; animated wiki GIFs are retained where
+# the source offers them and baked into strips alongside the still renders.
+fetch_asset 'https://minecraft.wiki/images/Chicken_JE2_BE2.png?30245' 'minecraft/actors/chicken.png'
+fetch_asset 'https://minecraft.wiki/images/Pig_JE2_BE1.png?6e6d8' 'minecraft/actors/pig.png'
+fetch_asset 'https://minecraft.wiki/images/Plains_Villager_Base_JE2.png?a2fcc' 'minecraft/actors/villager.png'
+fetch_asset 'https://minecraft.wiki/images/Bat_JE4_BE3.gif?db68c' 'minecraft/actors/bat.gif'
+fetch_asset 'https://minecraft.wiki/images/Goat_%28two_horns%29_JE1_BE1.png?a5c0c' 'minecraft/actors/goat.png'
+fetch_asset 'https://minecraft.wiki/images/Piglin_JE1.png?a498e' 'minecraft/actors/piglin.png'
+fetch_asset 'https://minecraft.wiki/images/Hoglin_JE3.png?65eaa' 'minecraft/actors/hoglin.png'
+fetch_asset 'https://minecraft.wiki/images/Silverfish_JE1_BE1.gif?d40a7' 'minecraft/actors/silverfish.gif'
+
 manifest_count=0
 while read -r source_hash source_path; do
   if [[ ! "$source_hash" =~ '^[0-9a-f]{64}$' || -z "$source_path" ]]; then
@@ -185,5 +221,10 @@ if [[ "$verify_manifest_only" == "1" ]]; then
   exit 0
 fi
 
-print "Raw companion source material downloaded to $raw_root"
-print "Bake it with: swift Scripts/bake-companion-assets.swift $raw_root"
+if [[ "$fetch_actors_only" == "1" ]]; then
+  print "Raw companion actor sources downloaded to $raw_root"
+  print "Bake them with: swift Scripts/bake-companion-assets.swift --actors-only $raw_root"
+else
+  print "Raw companion source material downloaded to $raw_root"
+  print "Bake it with: swift Scripts/bake-companion-assets.swift $raw_root"
+fi
