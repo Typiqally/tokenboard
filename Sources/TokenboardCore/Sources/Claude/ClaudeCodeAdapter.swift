@@ -57,11 +57,14 @@ public struct ClaudeCodeAdapter: StatefulLogAdapter {
         guard !cacheOverflow else {
             return .skipped(.init(kind: .malformedRecord, message: "Claude cache-write counters overflow"))
         }
-        if detailedCacheWrite > 0 {
+        let aggregateCacheWrite = usage.cacheCreationInputTokens
+        let detailsMatchAggregate = aggregateCacheWrite == 0
+            || detailedCacheWrite == aggregateCacheWrite
+        if detailedCacheWrite > 0, detailsMatchAggregate {
             metrics[.inputCacheWrite5m] = fiveMinute
             metrics[.inputCacheWrite1h] = oneHour
         } else {
-            metrics[.inputCacheWrite] = usage.cacheCreationInputTokens
+            metrics[.inputCacheWrite] = aggregateCacheWrite
         }
         guard !metrics.values.reduce((total: Int64(0), overflow: false), { partial, value in
             let (total, overflow) = partial.total.addingReportingOverflow(value)
