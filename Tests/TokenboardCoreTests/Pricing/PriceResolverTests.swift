@@ -3,6 +3,25 @@ import XCTest
 @testable import TokenboardCore
 
 final class PriceResolverTests: XCTestCase {
+    func testPreparedResolverReusesOneValidatedPricingSnapshot() throws {
+        let rows = [
+            row(day: "2026-08-05", model: "gpt-observed", metric: .output, quantity: 1_000_000),
+            row(day: "2026-08-05", model: "missing", metric: .output, quantity: 25)
+        ]
+        let snapshot = pricing(
+            aliases: [alias(model: "gpt-observed")],
+            rates: [rate(metric: .output, usd: "4", from: "2026-01-01")]
+        )
+
+        let resolver = try PriceResolver(pricing: snapshot)
+
+        XCTAssertEqual(
+            try resolver.resolve(rows: rows),
+            PriceResolution(tokenTotal: 1_000_025, knownUSD: 4, unpricedTokens: 25)
+        )
+        XCTAssertEqual(try resolver.unpricedUsage(rows: rows).map(\.tokenCount), [25])
+    }
+
     func testUnpricedUsageGroupsMissingAliasesRatesAndOpaqueModelsByObservedModel() throws {
         let opaqueIdentifier = "unknown-" + String(repeating: "b", count: 64)
         let rows = [
