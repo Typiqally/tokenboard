@@ -34,6 +34,8 @@ public enum DatabaseRecoveryError: Error, Equatable, Sendable {
     case preservationRetryRequired
     case preservationFailed
     case backupTooLarge(maximumBytes: Int)
+    case backupInventoryTooLarge(maximumCandidates: Int)
+    case backupDirectoryTooLarge(maximumEntries: Int)
 }
 
 enum DatabaseRecoveryStage: Equatable, Sendable {
@@ -68,6 +70,8 @@ public actor DatabaseRecoveryService {
     /// Recovery is intentionally capped so a selected file cannot force an
     /// unbounded allocation while it is migrated in a private SQLite image.
     public static let maximumRecoveryImageBytes = 256 * 1_024 * 1_024
+    static let maximumBackupCandidates = 64
+    static let maximumBackupDirectoryEntries = 4_096
     private static let databaseFilename = "ledger.sqlite"
     private static let backupDirectoryName = "Backups"
     private static let recoverySnapshotPrefix = ".tokenboard-pre-restore-"
@@ -144,8 +148,23 @@ public actor DatabaseRecoveryService {
 
         var backups: [DatabaseBackup] = []
         var foundOversized = false
-        for filename in try listNames(in: descriptors.backups) {
+        let names: [String]
+        do {
+            names = try listNames(in: descriptors.backups)
+        } catch RecoveryDirectoryInventoryError.tooManyEntries {
+            throw DatabaseRecoveryError.backupDirectoryTooLarge(
+                maximumEntries: Self.maximumBackupDirectoryEntries
+            )
+        }
+        var candidateCount = 0
+        for filename in names {
             guard Self.isBackupFilename(filename) else { continue }
+            candidateCount += 1
+            guard candidateCount <= Self.maximumBackupCandidates else {
+                throw DatabaseRecoveryError.backupInventoryTooLarge(
+                    maximumCandidates: Self.maximumBackupCandidates
+                )
+            }
             let descriptor: Int32
             do {
                 descriptor = try openRegular(
@@ -1193,7 +1212,12 @@ public actor DatabaseRecoveryService {
                     String(cString: $0)
                 }
             }
-            if name != ".", name != ".." { names.append(name) }
+            if name != ".", name != ".." {
+                guard names.count < Self.maximumBackupDirectoryEntries else {
+                    throw RecoveryDirectoryInventoryError.tooManyEntries
+                }
+                names.append(name)
+            }
         }
         return names
     }
@@ -1334,6 +1358,10 @@ public actor DatabaseRecoveryService {
     private static func isRegular(_ information: stat) -> Bool {
         information.st_mode & S_IFMT == S_IFREG
     }
+}
+
+private enum RecoveryDirectoryInventoryError: Error {
+    case tooManyEntries
 }
 
 private struct RecoveryDirectories {
