@@ -476,6 +476,29 @@ final class IncrementalScannerTests: XCTestCase {
         }
     }
 
+    func testRetainedSourceRejectsAnIntermediateDirectorySymlink() throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let granted = root.appending(path: "granted", directoryHint: .isDirectory)
+        let outside = root.appending(path: "outside", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: granted, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let outsideFile = outside.appending(path: "source.jsonl")
+        try Data("{}\n".utf8).write(to: outsideFile)
+        try FileManager.default.createSymbolicLink(
+            at: granted.appending(path: "nested"),
+            withDestinationURL: outside
+        )
+
+        XCTAssertThrowsError(
+            try RetainedSourceFile(
+                url: granted.appending(path: "nested/source.jsonl")
+            )
+        ) { error in
+            XCTAssertEqual(error as? RetainedSourceFileError, .unsafeSource)
+        }
+    }
+
     func testPathSwapAndAppendAfterOpenCannotRedirectOrExtendScan() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
