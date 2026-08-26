@@ -1,16 +1,16 @@
 # Companion artwork
 
-Everything in this directory is copied into `Tokenboard.app` at build time. Tokenboard never downloads companion artwork at runtime and does not expose an asset importer, configuration file, or watched asset directory.
+Only the theme directories declared in `rights-manifest.json`, this README, and the manifest itself are copied into `Tokenboard.app` at build time. Tokenboard never downloads companion artwork at runtime and does not expose an asset importer, configuration file, or watched asset directory.
 
-The bundled files are baked from raw source material by two checked-in development tools:
+The bundled files are baked from raw source material by three checked-in development tools:
 
-1. `Scripts/fetch-companion-assets.sh <raw-root>` downloads every third-party source image (the exact URL for each file is recorded in that script).
+1. `Scripts/fetch-companion-assets.sh <raw-root>` downloads every third-party source image from its recorded URL and verifies it against `Scripts/companion-source-hashes.sha256` before publishing it into the raw root.
 2. `Scripts/bake-companion-assets.swift <raw-root>` art-directs those sources into the final `1240 × 336` scenes (4× the 310 × 84 scene composition; the popover shows them as a full-bleed 350 × 84 band whose crop is bottom-aligned so only sky is trimmed): cropping, Lanczos scaling, the painted Pokémon foreground, the Dark Age player-color match, and alpha trimming for subject layers.
 3. `Scripts/generate-companion-artwork.swift` draws the Forest and Village themes from scratch as chunky pixel art; they are original Tokenboard artwork with no third-party sources. Each theme ships twelve background plates plus a bank of subject sprites (tree species at four maturity levels; building styles at four redevelopment levels, in day and lit variants) that `CompanionAssetCatalog` composes at runtime into a scene that keeps growing as tokens accrue.
 
 Every stage ships three scenery plates (`-a`, `-b`, `-c`): the vetted base view plus two derived vantages of the same place — a lateral shift where the source has room, otherwise a zoom anchored to the crop's bottom edge so the walkable ground line is preserved. The generated Forest and Village themes instead vary the day itself (clouds, birds, stars, flowers, light). The app rotates plates deterministically per local calendar day.
 
-Rebaking from the recorded URLs reproduces the bundled files byte for byte.
+Rebaking from the recorded URLs reproduces the bundled files byte for byte. Downloaded sources and baked outputs are published atomically so an interrupted build cannot leave a partial asset looking valid.
 
 ## Sources and rights by theme
 
@@ -31,3 +31,5 @@ The three Dark Age scenes have their blue player color rotated to the purple use
 ## Rights clearance before redistribution
 
 The Pokémon, Old School RuneScape, Age of Empires II, and Minecraft files are branded third-party game imagery. They are suitable for the intended personal, local build, but **require rights clearance before publicly redistributing Tokenboard binaries**. The Forest and Village themes are original artwork and carry no third-party restrictions.
+
+`rights-manifest.json` is the machine-enforced source of truth. A development build requires complete manifest coverage and valid evidence paths. `Scripts/verify-asset-rights.sh release` and `Scripts/package-release.sh` refuse public packaging while any group is pending. Change a group to `cleared` only when its redistribution evidence is checked into the repository and named by the manifest; prose in this README is not clearance.

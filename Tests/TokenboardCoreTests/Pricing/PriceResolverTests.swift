@@ -115,6 +115,22 @@ final class PriceResolverTests: XCTestCase {
         XCTAssertEqual(result.unpricedTokens, 300_000)
     }
 
+    func testExplicitZeroRateIsKnownFreeRatherThanUnpriced() throws {
+        let snapshot = pricing(
+            aliases: [alias(model: "gpt-free")],
+            rates: [rate(metric: .output, usd: "0", from: "2026-01-01")]
+        )
+
+        let result = try PriceResolver().resolve(
+            rows: [row(day: "2026-08-05", model: "gpt-free", metric: .output, quantity: 1_000_000)],
+            pricing: snapshot
+        )
+
+        XCTAssertEqual(result.tokenTotal, 1_000_000)
+        XCTAssertEqual(result.knownUSD, .zero)
+        XCTAssertEqual(result.unpricedTokens, 0)
+    }
+
     func testOpaqueUnknownRowRemainsUnpricedDespiteLegacyAliasAndRate() throws {
         let opaqueIdentifier = "unknown-" + String(repeating: "b", count: 64)
         let snapshot = pricing(

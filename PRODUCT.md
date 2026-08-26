@@ -78,6 +78,8 @@ Simple, clean, mean. Quietly confident and direct, with precise language and no 
 - When ECB data is quoted against EUR, derive all USD cross-rates from one same-dated ECB snapshot. Never combine rates from different dates.
 - Catalog schema version 2 carries FX data. Version 1 catalogs remain valid and provide USD-only display.
 - Applying a candidate updates model pricing and FX data together. Any invalid model rate or FX field rejects the complete candidate and leaves active data unchanged.
+- Retain every approved candidate as an immutable import record. Build the current pricing and FX view as a normalized projection; never rewrite the provenance payload that was approved.
+- Treat an explicit zero model rate as known-free coverage that contributes $0. Treat only a missing applicable rate as unpriced.
 
 ### Pricing Tab
 
@@ -90,7 +92,7 @@ Simple, clean, mean. Quietly confident and direct, with precise language and no 
 
 ### Storage and Formatting
 
-- Add FX storage through a forward-only SQLite migration. Retain prior approved snapshots for auditability, while display conversion uses the latest approved snapshot.
+- Add FX storage through a forward-only SQLite migration. Retain prior approved snapshots and complete approved import payloads for auditability, while display conversion uses the latest approved normalized snapshot.
 - Use Decimal for model pricing, FX rates, and conversion. Do not use binary floating point for monetary calculations.
 - Format USD, EUR, GBP, and CNY with two fractional digits and JPY with none.
 - Preserve the approximation marker for every API-equivalent value in any currency.

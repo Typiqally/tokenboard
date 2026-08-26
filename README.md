@@ -95,13 +95,13 @@ Committed daily and hourly aggregates survive later source-log deletion, and rec
 
 API-equivalent value estimates what the recorded token categories would cost at standard public API list prices. It is not a bill or a report of Claude or ChatGPT subscription spend. It cannot reproduce provider discounts, credits, batch pricing, negotiated terms, or billing-side classification.
 
-Pricing is effective-dated: Tokenboard applies the rate covering each local usage day instead of repricing old usage at today's rate. Tokens from an unknown model or uncovered date still count but remain visibly unpriced rather than guessed. USD is the canonical pricing currency; other display currencies use the latest locally approved conversion snapshot.
+Pricing is effective-dated: Tokenboard applies the rate covering each local usage day instead of repricing old usage at today's rate. An exact zero rate is known-free coverage and contributes $0; a missing rate remains unpriced. Tokens from an unknown model or uncovered date still count but remain visibly unpriced rather than guessed. USD is the canonical pricing currency; other display currencies use the latest locally approved conversion snapshot.
 
 ## Updating pricing through your agent
 
 Tokenboard never fetches pricing. In Settings, copy the pricing-update prompt and paste it into Claude Code or Codex. The external agent requests its own network or filesystem access, researches the allowed public sources, reports what it used, and writes a complete local candidate.
 
-Tokenboard validates that candidate locally and applies it atomically. An invalid update leaves the last valid catalog active. Valid updates can append history, correct an entry, or remove an unsupported entry; uncertain coverage remains unpriced.
+Tokenboard validates that candidate locally and applies it atomically. An invalid update leaves the last valid catalog active. Every approved import remains in an immutable audit history while a normalized active projection drives estimates. Valid updates can append effective-dated history, correct the active projection, or remove an unsupported active entry; uncertain coverage remains unpriced.
 
 ## Build from source
 
@@ -113,12 +113,17 @@ Requirements:
 
 ```zsh
 swift test
-Scripts/build-app.sh release
+Scripts/benchmark-import.sh
+Scripts/verify-asset-rights.sh development
+Scripts/test-tooling-contracts.sh
+Scripts/build-app.sh release universal
 Scripts/verify-entitlements.sh .build/release/Tokenboard.app
-open .build/release/Tokenboard.app
+Scripts/verify-runtime-resources.sh .build/release/Tokenboard.app
 ```
 
-`build-app.sh` creates a native `Tokenboard.app`. Local builds are ad-hoc signed unless `TOKENBOARD_SIGN_IDENTITY` names a signing identity. Version tags publish an ad-hoc-signed universal app for the Homebrew Cask; Developer ID signing and notarization can be added later without changing the install command.
+These automated commands own functional, import-performance, idle-resource, entitlement, tooling-safety, and development asset-inventory acceptance. Opening the app afterward is an optional visual smoke check, not a performance or release gate.
+
+`build-app.sh` creates a `Tokenboard.app`. Local builds are ad-hoc signed unless `TOKENBOARD_SIGN_IDENTITY` names a signing identity. Version tags can publish an ad-hoc-signed universal app for the Homebrew Cask only after every bundled asset group has machine-verifiable redistribution clearance; Developer ID signing and notarization can be added later without changing the install command.
 
 ## Known limits
 

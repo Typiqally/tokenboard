@@ -96,6 +96,7 @@ System appearance, increased contrast, reduced motion, Dynamic Type behavior, ke
 - Output is output tokens. Detailed reasoning output is an informational subset and is never added again.
 - Opaque local model identifiers are presented as “Unknown model.”
 - API-equivalent value is an estimate from the effective-dated local pricing catalog, never a bill.
+- An explicit zero price is known-free coverage and contributes $0; only a missing applicable price is unpriced.
 - Unpriced tokens stay in the token total and remain visibly distinguishable from priced coverage.
 
 ## State behavior
@@ -113,7 +114,7 @@ System appearance, increased contrast, reduced motion, Dynamic Type behavior, ke
 - `RichUsagePopoverView` composes the compact surface.
 - `HistoryWindowController`, `HistoryViewModel`, and `UsageHistoryView` own the on-demand working window.
 - `UsageSurfaceComponents` contains the shared range control, chart, provider row, typography, and disclosure row.
-- `UsageQueryService.history` produces deterministic local snapshots; `AppModel` refreshes and caches Today, 7D, 30D, and 90D snapshots after ingestion and pricing changes.
+- `UsageQueryService.history` queries the widest requested local range once, reuses one validated pricing index, and produces deterministic snapshots; `AppModel` refreshes and caches Today, 7D, 30D, and 90D snapshots after ingestion and pricing changes.
 - `CompanionJourney` maps the existing `Today` history snapshot to daily stages and deterministic Pokémon starter variants. `CompanionAssetCatalog` maps every visible theme and stage to bundle-relative baked scenes and subject placements.
 - `CompanionSceneMotion` is the pure motion vocabulary — signatures, particle fields, shadow bands, glows, washes, subject motion, and window lighting — with no AppKit or SwiftUI in it. `CompanionSceneActors` is the equally pure population layer: body plans, routes, and the attention a world's subjects answer to. `CompanionSceneDirection` holds the per-world, per-stage art direction as data. `CompanionArtwork` composes a scene once per layout and draws every frame in one `Canvas`; `CompanionWindowMap` recovers each village sprite's own window grid from its pixels; `CompanionSceneVisibility` gates motion on the host window really being on screen; `CompanionMenuIcon` renders the menu silhouettes.
 
