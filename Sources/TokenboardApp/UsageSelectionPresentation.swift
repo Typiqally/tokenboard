@@ -21,4 +21,18 @@ enum UsageSelectionPresentation {
         case .allTime: "All Time"
         }
     }
+
+    static func currencyTitle(_ currency: DisplayCurrency) -> String {
+        "\(currency.rawValue) · \(currencyDisplayName(currency))"
+    }
+
+    static func currencyDisplayName(_ currency: DisplayCurrency) -> String {
+        switch currency {
+        case .usd: "US Dollar"
+        case .eur: "Euro"
+        case .jpy: "Japanese Yen"
+        case .gbp: "British Pound"
+        case .cny: "Chinese Yuan"
+        }
+    }
 }

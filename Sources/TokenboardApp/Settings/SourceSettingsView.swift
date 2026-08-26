@@ -8,7 +8,7 @@ struct SourceSettingsView: View {
     var body: some View {
         let source = model.settingsState.sources[provider]
         VStack(alignment: .leading, spacing: 8) {
-            Text(title)
+            Text(provider.displayName)
                 .font(.headline)
             LabeledContent("Resolved root") {
                 Text(source?.resolvedPath ?? "Not granted")
@@ -45,14 +45,7 @@ struct SourceSettingsView: View {
             .disabled(model.settingsState.isSourceMutationInProgress)
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("\(title) source settings")
-    }
-
-    private var title: String {
-        switch provider {
-        case .claudeCode: "Claude Code"
-        case .codex: "Codex"
-        }
+        .accessibilityLabel("\(provider.displayName) source settings")
     }
 }
 
