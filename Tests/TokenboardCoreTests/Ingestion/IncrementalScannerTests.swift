@@ -77,6 +77,42 @@ final class IncrementalScannerTests: XCTestCase {
         XCTAssertEqual(completed.committedUsageRecords, 1)
     }
 
+    func testCancellationAfterACommittedBatchStopsBeforeScanningAnotherBatch() async throws {
+        let directory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appending(path: ".build/test-scratch/\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: "source.jsonl")
+        let records = (0..<501).map { index in
+            claudeLine(requestID: "request-\(index)", messageID: "message-\(index)")
+        }
+        try Data((records.joined(separator: "\n") + "\n").utf8).write(to: file)
+        let ledger = ScannerTestLedger(cancelAfterCommit: true)
+        let scanner = IncrementalScanner(ledger: ledger)
+        let scanCalendar = calendar
+
+        let result = await Task {
+            do {
+                let outcome = try await scanner.scan(
+                    file: file,
+                    provider: .claudeCode,
+                    calendar: scanCalendar
+                )
+                return "success:\(outcome)"
+            } catch is CancellationError {
+                return "cancelled"
+            } catch {
+                return String(describing: error)
+            }
+        }.value
+        let commits = await ledger.capturedSuccessfulCommits()
+
+        XCTAssertEqual(result, "cancelled")
+        XCTAssertEqual(commits.count, 1)
+        XCTAssertEqual(commits.first?.usage.count, 500)
+    }
+
+
     func testCodexRecordsWithoutStableUsageIdentityRemainCountable() async throws {
         let setup = try await makeSetup()
         defer { try? FileManager.default.removeItem(at: setup.directory) }

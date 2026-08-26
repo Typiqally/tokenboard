@@ -3,6 +3,22 @@ import XCTest
 @testable import TokenboardCore
 
 final class LogDiscoveryTests: XCTestCase {
+    func testMissingRootIsReportedInsteadOfBecomingAnEmptyInventory() async {
+        let missing = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+
+        XCTAssertThrowsError(try LogDiscovery().jsonlFiles(under: missing))
+        do {
+            try await LogDiscovery().enumerateJSONLFiles(
+                under: missing,
+                maximumChunkSize: 64
+            ) { _ in }
+            XCTFail("expected missing root to fail")
+        } catch {
+            XCTAssertFalse(error is CancellationError)
+        }
+    }
+
     func testChunkEnumerationBoundsEveryDeliveryWithoutDroppingFiles() async throws {
         let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
