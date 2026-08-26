@@ -184,6 +184,49 @@ final class AppModelTests: XCTestCase {
         XCTAssertFalse(persisted.keys.contains { $0.hasPrefix("companionProgress") })
     }
 
+    func testCompanionPresentationUsesThePublishedStateSnapshot() async throws {
+        let setup = try makeSetup(approved: true, grantedProviders: Set(Provider.allCases))
+        defer { setup.cleanup() }
+        await setup.query.setHistoryTokenTotal(0)
+        await setup.model.start()
+        await setup.model.select(companionTheme: .forest)
+
+        let date = setup.model.now()
+        let interval = DateInterval(start: date, duration: 1)
+        var publishedState = setup.model.state
+        publishedState.historyState = .loaded([
+            .today: UsageHistorySnapshot(
+                range: .today,
+                provider: nil,
+                currentInterval: interval,
+                previousInterval: interval,
+                points: [],
+                comparison: UsageComparison(
+                    currentTokenTotal: 100_000_000,
+                    previousTokenTotal: 0,
+                    tokenDelta: 100_000_000,
+                    percentChange: nil
+                ),
+                breakdown: UsageBreakdown(
+                    tokenTotal: 100_000_000,
+                    knownAPIEquivalentUSD: 0,
+                    unpricedTokens: 0,
+                    exchangeRates: nil,
+                    providers: [],
+                    models: [],
+                    tokenTypes: []
+                )
+            ),
+        ])
+
+        let presentation = try XCTUnwrap(
+            setup.model.companionPresentation(for: publishedState, at: date)
+        )
+
+        XCTAssertEqual(setup.model.companionDailyTokenTotal(at: date), 0)
+        XCTAssertEqual(presentation.stage, 1)
+    }
+
     func testCompanionMenuBarChoicePersists() async throws {
         let setup = try makeSetup(approved: false, grantedProviders: [])
         defer { setup.cleanup() }
