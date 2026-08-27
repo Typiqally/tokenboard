@@ -109,6 +109,25 @@ final class NativePresentationTests: XCTestCase {
         XCTAssertEqual(activationCount, 1)
     }
 
+    func testCalendarDayChangePostedOffMainThreadDoesNotCrashThePopoverObserver() async throws {
+        let setup = try makeModel()
+        defer { setup.cleanup() }
+        var state = setup.model.state
+        state.lifecycle = .ready
+        setup.model.commitState(state)
+        let controller = RichPopoverController(model: setup.model)
+        let notificationPosted = expectation(description: "calendar day change posted")
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            NotificationCenter.default.post(name: .NSCalendarDayChanged, object: nil)
+            notificationPosted.fulfill()
+        }
+
+        await fulfillment(of: [notificationPosted], timeout: 1)
+        try await Task.sleep(for: .milliseconds(50))
+        withExtendedLifetime(controller) {}
+    }
+
     func testPopoverClickAwayDismissalClosesForGlobalMouseDownAndStopsAfterClose() {
         let monitorToken = NSObject()
         var registeredMask: NSEvent.EventTypeMask = []
