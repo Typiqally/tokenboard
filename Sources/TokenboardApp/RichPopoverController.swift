@@ -245,6 +245,7 @@ final class RichPopoverController: NSObject, NSPopoverDelegate {
         let center = NotificationCenter.default
         center.publisher(for: .NSCalendarDayChanged)
             .merge(with: center.publisher(for: .NSSystemTimeZoneDidChange))
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 guard let self, let model = self.model else { return }
                 Task { @MainActor in
