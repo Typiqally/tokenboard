@@ -39,10 +39,19 @@ struct CompanionSceneAsset: Equatable, Sendable {
 /// at each stage start, interpolated within a stage by the progress
 /// fraction, so new subjects keep arriving between milestones.
 struct CompanionGrowthPlan: Sendable {
-    /// Population at the start of each of the eight stages.
+    /// Population at the start of each stage.
     let stageCounts: [Int]
     /// Population when the journey completes.
     let finalCount: Int
+
+    init(stageCounts: [Int], finalCount: Int) {
+        precondition(
+            stageCounts.count == CompanionJourney.stageCount,
+            "Growth plan holds \(stageCounts.count) stage counts for \(CompanionJourney.stageCount) stages"
+        )
+        self.stageCounts = stageCounts
+        self.finalCount = finalCount
+    }
 
     func population(stage: Int, fraction: Double) -> Int {
         let stage = min(max(stage, 0), stageCounts.count - 1)
@@ -106,7 +115,7 @@ enum CompanionAssetCatalog {
     private static let scenerySuffixes = ["a", "b", "c"]
 
     // One trainer's journey through Kanto, in story order.
-    private static let pokemonSceneNames = [
+    private static let pokemonSceneNames: CompanionStageTable<String> = [
         "01-pallet-town", "02-viridian-forest", "03-pewter-city",
         "04-cerulean-city", "05-vermilion-city", "06-lavender-town",
         "07-celadon-city", "08-saffron-city", "09-fuchsia-city",
@@ -151,7 +160,9 @@ enum CompanionAssetCatalog {
     private static let forestMaturityAges = [0.10, 0.28, 0.55]
 
     /// Youngest stages stay saplings and groves even for the oldest trees.
-    private static let forestStageLevelCaps = [1, 1, 1, 2, 2, 2, 3, 3, 3, 3, 3, 3]
+    private static let forestStageLevelCaps: CompanionStageTable<Int> = [
+        1, 1, 1, 2, 2, 2, 3, 3, 3, 3, 3, 3
+    ]
 
     // MARK: Village theme
 
@@ -171,7 +182,9 @@ enum CompanionAssetCatalog {
     private static let villageMaturityAges = [0.12, 0.30, 0.55]
 
     /// High-rises only appear once the journey reaches its city stages.
-    private static let villageStageLevelCaps = [0, 0, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3]
+    private static let villageStageLevelCaps: CompanionStageTable<Int> = [
+        0, 0, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3
+    ]
 
     /// Windows light up from the sunset stage onward. The scene's motion
     /// reads the same threshold so lit artwork and lit windows never disagree.
@@ -179,40 +192,43 @@ enum CompanionAssetCatalog {
 
     // MARK: Old School RuneScape
 
-    private static let oldSchoolBackgroundNames = [
-        "01-lumbridge", "02-al-kharid", "03-varrock", "04-karamja",
-        "05-grand-exchange", "06-falador", "07-seers-village", "08-east-ardougne",
-        "09-canifis", "10-god-wars", "11-prifddinas", "12-tombs-of-amascut"
-    ]
+    /// One location on the adventurer's journey: its backdrop, the gear worn
+    /// there, and where the walk is anchored — `height` and `x` size the
+    /// adventurer relative to the scene so gear and scenery stay balanced.
+    private struct OldSchoolStage {
+        let backgroundName: String
+        let characterResource: String
+        let height: Double
+        let x: Double
 
-    private static let oldSchoolCharacters = [
-        "OldSchoolRuneScape/Characters/01-leather.png",
-        "OldSchoolRuneScape/Characters/02-frog-leather.png",
-        "OldSchoolRuneScape/Characters/03-studded-leather.png",
-        "OldSchoolRuneScape/Characters/04-snakeskin.png",
-        "OldSchoolRuneScape/Characters/05-green-dhide.png",
-        "OldSchoolRuneScape/Characters/06-blue-dhide.png",
-        "OldSchoolRuneScape/Characters/07-red-dhide.png",
-        "OldSchoolRuneScape/Characters/08-black-dhide.png",
-        "OldSchoolRuneScape/Characters/09-karils.png",
-        "OldSchoolRuneScape/Characters/10-armadyl.png",
-        "OldSchoolRuneScape/Characters/11-crystal.png",
-        "OldSchoolRuneScape/Characters/12-masori.png"
-    ]
+        init(_ backgroundName: String, _ character: String, height: Double, x: Double) {
+            self.backgroundName = backgroundName
+            self.characterResource = "OldSchoolRuneScape/Characters/\(character).png"
+            self.height = height
+            self.x = x
+        }
+    }
 
-    // Where the adventurer's walk through each location is anchored, and how
-    // tall they are relative to the scene, so gear and scenery stay balanced.
-    private static let oldSchoolPlacements: [(height: Double, x: Double)] = [
-        (0.72, 0.33), (0.72, 0.60), (0.70, 0.28), (0.74, 0.34),
-        (0.72, 0.30), (0.66, 0.68), (0.66, 0.62), (0.72, 0.45),
-        (0.74, 0.47), (0.74, 0.22), (0.70, 0.55), (0.74, 0.50)
+    private static let oldSchoolStages: CompanionStageTable<OldSchoolStage> = [
+        OldSchoolStage("01-lumbridge", "01-leather", height: 0.72, x: 0.33),
+        OldSchoolStage("02-al-kharid", "02-frog-leather", height: 0.72, x: 0.60),
+        OldSchoolStage("03-varrock", "03-studded-leather", height: 0.70, x: 0.28),
+        OldSchoolStage("04-karamja", "04-snakeskin", height: 0.74, x: 0.34),
+        OldSchoolStage("05-grand-exchange", "05-green-dhide", height: 0.72, x: 0.30),
+        OldSchoolStage("06-falador", "06-blue-dhide", height: 0.66, x: 0.68),
+        OldSchoolStage("07-seers-village", "07-red-dhide", height: 0.66, x: 0.62),
+        OldSchoolStage("08-east-ardougne", "08-black-dhide", height: 0.72, x: 0.45),
+        OldSchoolStage("09-canifis", "09-karils", height: 0.74, x: 0.47),
+        OldSchoolStage("10-god-wars", "10-armadyl", height: 0.74, x: 0.22),
+        OldSchoolStage("11-prifddinas", "11-crystal", height: 0.70, x: 0.55),
+        OldSchoolStage("12-tombs-of-amascut", "12-masori", height: 0.74, x: 0.50)
     ]
 
     /// How far the adventurer travels across a location while its stage
     /// progresses, as a fraction of the scene width.
     private static let oldSchoolWalkSpan = 0.32
 
-    private static let ageOfEmpiresSceneNames = [
+    private static let ageOfEmpiresSceneNames: CompanionStageTable<String> = [
         "01-dark-age-camp", "02-dark-age-hamlet", "03-dark-age-town",
         "04-feudal-age", "05-feudal-village", "06-feudal-town",
         "07-castle-age", "08-castle-village", "09-castle-town",
@@ -221,26 +237,37 @@ enum CompanionAssetCatalog {
 
     // MARK: Minecraft
 
-    private static let minecraftSceneNames = [
-        "01-plains", "02-forest", "03-village", "04-lush-caves",
-        "05-jagged-peaks", "06-ancient-city", "07-nether-wastes",
-        "08-crimson-forest", "09-nether-fortress", "10-stronghold",
-        "11-the-end", "12-end-city"
-    ]
+    /// One location on the survivor's journey: its scene, the armor worn
+    /// there (upgrades land on milestones the way the game's own progression
+    /// does), and where the survivor stands — `height` and `x` size them
+    /// relative to the scene.
+    private struct MinecraftStage {
+        let sceneName: String
+        let gearTier: String
+        let height: Double
+        let x: Double
 
-    /// The survivor's gear per stage: armor upgrades land on milestones the
-    /// way the game's own progression does.
-    private static let minecraftGearTiers = [
-        "steve", "steve", "leather", "leather", "golden", "chainmail",
-        "iron", "iron", "diamond", "diamond", "netherite", "netherite"
-    ]
+        init(_ sceneName: String, _ gearTier: String, height: Double, x: Double) {
+            self.sceneName = sceneName
+            self.gearTier = gearTier
+            self.height = height
+            self.x = x
+        }
+    }
 
-    // Where the survivor stands in each location, and how tall they are
-    // relative to the scene.
-    private static let minecraftPlacements: [(height: Double, x: Double)] = [
-        (0.64, 0.35), (0.64, 0.40), (0.66, 0.30), (0.66, 0.45),
-        (0.62, 0.40), (0.64, 0.35), (0.66, 0.40), (0.66, 0.45),
-        (0.64, 0.35), (0.68, 0.40), (0.64, 0.42), (0.62, 0.45)
+    private static let minecraftStages: CompanionStageTable<MinecraftStage> = [
+        MinecraftStage("01-plains", "steve", height: 0.64, x: 0.35),
+        MinecraftStage("02-forest", "steve", height: 0.64, x: 0.40),
+        MinecraftStage("03-village", "leather", height: 0.66, x: 0.30),
+        MinecraftStage("04-lush-caves", "leather", height: 0.66, x: 0.45),
+        MinecraftStage("05-jagged-peaks", "golden", height: 0.62, x: 0.40),
+        MinecraftStage("06-ancient-city", "chainmail", height: 0.64, x: 0.35),
+        MinecraftStage("07-nether-wastes", "iron", height: 0.66, x: 0.40),
+        MinecraftStage("08-crimson-forest", "iron", height: 0.66, x: 0.45),
+        MinecraftStage("09-nether-fortress", "diamond", height: 0.64, x: 0.35),
+        MinecraftStage("10-stronghold", "diamond", height: 0.68, x: 0.40),
+        MinecraftStage("11-the-end", "netherite", height: 0.64, x: 0.42),
+        MinecraftStage("12-end-city", "netherite", height: 0.62, x: 0.45)
     ]
 
     /// How far the survivor travels across a location while its stage
@@ -260,7 +287,7 @@ enum CompanionAssetCatalog {
         fraction: Double = 0,
         seed: UInt64 = 0
     ) -> CompanionSceneAsset? {
-        let stage = clamped(stage)
+        let stage = CompanionJourney.clamped(stage: stage)
         let fraction = min(max(fraction, 0), 1)
         let suffix = scenerySuffix(scenery)
         switch theme {
@@ -288,16 +315,16 @@ enum CompanionAssetCatalog {
                 seed: seed
             )
         case .oldSchoolRuneScape:
-            let placement = oldSchoolPlacements[stage]
-            let start = placement.x - oldSchoolWalkSpan / 2
+            let location = oldSchoolStages[stage: stage]
+            let start = location.x - oldSchoolWalkSpan / 2
             let position = min(max(start + oldSchoolWalkSpan * fraction, 0.1), 0.9)
             return CompanionSceneAsset(
-                backgroundResource: "OldSchoolRuneScape/Backgrounds/\(oldSchoolBackgroundNames[stage])-\(suffix).jpg",
+                backgroundResource: "OldSchoolRuneScape/Backgrounds/\(location.backgroundName)-\(suffix).jpg",
                 layers: [
                     CompanionSceneLayer(
-                        id: oldSchoolCharacters[stage],
-                        resource: oldSchoolCharacters[stage],
-                        relativeHeight: placement.height,
+                        id: location.characterResource,
+                        resource: location.characterResource,
+                        relativeHeight: location.height,
                         horizontalPosition: position,
                         bottomOffset: 0.04,
                         castsGroundShadow: true,
@@ -307,22 +334,22 @@ enum CompanionAssetCatalog {
             )
         case .ageOfEmpiresII:
             return CompanionSceneAsset(
-                backgroundResource: "AgeOfEmpiresII/scenes/\(ageOfEmpiresSceneNames[stage])-\(suffix).jpg",
+                backgroundResource: "AgeOfEmpiresII/scenes/\(ageOfEmpiresSceneNames[stage: stage])-\(suffix).jpg",
                 layers: [],
                 backgroundZoom: 1 + 0.06 * fraction
             )
         case .minecraft:
-            let placement = minecraftPlacements[stage]
-            let start = placement.x - minecraftWalkSpan / 2
+            let location = minecraftStages[stage: stage]
+            let start = location.x - minecraftWalkSpan / 2
             let position = min(max(start + minecraftWalkSpan * fraction, 0.1), 0.9)
-            let character = "Minecraft/characters/\(minecraftGearTiers[stage]).png"
+            let character = "Minecraft/characters/\(location.gearTier).png"
             return CompanionSceneAsset(
-                backgroundResource: "Minecraft/scenes/\(minecraftSceneNames[stage])-\(suffix).jpg",
+                backgroundResource: "Minecraft/scenes/\(location.sceneName)-\(suffix).jpg",
                 layers: [
                     CompanionSceneLayer(
                         id: character,
                         resource: character,
-                        relativeHeight: placement.height,
+                        relativeHeight: location.height,
                         horizontalPosition: position,
                         bottomOffset: 0.04,
                         castsGroundShadow: true,
@@ -359,7 +386,7 @@ enum CompanionAssetCatalog {
         variant: CompanionVariant,
         stage: Int
     ) -> String? {
-        let stage = clamped(stage)
+        let stage = CompanionJourney.clamped(stage: stage)
         switch theme {
         case .none, .ageOfEmpiresII:
             return nil
@@ -371,9 +398,9 @@ enum CompanionAssetCatalog {
         case .village:
             return String(format: "Village/silhouettes/%02d.png", stage + 1)
         case .oldSchoolRuneScape:
-            return oldSchoolCharacters[stage]
+            return oldSchoolStages[stage: stage].characterResource
         case .minecraft:
-            return "Minecraft/characters/\(minecraftGearTiers[stage]).png"
+            return "Minecraft/characters/\(minecraftStages[stage: stage].gearTier).png"
         }
     }
 
@@ -479,7 +506,7 @@ enum CompanionAssetCatalog {
                 slot: slot,
                 globalProgress: progress,
                 ages: forestMaturityAges,
-                cap: forestStageLevelCaps[stage]
+                cap: forestStageLevelCaps[stage: stage]
             )
             let cells = forestSpriteCellHeights[species]![level]
             return CompanionSceneLayer(
@@ -522,7 +549,7 @@ enum CompanionAssetCatalog {
             // High-rises rise behind the streetfront: the front band keeps
             // its buildings at mid-rise scale so the skyline reads in depth.
             let cap = min(
-                villageStageLevelCaps[stage],
+                villageStageLevelCaps[stage: stage],
                 slot.back ? 3 : 2
             )
             let level = maturityLevel(
@@ -579,8 +606,9 @@ enum CompanionAssetCatalog {
         fraction: Double
     ) -> CompanionSceneAsset? {
         guard let line = pokemonLine(for: variant) else { return nil }
-        let finaleStage = CompanionJourney.thresholds.count - 1
-        let members = stage == finaleStage ? line : [line[evolutionIndex(for: stage)]]
+        let members = stage == CompanionJourney.finalStage
+            ? line
+            : [line[evolutionIndex(for: stage)]]
         // The finale gathers the family, growing left to right. A lone
         // partner visibly grows within its stage as the next evolution nears.
         let positions: [Double] = members.count == 1 ? [0.5] : [0.22, 0.48, 0.76]
@@ -600,7 +628,7 @@ enum CompanionAssetCatalog {
             )
         }
         return CompanionSceneAsset(
-            backgroundResource: "Pokemon/scenes/\(pokemonSceneNames[stage])-\(suffix).jpg",
+            backgroundResource: "Pokemon/scenes/\(pokemonSceneNames[stage: stage])-\(suffix).jpg",
             layers: layers
         )
     }
@@ -612,16 +640,15 @@ enum CompanionAssetCatalog {
         return pokemonEvolutionLines[index]
     }
 
-    /// The family evolves at the stage-5 and stage-9 milestones.
+    /// The family evolves at these milestones.
+    private static let firstEvolutionStage = 4
+    private static let finalEvolutionStage = 8
+
     private static func evolutionIndex(for stage: Int) -> Int {
-        stage < 4 ? 0 : (stage < 8 ? 1 : 2)
+        stage < firstEvolutionStage ? 0 : (stage < finalEvolutionStage ? 1 : 2)
     }
 
     private static func artworkResource(_ identifier: Int) -> String {
         String(format: "Pokemon/art/%03d.png", identifier)
-    }
-
-    private static func clamped(_ stage: Int) -> Int {
-        min(max(stage, 0), CompanionJourney.thresholds.count - 1)
     }
 }

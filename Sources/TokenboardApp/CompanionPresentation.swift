@@ -39,7 +39,7 @@ struct CompanionPresentation: Equatable, Sendable {
               ) else { return nil }
         let earnedTokens = max(0, dailyTokenTotal)
         let stage = CompanionJourney.stage(for: earnedTokens)
-        let title = stageTitles(for: state.theme)[stage]
+        let title = stageTitles(for: state.theme)[stage: stage]
         let scenery = CompanionDailyVariantSelector.index(
             key: "\(state.theme.rawValue)/scenery/\(stage)",
             seed: state.seed,
@@ -72,13 +72,13 @@ struct CompanionPresentation: Equatable, Sendable {
         stage: Int,
         stageTitle: String
     ) -> String {
-        "\(theme.title), \(variant.title), stage \(stage + 1) of \(CompanionJourney.thresholds.count), \(stageTitle)"
+        "\(theme.title), \(variant.title), stage \(stage + 1) of \(CompanionJourney.stageCount), \(stageTitle)"
     }
 
-    private static func stageTitles(for theme: CompanionTheme) -> [String] {
+    private static func stageTitles(for theme: CompanionTheme) -> CompanionStageTable<String> {
         switch theme {
         case .none:
-            Array(repeating: "", count: CompanionJourney.thresholds.count)
+            CompanionStageTable(Array(repeating: "", count: CompanionJourney.stageCount))
         case .pokemon:
             ["First partner", "First steps", "Rookie battles", "Training begins",
              "Second evolution", "Growing stronger", "Proven team", "Seasoned partner",

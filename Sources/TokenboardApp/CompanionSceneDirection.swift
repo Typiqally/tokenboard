@@ -14,7 +14,7 @@ extension CompanionScenePlan {
         layers: [CompanionSceneLayer]
     ) -> CompanionScenePlan {
         let signature = CompanionMotionSignature.of(theme)
-        let stage = min(max(stage, 0), CompanionJourney.thresholds.count - 1)
+        let stage = CompanionJourney.clamped(stage: stage)
         switch signature {
         case .none:
             return .inert
@@ -46,6 +46,9 @@ extension CompanionScenePlan {
 // MARK: - Pokémon: a warm afternoon meadow
 
 private extension CompanionScenePlan {
+    /// Victory Road and the Plateau catch the light differently.
+    static let pokemonSparksFromStage = 9
+
     static func meadow(stage: Int, seed: UInt64) -> CompanionScenePlan {
         var fields: [CompanionParticleField] = [
             CompanionParticleField(
@@ -74,9 +77,8 @@ private extension CompanionScenePlan {
                 drift: .travel(dx: 1.34, dy: 0.05, sway: 0.018, swayPeriod: 4.9)
             )
         ]
-        // Victory Road and the Plateau catch the light differently: the air
-        // itself starts to sparkle as the journey closes.
-        if stage >= 9 {
+        // The air itself starts to sparkle as the journey closes.
+        if stage >= pokemonSparksFromStage {
             fields.append(
                 CompanionParticleField(
                     key: "pokemon/sparks",
@@ -136,6 +138,14 @@ private extension CompanionScenePlan {
 // MARK: - Forest: wind, and what the wind carries
 
 private extension CompanionScenePlan {
+    /// The ancient stages hold their light late; that is when the clearing
+    /// fills with fireflies.
+    static let forestFirefliesFromStage = 9
+    /// Deer only work a wood that has closed over; a second joins once the
+    /// old growth can hide it.
+    static let forestDeerFromStage = 4
+    static let forestSecondDeerFromStage = 8
+
     static func woodland(
         stage: Int,
         seed: UInt64,
@@ -194,9 +204,7 @@ private extension CompanionScenePlan {
                 snapsToPixelGrid: true
             )
         ]
-        // The ancient stages hold their light late; that is when the clearing
-        // fills with fireflies.
-        if stage >= 9 {
+        if stage >= forestFirefliesFromStage {
             fields.append(
                 CompanionParticleField(
                     key: "forest/fireflies",
@@ -263,12 +271,12 @@ private extension CompanionScenePlan {
     /// Deer only work a wood that has closed over: a grove of saplings has
     /// nothing to browse and nowhere to hide.
     static func deer(stage: Int) -> [CompanionActorField] {
-        guard stage >= 4 else { return [] }
+        guard stage >= forestDeerFromStage else { return [] }
         return [
             CompanionActorField(
                 key: "forest/deer",
                 body: .quadruped,
-                count: stage >= 8 ? 2 : 1,
+                count: stage >= forestSecondDeerFromStage ? 2 : 1,
                 route: .patrol(
                     from: CompanionScenePoint(-0.14, 0.930),
                     to: CompanionScenePoint(1.14, 0.930),
@@ -455,6 +463,9 @@ private extension CompanionScenePlan {
         )
     }
 
+    /// A big city's night streets never fully empty.
+    static let villageBusierNightsFromStage = 10
+
     /// After dark the street empties out. What is left walks home under the
     /// lights, and the traffic has the road to itself.
     static func nightStreet(stage: Int) -> [CompanionActorField] {
@@ -462,7 +473,7 @@ private extension CompanionScenePlan {
             CompanionActorField(
                 key: "village/late-walkers",
                 body: .biped,
-                count: stage >= 10 ? 3 : 2,
+                count: stage >= villageBusierNightsFromStage ? 3 : 2,
                 route: .patrol(
                     from: CompanionScenePoint(-0.12, 0.952),
                     to: CompanionScenePoint(1.12, 0.952),
@@ -660,15 +671,13 @@ enum CompanionLocationWeather: String, CaseIterable, Equatable, Sendable {
     /// Stage order: Lumbridge, Al Kharid, Varrock, Karamja, Grand Exchange,
     /// Falador, Seers' Village, East Ardougne, Canifis, God Wars, Prifddinas,
     /// Tombs of Amascut.
+    private static let weatherByStage: CompanionStageTable<CompanionLocationWeather> = [
+        .openAir, .desert, .openAir, .openAir, .openAir, .openAir,
+        .openAir, .openAir, .gloom, .snow, .crystal, .torchlit
+    ]
+
     static func forOldSchool(stage: Int) -> CompanionLocationWeather {
-        switch stage {
-        case 1: .desert
-        case 8: .gloom
-        case 9: .snow
-        case 10: .crystal
-        case 11: .torchlit
-        default: .openAir
-        }
+        weatherByStage[stage: stage]
     }
 
     func plan(stage: Int, seed: UInt64) -> CompanionScenePlan {
@@ -865,13 +874,14 @@ enum CompanionBiome: String, CaseIterable, Equatable, Sendable {
     case theEnd
     case endCity
 
+    private static let biomeByStage: CompanionStageTable<CompanionBiome> = [
+        .plains, .forest, .village, .lushCaves,
+        .jaggedPeaks, .ancientCity, .netherWastes, .crimsonForest,
+        .netherFortress, .stronghold, .theEnd, .endCity
+    ]
+
     static func forMinecraft(stage: Int) -> CompanionBiome {
-        let order: [CompanionBiome] = [
-            .plains, .forest, .village, .lushCaves,
-            .jaggedPeaks, .ancientCity, .netherWastes, .crimsonForest,
-            .netherFortress, .stronghold, .theEnd, .endCity
-        ]
-        return order[min(max(stage, 0), order.count - 1)]
+        biomeByStage[stage: stage]
     }
 
     func plan(stage: Int, seed: UInt64) -> CompanionScenePlan {
@@ -1333,12 +1343,14 @@ enum CompanionOldSchoolCrowd {
 
     /// Players per location, in stage order. The Grand Exchange is packed,
     /// a starting field is quiet, and nobody idles inside a raid.
-    static let playersByStage = [3, 2, 4, 2, 6, 3, 2, 3, 2, 0, 2, 2]
+    static let playersByStage: CompanionStageTable<Int> = [
+        3, 2, 4, 2, 6, 3, 2, 3, 2, 0, 2, 2
+    ]
 
     static func population(stage: Int) -> [CompanionActorField] {
-        let stage = min(max(stage, 0), playersByStage.count - 1)
+        let stage = CompanionJourney.clamped(stage: stage)
         var crowd: [CompanionActorField] = []
-        let players = playersByStage[stage]
+        let players = playersByStage[stage: stage]
         if players > 0 {
             crowd.append(
                 CompanionActorField(
