@@ -50,9 +50,18 @@ public struct UsageQueryService: Sendable {
         let queryInterval = DateInterval(start: previousStart, end: today.end)
         let queriedRows = try await ledger.usageRows(in: queryInterval, calendar: calendar)
         let rows = queriedRows.filter { provider == nil || $0.provider == provider }
+        let queriedHourlyRows = try await ledger.hourlyUsageRows(
+            in: queryInterval,
+            calendar: calendar
+        )
+        let hourlyRows = queriedHourlyRows.filter {
+            provider == nil || $0.provider == provider
+        }
         let currentStartDay = LocalDay(date: currentStart, calendar: calendar).value
         let currentRows = rows.filter { $0.localDay.value >= currentStartDay }
         let previousRows = rows.filter { $0.localDay.value < currentStartDay }
+        let currentHourlyRows = hourlyRows.filter { $0.hourStart >= currentInterval.start }
+        let previousHourlyRows = hourlyRows.filter { $0.hourStart < currentInterval.start }
         let pricing = try await ledger.pricingSnapshot()
         let breakdown = try usageBreakdown(rows: currentRows, pricing: pricing)
         let previousTotal = try tokenTotal(in: previousRows)
@@ -65,15 +74,8 @@ public struct UsageQueryService: Sendable {
 
         let points: [UsageHistoryPoint]
         if range == .today {
-            let queriedHourlyRows = try await ledger.hourlyUsageRows(
-                in: currentInterval,
-                calendar: calendar
-            )
-            let hourlyRows = queriedHourlyRows.filter {
-                provider == nil || $0.provider == provider
-            }
             points = try hourlyPoints(
-                rows: hourlyRows,
+                rows: currentHourlyRows,
                 dailyRows: currentRows,
                 interval: currentInterval,
                 calendar: calendar,
@@ -88,6 +90,21 @@ public struct UsageQueryService: Sendable {
             )
         }
 
+        let workPatterns: WorkPatternSnapshot? = if let coverageStart = try await ledger
+            .hourlyUsageCoverageStart() {
+            try WorkPatternCalculator().make(
+                currentRows: currentHourlyRows,
+                previousRows: previousHourlyRows,
+                currentInterval: currentInterval,
+                previousInterval: previousInterval,
+                coverageStart: coverageStart,
+                now: now,
+                calendar: calendar
+            )
+        } else {
+            nil
+        }
+
         return UsageHistorySnapshot(
             range: range,
             provider: provider,
@@ -100,7 +117,8 @@ public struct UsageQueryService: Sendable {
                 tokenDelta: delta,
                 percentChange: percentChange
             ),
-            breakdown: breakdown
+            breakdown: breakdown,
+            workPatterns: workPatterns
         )
     }
 

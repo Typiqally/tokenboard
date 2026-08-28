@@ -3,8 +3,8 @@ import Foundation
 import TokenboardCore
 
 enum TokenboardSurfaceMetrics {
-    static let popoverSize = NSSize(width: 350, height: 500)
-    static let companionPopoverSize = NSSize(width: 350, height: 596)
+    static let popoverSize = NSSize(width: 350, height: 560)
+    static let companionPopoverSize = NSSize(width: 350, height: 656)
     static let companionSceneHeight: CGFloat = 84
     static let popoverContentWidth: CGFloat = 310
     static let providerPercentageWidth: CGFloat = 44
@@ -78,6 +78,126 @@ struct UsageComparisonPresentation: Equatable, Sendable {
     let title: String
     let systemImageName: String
     let accessibilityTitle: String
+}
+
+struct PopoverChartSelection: Equatable {
+    private(set) var hoveredPointID: String?
+    private(set) var pinnedPointID: String?
+
+    var selectedPointID: String? { pinnedPointID ?? hoveredPointID }
+    var isPinned: Bool { pinnedPointID != nil }
+
+    mutating func hover(_ pointID: String?) {
+        hoveredPointID = pointID
+    }
+
+    mutating func clearHover() {
+        hoveredPointID = nil
+    }
+
+    mutating func togglePin(_ pointID: String) {
+        pinnedPointID = pinnedPointID == pointID ? nil : pointID
+    }
+
+    mutating func clearAll() {
+        hoveredPointID = nil
+        pinnedPointID = nil
+    }
+}
+
+struct WorkPatternPreviewMetric: Equatable, Sendable {
+    let title: String
+    let value: String
+}
+
+struct WorkPatternPreviewPresentation: Equatable, Sendable {
+    let title: String
+    let metrics: [WorkPatternPreviewMetric]
+    let accessibilityTitle: String
+
+    static func make(
+        _ snapshot: WorkPatternSnapshot?,
+        range: UsageHistoryRange
+    ) -> WorkPatternPreviewPresentation? {
+        guard let snapshot else { return nil }
+        let peakHour = snapshot.volumePeakHour.map { UsageHistoryPresentation.hourTitle($0.hour) }
+            ?? "—"
+        let title = "WORK PATTERNS · \(UsageHistoryPresentation.rangeTitle(range))"
+        if range == .today {
+            let metrics = [
+                WorkPatternPreviewMetric(
+                    title: "ACTIVE HOURS",
+                    value: "\(snapshot.totalActiveHours)"
+                ),
+                WorkPatternPreviewMetric(title: "PEAK HOUR", value: peakHour),
+                WorkPatternPreviewMetric(
+                    title: "LONGEST RUN",
+                    value: "\(snapshot.longestActiveRunHours)h"
+                ),
+            ]
+            return WorkPatternPreviewPresentation(
+                title: title,
+                metrics: metrics,
+                accessibilityTitle: "Work patterns for today. \(snapshot.totalActiveHours) active hours. Peak hour \(peakHour). Longest active run \(snapshot.longestActiveRunHours) hours. Open Work Patterns."
+            )
+        }
+        let average = snapshot.averageActiveHoursPerActiveDay.map(oneDecimal) ?? "—"
+        let weekday = snapshot.volumePeakWeekday.map {
+            UsageHistoryPresentation.shortWeekdayTitle($0.weekday)
+        } ?? "—"
+        let spokenWeekday = snapshot.volumePeakWeekday.map {
+            UsageHistoryPresentation.weekdayTitle($0.weekday)
+        } ?? "unavailable"
+        let metrics = [
+            WorkPatternPreviewMetric(title: "AVG HOURS", value: average == "—" ? average : "\(average)h"),
+            WorkPatternPreviewMetric(title: "PEAK HOUR", value: peakHour),
+            WorkPatternPreviewMetric(title: "PEAK DAY", value: weekday),
+        ]
+        return WorkPatternPreviewPresentation(
+            title: title,
+            metrics: metrics,
+            accessibilityTitle: "Work patterns for the \(UsageHistoryPresentation.rangeDescription(range).lowercased()). Average \(average) active hours per active day. Peak hour \(peakHour). Peak day \(spokenWeekday). Open Work Patterns."
+        )
+    }
+
+    private static func oneDecimal(_ value: Decimal) -> String {
+        let behavior = NSDecimalNumberHandler(
+            roundingMode: .plain,
+            scale: 1,
+            raiseOnExactness: false,
+            raiseOnOverflow: false,
+            raiseOnUnderflow: false,
+            raiseOnDivideByZero: false
+        )
+        return NSDecimalNumber(decimal: value)
+            .rounding(accordingToBehavior: behavior)
+            .stringValue
+    }
+}
+
+struct UsagePointCalloutPresentation: Equatable, Sendable {
+    let contextTitle: String
+    let tokenTitle: String
+    let apiValueTitle: String
+    let accessibilityTitle: String
+
+    static func make(
+        point: UsageHistoryPoint,
+        range: UsageHistoryRange,
+        currency: DisplayCurrency
+    ) -> UsagePointCalloutPresentation {
+        let context = UsageHistoryPresentation.pointContextTitle(point, range: range)
+        let tokens = "\(ValueFormatter.exactTokens(point.tokenTotal)) tokens"
+        let apiValue = point.breakdown.map {
+            UsageHistoryPresentation.apiEquivalentTitle(for: $0, currency: currency)
+        } ?? "API equivalent unavailable"
+        return UsagePointCalloutPresentation(
+            contextTitle: context,
+            tokenTitle: tokens,
+            apiValueTitle: apiValue,
+            accessibilityTitle: "\(context). \(tokens). \(apiValue)."
+        )
+    }
 }
 
 struct RichPopoverRefreshPresentation: Equatable, Sendable {
@@ -308,5 +428,39 @@ enum UsageHistoryPresentation {
         case .cache: "Cache"
         case .output: "Output"
         }
+    }
+
+    static func hourTitle(_ hour: Int) -> String {
+        String(format: "%02d:00", locale: Locale(identifier: "en_US_POSIX"), hour)
+    }
+
+    static func weekdayTitle(_ weekday: WorkWeekday) -> String {
+        switch weekday {
+        case .monday: "Monday"
+        case .tuesday: "Tuesday"
+        case .wednesday: "Wednesday"
+        case .thursday: "Thursday"
+        case .friday: "Friday"
+        case .saturday: "Saturday"
+        case .sunday: "Sunday"
+        }
+    }
+
+    static func shortWeekdayTitle(_ weekday: WorkWeekday) -> String {
+        String(weekdayTitle(weekday).prefix(3))
+    }
+
+    static func pointContextTitle(
+        _ point: UsageHistoryPoint,
+        range: UsageHistoryRange
+    ) -> String {
+        guard range == .today, let hourStart = point.hourStart else {
+            return shortDate(point.localDay)
+        }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: point.localDay.timeZoneIdentifier) ?? .current
+        let start = calendar.component(.hour, from: hourStart)
+        let end = (start + 1) % 24
+        return "\(hourTitle(start))–\(hourTitle(end))"
     }
 }

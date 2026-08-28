@@ -128,6 +128,7 @@ public struct UsageHistorySnapshot: Equatable, Sendable {
     public let points: [UsageHistoryPoint]
     public let comparison: UsageComparison
     public let breakdown: UsageBreakdown
+    public let workPatterns: WorkPatternSnapshot?
 
     public init(
         range: UsageHistoryRange,
@@ -136,7 +137,8 @@ public struct UsageHistorySnapshot: Equatable, Sendable {
         previousInterval: DateInterval,
         points: [UsageHistoryPoint],
         comparison: UsageComparison,
-        breakdown: UsageBreakdown
+        breakdown: UsageBreakdown,
+        workPatterns: WorkPatternSnapshot? = nil
     ) {
         self.range = range
         self.provider = provider
@@ -145,6 +147,7 @@ public struct UsageHistorySnapshot: Equatable, Sendable {
         self.points = points
         self.comparison = comparison
         self.breakdown = breakdown
+        self.workPatterns = workPatterns
     }
 }
 

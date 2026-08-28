@@ -5,8 +5,8 @@ import XCTest
 final class WorkPatternAnalyticsTests: XCTestCase {
     func testCalculatesBalancedMetricsAndSeparatesVolumeFromConsistency() throws {
         let calendar = amsterdamCalendar()
-        let current = interval("2026-08-03T00:00:00Z", "2026-08-17T00:00:00Z")
-        let previous = interval("2026-07-20T00:00:00Z", "2026-08-03T00:00:00Z")
+        let current = interval("2026-08-02T22:00:00Z", "2026-08-16T22:00:00Z")
+        let previous = interval("2026-07-19T22:00:00Z", "2026-08-02T22:00:00Z")
         let rows = [
             row("2026-08-03T07:00:00Z", quantity: 100),
             row("2026-08-03T08:00:00Z", quantity: 20),
@@ -58,7 +58,7 @@ final class WorkPatternAnalyticsTests: XCTestCase {
 
     func testDeduplicatesAdditiveRowsAndExcludesInformationalSubsets() throws {
         let calendar = amsterdamCalendar()
-        let current = interval("2026-08-03T00:00:00Z", "2026-08-10T00:00:00Z")
+        let current = interval("2026-08-02T22:00:00Z", "2026-08-09T22:00:00Z")
         let hour = date("2026-08-03T07:00:00Z")
         let rows = [
             row(hour, provider: .codex, metric: .inputUncached, quantity: 100),
@@ -70,7 +70,7 @@ final class WorkPatternAnalyticsTests: XCTestCase {
             currentRows: rows,
             previousRows: [],
             currentInterval: current,
-            previousInterval: interval("2026-07-27T00:00:00Z", "2026-08-03T00:00:00Z"),
+            previousInterval: interval("2026-07-26T22:00:00Z", "2026-08-02T22:00:00Z"),
             coverageStart: date("2026-07-01T00:00:00Z"),
             now: current.end.addingTimeInterval(-1),
             calendar: calendar
@@ -80,19 +80,24 @@ final class WorkPatternAnalyticsTests: XCTestCase {
         XCTAssertEqual(snapshot.activeDayCount, 1)
         XCTAssertEqual(snapshot.days.first(where: { $0.activeHourCount > 0 })?.tokenTotal, 300)
         XCTAssertEqual(snapshot.volumePeakHour?.hour, 9)
-        XCTAssertNil(snapshot.comparison)
+        XCTAssertEqual(snapshot.comparison, WorkPatternComparison(
+            currentActiveHours: 1,
+            previousActiveHours: 0,
+            activeHourDelta: 1,
+            percentChange: nil
+        ))
     }
 
     func testPartialCoverageUsesOnlyCoveredCalendarDays() throws {
         let calendar = amsterdamCalendar()
-        let current = interval("2026-08-03T00:00:00Z", "2026-08-17T00:00:00Z")
+        let current = interval("2026-08-02T22:00:00Z", "2026-08-16T22:00:00Z")
         let coverageStart = date("2026-08-10T07:35:00Z")
 
         let snapshot = try WorkPatternCalculator().make(
             currentRows: [row("2026-08-10T07:00:00Z", quantity: 10)],
             previousRows: [],
             currentInterval: current,
-            previousInterval: interval("2026-07-20T00:00:00Z", "2026-08-03T00:00:00Z"),
+            previousInterval: interval("2026-07-19T22:00:00Z", "2026-08-02T22:00:00Z"),
             coverageStart: coverageStart,
             now: current.end.addingTimeInterval(-1),
             calendar: calendar

@@ -2,9 +2,25 @@ import AppKit
 import SwiftUI
 import TokenboardCore
 
+enum HistorySection: String, CaseIterable, Equatable, Sendable {
+    case usage
+    case workPatterns = "work_patterns"
+}
+
 struct HistoryOpenRequest: Equatable, Sendable {
     let provider: Provider?
     let range: UsageHistoryRange
+    let section: HistorySection
+
+    init(
+        provider: Provider?,
+        range: UsageHistoryRange,
+        section: HistorySection = .usage
+    ) {
+        self.provider = provider
+        self.range = range
+        self.section = section
+    }
 }
 
 @MainActor
@@ -56,7 +72,20 @@ final class HistoryViewModel: ObservableObject {
 
     func select(range: UsageHistoryRange) {
         guard range != request.range else { return }
-        load(HistoryOpenRequest(provider: request.provider, range: range))
+        load(HistoryOpenRequest(
+            provider: request.provider,
+            range: range,
+            section: request.section
+        ))
+    }
+
+    func select(section: HistorySection) {
+        guard section != request.section else { return }
+        request = HistoryOpenRequest(
+            provider: request.provider,
+            range: request.range,
+            section: section
+        )
     }
 
     func retry() {

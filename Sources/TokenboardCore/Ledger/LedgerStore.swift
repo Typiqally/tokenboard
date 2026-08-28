@@ -89,6 +89,7 @@ public protocol LedgerStore: Sendable {
         in interval: DateInterval?,
         calendar: Calendar
     ) async throws -> [HourlyUsageRow]
+    func hourlyUsageCoverageStart() async throws -> Date?
     func checkpoint(for fingerprint: String) async throws -> SourceCheckpoint?
     func sourceFingerprint(provider: Provider, stableID: String) async throws -> String
     func recordIdentityHash(_ value: String) async throws -> String
@@ -119,5 +120,9 @@ public extension LedgerStore {
         calendar: Calendar
     ) async throws -> [HourlyUsageRow] {
         []
+    }
+
+    func hourlyUsageCoverageStart() async throws -> Date? {
+        try await hourlyUsageRows(in: nil, calendar: .current).map(\.hourStart).min()
     }
 }

@@ -291,14 +291,19 @@ final class AppModel: ObservableObject {
         onOpenSettings?()
     }
 
-    func openHistory(provider: Provider? = nil, range: UsageHistoryRange? = nil) {
+    func openHistory(
+        provider: Provider? = nil,
+        range: UsageHistoryRange? = nil,
+        section: HistorySection = .usage
+    ) {
         guard !isDatabaseRestoreInProgress,
               !isDatabaseRecoveryActionLocked,
               state.lifecycle != .stopped,
               state.lifecycle != .shuttingDown else { return }
         onOpenHistory?(HistoryOpenRequest(
             provider: provider,
-            range: range ?? state.selectedHistoryRange
+            range: range ?? state.selectedHistoryRange,
+            section: section
         ))
     }
 
