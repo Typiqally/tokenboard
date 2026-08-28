@@ -210,10 +210,10 @@ final class RichUsagePresentationTests: XCTestCase {
     }
 
     func testApprovedSurfaceDimensionsStayCompactAndRelated() {
-        XCTAssertEqual(TokenboardSurfaceMetrics.popoverSize, NSSize(width: 350, height: 500))
-        XCTAssertEqual(TokenboardSurfaceMetrics.companionPopoverSize, NSSize(width: 350, height: 596))
-        XCTAssertEqual(TokenboardSurfaceMetrics.popoverSize(companionEnabled: false), NSSize(width: 350, height: 500))
-        XCTAssertEqual(TokenboardSurfaceMetrics.popoverSize(companionEnabled: true), NSSize(width: 350, height: 596))
+        XCTAssertEqual(TokenboardSurfaceMetrics.popoverSize, NSSize(width: 350, height: 560))
+        XCTAssertEqual(TokenboardSurfaceMetrics.companionPopoverSize, NSSize(width: 350, height: 656))
+        XCTAssertEqual(TokenboardSurfaceMetrics.popoverSize(companionEnabled: false), NSSize(width: 350, height: 560))
+        XCTAssertEqual(TokenboardSurfaceMetrics.popoverSize(companionEnabled: true), NSSize(width: 350, height: 656))
         XCTAssertEqual(TokenboardSurfaceMetrics.companionSceneHeight, 84)
         XCTAssertEqual(TokenboardSurfaceMetrics.popoverContentWidth, 310)
         XCTAssertEqual(TokenboardSurfaceMetrics.providerPercentageWidth, 44)
@@ -255,6 +255,81 @@ final class RichUsagePresentationTests: XCTestCase {
         XCTAssertEqual(
             RichPopoverHeaderAction.quit.systemImageName,
             "power"
+        )
+    }
+
+    func testPopoverChartSelectionHoversPinsAndClearsWithoutChangingRangeState() {
+        var selection = PopoverChartSelection()
+
+        selection.hover("day:2026-08-10")
+        XCTAssertEqual(selection.selectedPointID, "day:2026-08-10")
+        XCTAssertFalse(selection.isPinned)
+
+        selection.togglePin("day:2026-08-10")
+        selection.hover("day:2026-08-11")
+        XCTAssertEqual(selection.selectedPointID, "day:2026-08-10")
+        XCTAssertTrue(selection.isPinned)
+
+        selection.togglePin("day:2026-08-10")
+        XCTAssertEqual(selection.selectedPointID, "day:2026-08-11")
+        selection.clearHover()
+        XCTAssertNil(selection.selectedPointID)
+
+        selection.hover("day:2026-08-09")
+        selection.clearAll()
+        XCTAssertNil(selection.selectedPointID)
+        XCTAssertFalse(selection.isPinned)
+    }
+
+    func testWorkPatternPreviewUsesRangeSpecificMetricsAndHonestLabels() throws {
+        let workPatterns = try makeWorkPatterns()
+
+        XCTAssertEqual(
+            WorkPatternPreviewPresentation.make(workPatterns, range: .thirtyDays),
+            WorkPatternPreviewPresentation(
+                title: "WORK PATTERNS · 30D",
+                metrics: [
+                    WorkPatternPreviewMetric(title: "AVG HOURS", value: "1.3h"),
+                    WorkPatternPreviewMetric(title: "PEAK HOUR", value: "15:00"),
+                    WorkPatternPreviewMetric(title: "PEAK DAY", value: "Tue"),
+                ],
+                accessibilityTitle: "Work patterns for the last 30 days. Average 1.3 active hours per active day. Peak hour 15:00. Peak day Tuesday. Open Work Patterns."
+            )
+        )
+
+        XCTAssertEqual(
+            WorkPatternPreviewPresentation.make(workPatterns, range: .today)?.metrics,
+            [
+                WorkPatternPreviewMetric(title: "ACTIVE HOURS", value: "5"),
+                WorkPatternPreviewMetric(title: "PEAK HOUR", value: "15:00"),
+                WorkPatternPreviewMetric(title: "LONGEST RUN", value: "2h"),
+            ]
+        )
+    }
+
+    func testUsagePointCalloutPresentsExactPointWithoutChangingTheSnapshot() {
+        let day = LocalDay(date: Date(timeIntervalSince1970: 0), calendar: .current)
+        let point = UsageHistoryPoint(localDay: day, tokenTotal: 12_345)
+
+        let callout = UsagePointCalloutPresentation.make(
+            point: point,
+            range: .sevenDays,
+            currency: .usd
+        )
+
+        XCTAssertEqual(callout.tokenTitle, "12,345 tokens")
+        XCTAssertEqual(callout.apiValueTitle, "API equivalent unavailable")
+        XCTAssertTrue(callout.accessibilityTitle.contains("12,345 tokens"))
+    }
+
+    func testHistoryRequestCanOpenDirectlyIntoWorkPatterns() {
+        XCTAssertEqual(
+            HistoryOpenRequest(provider: nil, range: .thirtyDays, section: .workPatterns).section,
+            .workPatterns
+        )
+        XCTAssertEqual(
+            HistoryOpenRequest(provider: .codex, range: .sevenDays).section,
+            .usage
         )
     }
 
@@ -326,6 +401,74 @@ final class RichUsagePresentationTests: XCTestCase {
                 models: [],
                 tokenTypes: []
             )
+        )
+    }
+
+    private func makeWorkPatterns() throws -> WorkPatternSnapshot {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Europe/Amsterdam")!
+        let date: (String) -> Date = { ISO8601DateFormatter().date(from: $0)! }
+        let current = DateInterval(
+            start: date("2026-08-03T00:00:00Z"),
+            end: date("2026-08-17T00:00:00Z")
+        )
+        return try WorkPatternCalculator().make(
+            currentRows: [
+                HourlyUsageRow(
+                    hourStart: date("2026-08-03T07:00:00Z"),
+                    localDay: LocalDay(date: date("2026-08-03T07:00:00Z"), calendar: calendar),
+                    provider: .codex,
+                    observedModelID: "synthetic-model",
+                    metric: .inputUncached,
+                    aggregation: .additive,
+                    quantity: 100
+                ),
+                HourlyUsageRow(
+                    hourStart: date("2026-08-04T13:00:00Z"),
+                    localDay: LocalDay(date: date("2026-08-04T13:00:00Z"), calendar: calendar),
+                    provider: .codex,
+                    observedModelID: "synthetic-model",
+                    metric: .output,
+                    aggregation: .additive,
+                    quantity: 500
+                ),
+                HourlyUsageRow(
+                    hourStart: date("2026-08-10T07:00:00Z"),
+                    localDay: LocalDay(date: date("2026-08-10T07:00:00Z"), calendar: calendar),
+                    provider: .codex,
+                    observedModelID: "synthetic-model",
+                    metric: .output,
+                    aggregation: .additive,
+                    quantity: 50
+                ),
+                HourlyUsageRow(
+                    hourStart: date("2026-08-10T08:00:00Z"),
+                    localDay: LocalDay(date: date("2026-08-10T08:00:00Z"), calendar: calendar),
+                    provider: .codex,
+                    observedModelID: "synthetic-model",
+                    metric: .output,
+                    aggregation: .additive,
+                    quantity: 20
+                ),
+                HourlyUsageRow(
+                    hourStart: date("2026-08-11T07:00:00Z"),
+                    localDay: LocalDay(date: date("2026-08-11T07:00:00Z"), calendar: calendar),
+                    provider: .codex,
+                    observedModelID: "synthetic-model",
+                    metric: .output,
+                    aggregation: .additive,
+                    quantity: 10
+                ),
+            ],
+            previousRows: [],
+            currentInterval: current,
+            previousInterval: DateInterval(
+                start: date("2026-07-20T00:00:00Z"),
+                end: date("2026-08-03T00:00:00Z")
+            ),
+            coverageStart: date("2026-07-01T00:00:00Z"),
+            now: current.end.addingTimeInterval(-1),
+            calendar: calendar
         )
     }
 }
