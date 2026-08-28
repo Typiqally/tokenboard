@@ -1,6 +1,6 @@
 # Tokenboard
 
-A fully native macOS menu-bar app that turns supported local Claude Code and Codex usage records into durable token totals, hourly and daily trends, and transparent API-equivalent estimates.
+A fully native macOS menu-bar app that turns supported local Claude Code and Codex usage records into durable token totals, hourly and daily trends, private work-pattern insights, and transparent API-equivalent estimates.
 
 ![Tokenboard's compact native macOS menu-bar popover and matching History window, with Today, 7D, 30D, and 90D trends shown using sample local usage data.](docs/design/rich-popover-family.svg)
 
@@ -47,9 +47,9 @@ Upgrade with `brew upgrade --cask tokenboard`. Uninstall with `brew uninstall --
 ## At a glance
 
 - **A useful menu-bar value.** Show compact tokens or API-equivalent value for Today, This Week, This Month, This Year, or All Time. The selected period, metric, and display currency persist across launches.
-- **A focused native popover.** See the exact total, API-equivalent estimate, update recency, comparison, chart, and Claude Code/Codex shares without opening a dashboard. The popover dismisses on an outside click or Escape.
+- **A focused native popover.** See the exact total, API-equivalent estimate, update recency, comparison, chart, work-pattern preview, and Claude Code/Codex shares without opening a dashboard. Hover or scrub a chart bar for its exact value, then click to pin it. The popover dismisses on an outside click or Escape.
 - **Today through 90 days.** `TODAY` shows hourly progression. `7D`, `30D`, and `90D` show daily trends. These trend ranges are independent from the headline summary period.
-- **Drill-down History.** Open the resizable History window for the whole range or a provider, select a chart bar, and expand provider, model, and Input/Cache/Output totals. Reasoning output is explained and never counted twice.
+- **Drill-down History.** Open the resizable History window for the whole range or a provider, select a chart bar, and expand provider, model, and Input/Cache/Output totals. Switch to Work Patterns for active-hour averages, peak and recurring hours or weekdays, a selectable volume/consistency heatmap, typical first and last activity, and busiest-day context.
 - **Automatic local updates.** Native filesystem events provide the fast path. A read-only JSONL metadata reconciliation catches events that the App Sandbox does not deliver, and the recency label doubles as an explicit Refresh action.
 - **Honest estimates.** Effective-dated public list prices and locally approved exchange rates power API-equivalent values. Unknown models and uncovered dates remain counted but visibly unpriced; the estimate is never presented as a bill.
 - **Optional local companions.** Choose Pokémon, Forest, Village, Old School RuneScape, Age of Empires II, or Minecraft from the visual shelf in General Settings. Every theme is a coherent, art-directed twelve-stage journey built from authentic source artwork or original generated scenes, all bundled at build time, while the popover stays visual-only. The journey follows the existing `TODAY` token source and resets at the start of each local day; `None` keeps the original compact interface.
@@ -59,23 +59,25 @@ Upgrade with `brew upgrade --cask tokenboard`. Uninstall with `brew uninstall --
 
 The menu-bar item stays compact: it shows the selected token or API-value metric and uses an activity symbol while the first local records are being imported.
 
-The default `350 × 500` popover separates two scopes on purpose. Enabling a companion adds one text-free `350 × 84` full-bleed scene band below the headline — with a slim journey-progress line along its bottom edge — and expands the popover to `350 × 596`; selecting `None` returns to the exact compact layout.
+The default `350 × 560` popover separates two scopes on purpose. Enabling a companion adds one text-free `350 × 84` full-bleed scene band below the headline — with a slim journey-progress line along its bottom edge — and expands the popover to `350 × 656`; selecting `None` returns to the exact compact layout.
 
 A companion scene moves only while it is genuinely visible: the popover must be presented and its window unoccluded, un-miniaturized, and not hidden with the app, and a still scene runs no timeline at all. The Settings shelf thumbnails stay still because they are a picker, not a scene. Under Reduced Motion, and whenever a scene is paused, each world composes a deliberate still at its own resting moment — leaves mid-fall, a cloud shadow part-way across, torches lit, people mid-errand — instead of freezing a frame or emptying the plate. Everything a scene does is a pure function of the theme, the stage, and one local seed, so two installs grow different towns and one install looks the same on every launch.
 
 - The header menu controls the headline period: Today, This Week, This Month, This Year, or All Time.
-- The segmented control controls only the trend, comparison, and provider shares: Today, 7D, 30D, or 90D.
+- The segmented control controls the trend, comparison, work-pattern preview, and provider shares: Today, 7D, 30D, or 90D.
+- Hovering or scrubbing the chart shows the selected hour or day, exact tokens, and API-equivalent value without changing the range-level headline or shares; clicking pins the callout.
+- The three-value Work Patterns strip follows the trend range and opens the matching Work Patterns view in History.
 - Provider rows open History already filtered to that provider and preserve the selected trend range.
 - History and Settings remain one click away in the footer; Quit and Refresh stay in the header.
 - The optional menu-bar companion icon is off by default. When enabled, its silhouette follows the current stage; Pokémon also follows the deterministic starter family selected for that calendar day.
 
-History uses the same typography, chart, range control, dividers, and provider identity at working-window scale. Settings keeps durable controls out of the popover and groups them into General, Sources, Pricing, and Diagnostics. That includes menu-bar metric and period, companion track and icon visibility, USD/EUR/JPY/GBP/CNY display currencies, Launch at Login, source grants, pricing coverage, parser diagnostics, local-data reveal, and database recovery.
+History uses the same typography, chart, range control, dividers, and provider identity at working-window scale. Its Usage and Work Patterns views share the selected range and optional provider filter. An active hour means one local clock-hour bucket containing additive usage; it is an activity estimate, not continuous time tracking. Settings keeps durable controls out of the popover and groups them into General, Sources, Pricing, and Diagnostics.
 
 ## Private by construction
 
 - One sandboxed native process with no network entitlement or network requests.
 - Explicit, read-only folder grants through the native macOS picker; Tokenboard never guesses a source location.
-- No telemetry, analytics, helper, daemon, or XPC service.
+- No telemetry, remote analytics, helper, daemon, or XPC service. Work Patterns are calculated locally from the same content-safe hourly aggregates.
 - Automatic monitoring combines native filesystem events with read-only JSONL size and modification-date reconciliation. It never edits source logs.
 - Content-safe daily and hourly aggregates and bookkeeping after ingestion—not prompts, responses, tool content, project metadata, paths below the granted roots, raw session IDs, or per-session totals.
 - Companion art is bundled with the app. Only the selected track, menu-bar visibility, and random seed are stored as companion preferences; stages derive directly from the existing local `TODAY` aggregate. No companion data is fetched or uploaded.
@@ -87,7 +89,7 @@ See [PRIVACY.md](PRIVACY.md) for the exact local-data and retention boundary.
 1. Choose the Claude Code and Codex roots through the native folder picker.
 2. Start the one-time historical import for the logs currently available.
 3. Tokenboard imports supported records, keeps watching both roots, and refreshes the visible summary and cached trends as those JSONL files change.
-4. Read a compact status in the menu bar, open the popover for exact totals and recent trends, and use History when you want the full local breakdown.
+4. Read a compact status in the menu bar, open the popover for exact totals and interactive recent trends, and use History for the full Usage or Work Patterns view.
 
 Committed daily and hourly aggregates survive later source-log deletion, and recreating an already imported log does not add it again. Tokenboard cannot recover logs that were unavailable or deleted before the first successful import.
 
@@ -128,6 +130,7 @@ open .build/release/Tokenboard.app
 - API-equivalent estimates use standard public API list prices, with the limitations described above.
 - Automatic reconciliation watches JSONL size and modification dates; Refresh remains available for an immediate full local rescan.
 - Calendar buckets reflect the Mac's local timezone at ingestion; changing timezones later does not rewrite historical buckets.
+- Active-hour insights begin where reliable hourly coverage begins. Earlier daily-only totals remain available in Usage and are never presented as precise work time.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development, verification, and release checks.
 

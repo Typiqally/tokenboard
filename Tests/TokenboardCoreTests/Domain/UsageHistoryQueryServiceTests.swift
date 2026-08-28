@@ -47,6 +47,10 @@ final class UsageHistoryQueryServiceTests: XCTestCase {
         XCTAssertEqual(snapshot.breakdown.tokenTotal, 175)
         XCTAssertEqual(snapshot.comparison.previousTokenTotal, 100)
         XCTAssertEqual(snapshot.comparison.percentChange, 75)
+        XCTAssertEqual(snapshot.workPatterns?.totalActiveHours, 2)
+        XCTAssertEqual(snapshot.workPatterns?.activeDayCount, 1)
+        XCTAssertEqual(snapshot.workPatterns?.volumePeakHour?.hour, 9)
+        XCTAssertEqual(snapshot.workPatterns?.volumePeakHour?.tokenTotal, 100)
     }
 
     func testHistoryBuildsContinuousDailySeriesComparisonAndBreakdowns() async throws {

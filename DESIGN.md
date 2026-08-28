@@ -17,10 +17,12 @@ The approved visual direction is the **rich popover**. Its companion History win
 
 ### Rich popover
 
-- Native transient `NSPopover`, `350 × 500`; opens without an entrance animation and dismisses when clicking outside or pressing Escape.
+- Native transient `NSPopover`, `350 × 560`; opens without an entrance animation and dismisses when clicking outside or pressing Escape.
 - The quiet header menu controls the exact summary period: Today, This Week, This Month, This Year, or All Time.
 - The headline and API-equivalent subtitle always use that summary period.
-- The segmented `TODAY / 7D / 30D / 90D` control is independent. It controls only the chart, comparison, and provider shares, defaults to 30D on launch, and changes instantly from cached local snapshots. Today uses hourly points; longer ranges use daily points.
+- The segmented `TODAY / 7D / 30D / 90D` control is independent. It controls the chart, comparison, work-pattern preview, and provider shares, defaults to 30D on launch, and changes instantly from cached local snapshots. Today uses hourly points; longer ranges use daily points.
+- Hover or scrub a chart point to show its local hour/day, exact tokens, and API-equivalent value in a clamped overlay. Click to pin it. Inspection never changes the range-level headline, comparison, preview, or provider shares, and resets when the range, snapshot, or popover visibility changes.
+- Insert one compact, divider-bound Work Patterns strip between comparison and provider shares. Its three values summarize the selected trend range and the whole strip opens History directly on Work Patterns.
 - Provider rows open History filtered to that provider and preserve the selected trend range.
 - The footer contains direct History and Settings navigation. Pricing remains in Settings.
 - The range control spans the full 310-point content column with four equal native segments.
@@ -28,7 +30,7 @@ The approved visual direction is the **rich popover**. Its companion History win
 - The 16-point top inset and 4-point spacing rhythm keep the header compact while preserving clear content groups.
 - The recency label is also the explicit local refresh action. It disables immediately and shows `Refreshing…` with a native activity indicator until the local scan finishes.
 - Quit is a quiet power icon beside Refresh in the header, with a tooltip, accessibility label, and `⌘Q` shortcut.
-- With a companion enabled, insert a `350 × 84` horizon band immediately below the headline and expand the popover to `350 × 596`. The band bleeds edge to edge between two hairlines with soft inset shading — a window cut through the popover surface, never a bordered card — and its background is bottom-aligned so the wider crop trims sky, not the ground the subjects stand on. A slim 3-point progress line hugs the band's bottom edge over a soft scrim, showing how far the journey is toward the next stage; beyond that line the artwork carries no title, stage, token count, or caption. `None` renders no placeholder and leaves the `350 × 500` layout unchanged.
+- With a companion enabled, insert a `350 × 84` horizon band immediately below the headline and expand the popover to `350 × 656`. The band bleeds edge to edge between two hairlines with soft inset shading — a window cut through the popover surface, never a bordered card — and its background is bottom-aligned so the wider crop trims sky, not the ground the subjects stand on. A slim 3-point progress line hugs the band's bottom edge over a soft scrim, showing how far the journey is toward the next stage; beyond that line the artwork carries no title, stage, token count, or caption. `None` renders no placeholder and leaves the `350 × 560` layout unchanged.
 
 ### Companion settings
 
@@ -67,10 +69,14 @@ Each world is art-directed separately. There is one shared vocabulary — subjec
 
 - Standard resizable macOS window, initially `760 × 580`, minimum `680 × 520`.
 - Opens on the same trend range as the popover and optionally with a provider filter.
-- Uses the same header, headline, segmented control, chart, comparison language, dividers, and disclosure typography as the popover.
+- A native `Usage / Work Patterns` selector changes the working view without changing its range or optional provider filter. The popover History action opens Usage; its Work Patterns strip opens Work Patterns.
+- Usage keeps the same header, headline, segmented control, chart, comparison language, dividers, and disclosure typography as the popover.
 - Initially summarizes the whole range. Selecting a chart bar scopes the headline and disclosures to that local hour or day; “Show whole range” or Escape clears the selection.
 - “Why this number?” explains additive totals and why reasoning output is not double-counted.
 - Provider, model, and token-type disclosures start collapsed with summary labels, expand on demand, and remain plain rows separated by dividers—never cards nested inside cards.
+- Work Patterns uses divider-separated metrics rather than dashboard cards: active-hour and active-day averages, selectable daily activity, a 7×24 Token volume/Consistency heatmap, volume and recurrence peaks, typical first/last activity, longest active run, and busiest date. Today substitutes a 24-hour timeline for recurring weekly patterns.
+- One active hour is one distinct local clock-hour bucket with additive usage. Multiple providers, models, and token categories in the same bucket count once; informational reasoning subsets never create activity. The surface says “active hours,” never “hours worked.”
+- When the selected range predates reliable hourly coverage, show the coverage start and exclude earlier daily-only totals from time metrics while retaining them in Usage.
 
 ## Shared visual grammar
 
@@ -115,6 +121,7 @@ System appearance, increased contrast, reduced motion, Dynamic Type behavior, ke
 - `HistoryWindowController`, `HistoryViewModel`, and `UsageHistoryView` own the on-demand working window.
 - `UsageSurfaceComponents` contains the shared range control, chart, provider row, typography, and disclosure row.
 - `UsageQueryService.history` produces deterministic local snapshots; `AppModel` refreshes and caches Today, 7D, 30D, and 90D snapshots after ingestion and pricing changes.
+- `WorkPatternCalculator` derives work-pattern snapshots from content-safe hourly aggregates; `WorkPatternView` renders the History working view without adding a storage schema or preference.
 - `CompanionJourney` owns milestones, permanent delta accumulation, and deterministic Pokémon starter variants. `CompanionAssetCatalog` maps every visible theme and stage to bundle-relative baked scenes and subject placements.
 - `CompanionSceneMotion` is the pure motion vocabulary — signatures, particle fields, shadow bands, glows, washes, subject motion, and window lighting — with no AppKit or SwiftUI in it. `CompanionSceneActors` is the equally pure population layer: body plans, routes, and the attention a world's subjects answer to. `CompanionSceneDirection` holds the per-world, per-stage art direction as data. `CompanionArtwork` composes a scene once per layout and draws every frame in one `Canvas`; `CompanionWindowMap` recovers each village sprite's own window grid from its pixels; `CompanionSceneVisibility` gates motion on the host window really being on screen; `CompanionMenuIcon` renders the menu silhouettes.
 - `SQLiteLedger.lifetimeAdditiveTokenTotal` supplies an additive-only observation without a schema change.

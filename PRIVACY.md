@@ -2,6 +2,8 @@
 
 Tokenboard has no network entitlement and performs no network requests. It reads only the Claude Code and Codex folders selected through macOS. It stores daily and hourly token aggregates, exact model IDs, price history, opaque salted source/checkpoint hashes, skipped-record hashes, the two security-scoped root bookmarks, and optional companion journey preferences. It does not store prompts, responses, tool content, project metadata, paths below the granted roots, raw session IDs, or per-session totals. Revoking access stops future reads but intentionally does not erase committed aggregates.
 
+Work Patterns are calculated on-device from those existing hourly aggregates. They do not add event, session, presence, project, or activity-monitoring records. An “active hour” means only that additive usage exists in a local clock-hour bucket; it is not continuous time tracking and is never uploaded.
+
 Model IDs that do not meet Tokenboard's strict content-safe identifier rules are represented by an opaque `unknown-…` hash rather than persisted verbatim. Bookmarks necessarily identify the two roots you selected; Tokenboard does not store paths beneath those roots.
 
 ## Access and background behavior

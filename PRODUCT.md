@@ -6,7 +6,7 @@ product
 
 ## Users
 
-Tokenboard is for macOS developers who use Claude Code or Codex and want a quick, private view of their token usage. They check it at a glance from the menu bar, open the rich popover for an exact total and recent trend, then use History only when they want to inspect the number more deeply.
+Tokenboard is for macOS developers who use Claude Code or Codex and want a quick, private view of their token usage and working rhythm. They check it at a glance from the menu bar, open the rich popover for an exact total and interactive recent trend, then use History when they want to inspect usage or work patterns more deeply.
 
 ## Product Purpose
 
@@ -37,8 +37,8 @@ Simple, clean, mean. Quietly confident and direct, with precise language and no 
 
 ## Primary Surfaces
 
-- Use the `350 × 500` transient rich popover for the one-click summary, recent trend, provider shares, and primary navigation. A selected companion expands it to `350 × 596`; `None` remains the default.
-- Use a standard resizable History window for exploration, selectable days, and provider/model/token-type disclosures.
+- Use the `350 × 560` transient rich popover for the one-click summary, interactive recent trend, work-pattern preview, provider shares, and primary navigation. A selected companion expands it to `350 × 656`; `None` remains the default.
+- Use a standard resizable History window with Usage and Work Patterns views for selectable usage details, provider/model/token-type disclosures, active-hour summaries, and recurring local-time patterns.
 - Keep durable display preferences in General Settings; the popover owns only the summary period and session-only trend range.
 - Share one visual grammar across popover and History. The detailed contract lives in [DESIGN.md](DESIGN.md).
 

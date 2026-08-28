@@ -287,12 +287,12 @@ public actor SQLiteLedger: LedgerStore {
         }
     }
 
-    public func hourlyUsageCoverageStart() throws -> Date? {
+    public func hourlyUsageCoverageStart() async throws -> Date? {
         let connection = try requiredConnection()
         let statement = try prepare(
             """
             SELECT
-              (SELECT applied_at FROM schema_migrations WHERE version = 4),
+              strftime('%s', (SELECT applied_at FROM schema_migrations WHERE version = 4)),
               (SELECT MIN(hour_start) FROM hourly_usage);
             """,
             using: connection
@@ -301,9 +301,9 @@ public actor SQLiteLedger: LedgerStore {
         guard sqlite3_step(statement) == SQLITE_ROW else {
             throw failure(sqlite3_errcode(connection.handle), using: connection)
         }
-        let migrationDate = try optionalText(statement, at: 0).flatMap {
-            ISO8601DateFormatter().date(from: $0)
-        }
+        let migrationDate: Date? = sqlite3_column_type(statement, 0) == SQLITE_NULL
+            ? nil
+            : Date(timeIntervalSince1970: TimeInterval(sqlite3_column_int64(statement, 0)))
         let firstUsageDate: Date? = sqlite3_column_type(statement, 1) == SQLITE_NULL
             ? nil
             : Date(timeIntervalSince1970: TimeInterval(sqlite3_column_int64(statement, 1)))

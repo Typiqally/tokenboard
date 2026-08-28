@@ -204,10 +204,22 @@ struct UsageHistoryView: View {
                         SurfaceEyebrow(title: viewModel.request.provider.map {
                             "History · \($0.displayName)"
                         } ?? "History")
-                        Text(viewModel.contextTitle)
+                        Text(viewModel.request.section == .usage
+                            ? viewModel.contextTitle
+                            : "Work Patterns")
                             .font(.title2.weight(.semibold))
                     }
                     Spacer()
+                    Picker("History view", selection: Binding(
+                        get: { viewModel.request.section },
+                        set: { viewModel.select(section: $0) }
+                    )) {
+                        Text("Usage").tag(HistorySection.usage)
+                        Text("Work Patterns").tag(HistorySection.workPatterns)
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .frame(width: 205)
                     UsageRangePicker(selection: Binding(
                         get: { viewModel.request.range },
                         set: { viewModel.select(range: $0) }
@@ -215,6 +227,36 @@ struct UsageHistoryView: View {
                     .frame(width: 250)
                 }
 
+                if viewModel.request.section == .usage {
+                    usageContent(snapshot: snapshot, breakdown: breakdown)
+                } else if let workPatterns = snapshot.workPatterns {
+                    WorkPatternView(
+                        snapshot: workPatterns,
+                        range: snapshot.range
+                    )
+                } else {
+                    VStack(spacing: 8) {
+                        Image(systemName: "clock.badge.questionmark")
+                            .font(.title2)
+                        Text("Work patterns are not available yet")
+                            .font(.headline)
+                        Text("Tokenboard starts measuring active hours when hourly local usage is available.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 320)
+                }
+            }
+            .padding(TokenboardVisualStyle.pageInset)
+        }
+    }
+
+    @ViewBuilder
+    private func usageContent(
+        snapshot: UsageHistorySnapshot,
+        breakdown: UsageBreakdown
+    ) -> some View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("\(ValueFormatter.exactTokens(breakdown.tokenTotal)) tokens")
                         .font(.system(size: 32, weight: .semibold, design: .rounded))
@@ -263,9 +305,6 @@ struct UsageHistoryView: View {
                 Divider()
 
                 disclosureRows(breakdown)
-            }
-            .padding(TokenboardVisualStyle.pageInset)
-        }
     }
 
     @ViewBuilder

@@ -256,6 +256,38 @@ final class SQLiteLedgerTests: XCTestCase {
         XCTAssertEqual(rows.map { calendar.component(.hour, from: $0.hourStart) }, [9, 10])
     }
 
+    func testHourlyCoverageBeginsAtMigrationUntilOlderHistoryIsImported() async throws {
+        let (ledger, directory) = try makeLedger()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let beforeMigration = Date()
+        try await ledger.migrate()
+        let connection = try SQLiteConnection(url: directory.appending(path: "ledger.sqlite"))
+        XCTAssertEqual(
+            try connection.queryStrings("SELECT version FROM schema_migrations ORDER BY version;"),
+            ["1", "2", "3", "4"]
+        )
+        XCTAssertEqual(
+            try connection.queryStrings("SELECT applied_at FROM schema_migrations WHERE version = 4;" ).count,
+            1
+        )
+        let queriedInitialCoverage = try await ledger.hourlyUsageCoverageStart()
+        let initialCoverage = try XCTUnwrap(queriedInitialCoverage)
+
+        XCTAssertGreaterThanOrEqual(initialCoverage, beforeMigration.addingTimeInterval(-1))
+
+        let historical = timestamp("2020-01-02T10:15:00Z")
+        try await ledger.commit(
+            [try usage(timestamp: historical)],
+            skipped: [],
+            checkpoint: checkpoint(timestamp: historical),
+            calendar: calendar
+        )
+
+        let queriedImportedCoverage = try await ledger.hourlyUsageCoverageStart()
+        let importedCoverage = try XCTUnwrap(queriedImportedCoverage)
+        XCTAssertEqual(importedCoverage, calendar.dateInterval(of: .hour, for: historical)?.start)
+    }
+
     func testMissingSourceNeverDeletesCommittedRows() async throws {
         let (ledger, _) = try makeLedger()
         try await ledger.migrate()

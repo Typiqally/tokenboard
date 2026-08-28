@@ -243,6 +243,7 @@ struct RichPopoverPresentation: Equatable, Sendable {
     let snapshot: UsageHistorySnapshot?
     let comparison: UsageComparisonPresentation?
     let providerRows: [ProviderSharePresentation]
+    let workPatternPreview: WorkPatternPreviewPresentation?
     let emptyMessage: String?
 
     static func make(
@@ -311,6 +312,10 @@ struct RichPopoverPresentation: Equatable, Sendable {
                 UsageHistoryPresentation.comparison($0.comparison, range: $0.range)
             },
             providerRows: providerRows(in: snapshot),
+            workPatternPreview: WorkPatternPreviewPresentation.make(
+                snapshot?.workPatterns,
+                range: state.selectedHistoryRange
+            ),
             emptyMessage: snapshot?.breakdown.tokenTotal == 0
                 ? "No usage recorded in this range"
                 : nil

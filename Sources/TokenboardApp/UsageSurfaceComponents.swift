@@ -120,20 +120,29 @@ struct UsageTrendChart: View {
     let snapshot: UsageHistorySnapshot
     @Binding var selectedPointID: String?
     var compact = false
+    var onHover: ((String?) -> Void)?
+    var onPin: ((String?) -> Void)?
 
     var body: some View {
         VStack(spacing: 7) {
-            Chart(snapshot.points, id: \.selectionID) { point in
-                BarMark(
-                    x: .value(snapshot.range == .today ? "Hour" : "Day", point.selectionID),
-                    y: .value("Tokens", point.tokenTotal)
-                )
-                .foregroundStyle(
-                    selectedPointID == nil || selectedPointID == point.selectionID
-                        ? Color(nsColor: .secondaryLabelColor)
-                        : Color(nsColor: .tertiaryLabelColor).opacity(0.45)
-                )
-                .cornerRadius(2)
+            Chart {
+                ForEach(snapshot.points, id: \.selectionID) { point in
+                    BarMark(
+                        x: .value(snapshot.range == .today ? "Hour" : "Day", point.selectionID),
+                        y: .value("Tokens", point.tokenTotal)
+                    )
+                    .foregroundStyle(
+                        selectedPointID == nil || selectedPointID == point.selectionID
+                            ? Color(nsColor: .secondaryLabelColor)
+                            : Color(nsColor: .tertiaryLabelColor).opacity(0.38)
+                    )
+                    .cornerRadius(2)
+                }
+                if let selectedPointID {
+                    RuleMark(x: .value("Selected point", selectedPointID))
+                        .foregroundStyle(Color.accentColor.opacity(0.58))
+                        .lineStyle(StrokeStyle(lineWidth: 1))
+                }
             }
             .chartXAxis(.hidden)
             .chartYAxis {
@@ -150,9 +159,61 @@ struct UsageTrendChart: View {
                 }
             }
             .chartXSelection(value: $selectedPointID)
+            .chartOverlay { proxy in
+                GeometryReader { geometry in
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onContinuousHover { phase in
+                            switch phase {
+                            case let .active(location):
+                                onHover?(selectionID(
+                                    at: location,
+                                    proxy: proxy,
+                                    geometry: geometry
+                                ))
+                            case .ended:
+                                onHover?(nil)
+                            }
+                        }
+                        .simultaneousGesture(
+                            SpatialTapGesture().onEnded { value in
+                                onPin?(selectionID(
+                                    at: value.location,
+                                    proxy: proxy,
+                                    geometry: geometry
+                                ))
+                            }
+                        )
+                }
+            }
             .accessibilityLabel(
                 UsageHistoryPresentation.chartAccessibilityLabel(for: snapshot.range)
             )
+            .accessibilityAdjustableAction { direction in
+                switch direction {
+                case .increment: moveSelection(by: 1)
+                case .decrement: moveSelection(by: -1)
+                @unknown default: break
+                }
+            }
+            .focusable(onPin != nil)
+            .onMoveCommand { direction in
+                switch direction {
+                case .left: moveSelection(by: -1)
+                case .right: moveSelection(by: 1)
+                default: break
+                }
+            }
+            .onKeyPress(.space) {
+                guard let selectedPointID else { return .ignored }
+                onPin?(selectedPointID)
+                return .handled
+            }
+            .onKeyPress(.return) {
+                guard let selectedPointID else { return .ignored }
+                onPin?(selectedPointID)
+                return .handled
+            }
 
             HStack {
                 Text(UsageHistoryPresentation.axisLabel(
@@ -174,6 +235,29 @@ struct UsageTrendChart: View {
             .foregroundStyle(.secondary)
             .monospacedDigit()
         }
+    }
+
+    private func selectionID(
+        at location: CGPoint,
+        proxy: ChartProxy,
+        geometry: GeometryProxy
+    ) -> String? {
+        guard let plotFrame = proxy.plotFrame else { return nil }
+        let frame = geometry[plotFrame]
+        guard frame.contains(location) else { return nil }
+        return proxy.value(atX: location.x - frame.minX, as: String.self)
+    }
+
+    private func moveSelection(by offset: Int) {
+        guard !snapshot.points.isEmpty else { return }
+        let current = selectedPointID.flatMap { selected in
+            snapshot.points.firstIndex { $0.selectionID == selected }
+        }
+        let proposed = (current ?? (offset > 0 ? -1 : snapshot.points.count)) + offset
+        let index = min(max(proposed, 0), snapshot.points.count - 1)
+        let pointID = snapshot.points[index].selectionID
+        selectedPointID = pointID
+        onHover?(pointID)
     }
 
 }

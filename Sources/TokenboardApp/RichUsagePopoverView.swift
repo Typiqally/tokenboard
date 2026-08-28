@@ -12,6 +12,7 @@ struct RichUsagePopoverView: View {
     @ObservedObject var visibility: RichPopoverVisibility
     let dismiss: () -> Void
     @State private var isRefreshPending = false
+    @State private var chartSelection = PopoverChartSelection()
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { context in
@@ -61,6 +62,15 @@ struct RichUsagePopoverView: View {
         // Companion scenes inside the popover animate only while this
         // window is genuinely on screen.
         .tracksCompanionSceneVisibility()
+        .onChange(of: model.selectedHistoryRange) { _, _ in
+            chartSelection.clearAll()
+        }
+        .onChange(of: model.state.lastUpdated) { _, _ in
+            chartSelection.clearAll()
+        }
+        .onChange(of: visibility.isPresented) { _, isPresented in
+            if !isPresented { chartSelection.clearAll() }
+        }
     }
 
     private func header(
@@ -250,7 +260,7 @@ struct RichUsagePopoverView: View {
                     .accessibilityLabel(comparison.accessibilityTitle)
             }
 
-            Divider()
+            workPatternStrip(presentation)
 
             if presentation.providerRows.isEmpty {
                 Text(presentation.emptyMessage ?? "Provider breakdown unavailable")
@@ -286,11 +296,26 @@ struct RichUsagePopoverView: View {
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                UsageTrendChart(
-                    snapshot: snapshot,
-                    selectedPointID: .constant(nil),
-                    compact: true
-                )
+                ZStack(alignment: .top) {
+                    UsageTrendChart(
+                        snapshot: snapshot,
+                        selectedPointID: chartSelectionBinding,
+                        compact: true,
+                        onHover: { chartSelection.hover($0) },
+                        onPin: { pointID in
+                            if let pointID {
+                                chartSelection.togglePin(pointID)
+                            } else {
+                                chartSelection.clearAll()
+                            }
+                        }
+                    )
+                    if let point = selectedChartPoint(in: snapshot) {
+                        usagePointCallout(point, range: snapshot.range)
+                            .padding(.top, 3)
+                            .allowsHitTesting(false)
+                    }
+                }
             }
         } else {
             switch model.historyState {
@@ -312,6 +337,105 @@ struct RichUsagePopoverView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+    }
+
+    private var chartSelectionBinding: Binding<String?> {
+        Binding(
+            get: { chartSelection.selectedPointID },
+            set: { chartSelection.hover($0) }
+        )
+    }
+
+    private func selectedChartPoint(in snapshot: UsageHistorySnapshot) -> UsageHistoryPoint? {
+        guard let selectedPointID = chartSelection.selectedPointID else { return nil }
+        return snapshot.points.first { $0.selectionID == selectedPointID }
+    }
+
+    private func usagePointCallout(
+        _ point: UsageHistoryPoint,
+        range: UsageHistoryRange
+    ) -> some View {
+        let callout = UsagePointCalloutPresentation.make(
+            point: point,
+            range: range,
+            currency: model.selectedDisplayCurrency
+        )
+        return VStack(alignment: .leading, spacing: 2) {
+            Text(callout.contextTitle)
+                .font(.caption.weight(.semibold))
+            Text(callout.tokenTitle)
+                .font(.callout.weight(.medium))
+                .monospacedDigit()
+            Text(callout.apiValueTitle)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .frame(width: 190, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(Color(nsColor: .separatorColor))
+        }
+        .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(callout.accessibilityTitle)
+    }
+
+    private func workPatternStrip(_ presentation: RichPopoverPresentation) -> some View {
+        Button {
+            model.openHistory(
+                range: model.selectedHistoryRange,
+                section: .workPatterns
+            )
+            dismiss()
+        } label: {
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 4) {
+                    Text(presentation.workPatternPreview?.title
+                        ?? "WORK PATTERNS · \(presentation.trendRangeTitle)")
+                        .font(.caption.weight(.semibold))
+                        .tracking(0.35)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                }
+                if let preview = presentation.workPatternPreview {
+                    HStack(spacing: 0) {
+                        ForEach(Array(preview.metrics.enumerated()), id: \.offset) { index, metric in
+                            if index > 0 { Divider().frame(height: 24) }
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(metric.value)
+                                    .font(.callout.weight(.semibold))
+                                    .monospacedDigit()
+                                Text(metric.title)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.leading, index == 0 ? 0 : 9)
+                        }
+                    }
+                } else {
+                    Text("Hourly work patterns are not available yet")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.vertical, 7)
+        .overlay(alignment: .top) { Divider() }
+        .overlay(alignment: .bottom) { Divider() }
+        .accessibilityLabel(
+            presentation.workPatternPreview?.accessibilityTitle
+                ?? "Work patterns are not available yet. Open Work Patterns."
+        )
     }
 
     /// The companion band bleeds through the page inset to the popover edges.
