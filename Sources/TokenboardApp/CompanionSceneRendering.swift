@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import SwiftUI
 
@@ -47,6 +48,17 @@ extension CompanionSceneTint {
     /// The tint as a SwiftUI colour, in the sRGB space every plate is baked in.
     func color(opacity: Double) -> Color {
         Color(.sRGB, red: red, green: green, blue: blue, opacity: opacity)
+    }
+}
+
+extension GraphicsContext {
+    /// A bundled plate or sprite, resolved for high-quality resampling.
+    func resolvedPlate(_ image: NSImage) -> ResolvedImage {
+        resolve(
+            Image(nsImage: image)
+                .resizable()
+                .interpolation(.high)
+        )
     }
 }
 
