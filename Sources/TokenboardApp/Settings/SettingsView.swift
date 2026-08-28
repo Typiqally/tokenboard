@@ -62,6 +62,7 @@ struct SettingsView: View {
     @ObservedObject var model: AppModel
     @ObservedObject var launchAtLogin: LaunchAtLoginController
     @ObservedObject var navigation: SettingsNavigationModel
+    @ObservedObject private var companionDiagnostics = CompanionDiagnostics.shared
     @State private var technicalDetailsExpanded = false
 
     init(
@@ -271,6 +272,9 @@ struct SettingsView: View {
                         LabeledContent("\(provider.displayName) parser") {
                             Text("v\(model.settingsState.diagnostics.parserVersions[provider, default: 0])")
                         }
+                    }
+                    LabeledContent("Companion artwork") {
+                        Text(companionDiagnostics.summary)
                     }
                 }
                 .padding(.top, 6)
