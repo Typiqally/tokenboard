@@ -60,6 +60,30 @@ func stableHash(_ string: String) -> UInt64 {
     }
 }
 
+/// This script's SplitMix64 and stableHash must produce the exact streams the
+/// app produces (SplitMix64 / CompanionHash.fnv1a), or baked artwork and
+/// runtime layout silently disagree. The literals below are the same vectors
+/// CompanionRandomTests pins on the app side; change one copy and both
+/// harnesses fail until the other follows.
+func verifyDeterminismContract() {
+    var zero = SplitMix64(state: 0)
+    precondition(zero.next() == 16_294_208_416_658_607_535, "SplitMix64 drifted from the app implementation")
+    precondition(zero.next() == 7_960_286_522_194_355_700, "SplitMix64 drifted from the app implementation")
+    precondition(zero.next() == 487_617_019_471_545_679, "SplitMix64 drifted from the app implementation")
+    precondition(zero.next() == 17_909_611_376_780_542_444, "SplitMix64 drifted from the app implementation")
+    var seeded = SplitMix64(state: 0x5EED_C0FF_EE12_3456)
+    precondition(seeded.next() == 18_353_202_869_249_109_356, "SplitMix64 drifted from the app implementation")
+    precondition(seeded.next() == 5_283_367_462_885_150_505, "SplitMix64 drifted from the app implementation")
+    var one = SplitMix64(state: 1)
+    precondition(one.unit() == 0.5665615751722809, "SplitMix64.unit drifted from the app implementation")
+    precondition(one.range(-3, 7) == 4.457817572627011, "SplitMix64.range drifted from the app implementation")
+    precondition(stableHash("") == 14_695_981_039_346_656_037, "stableHash drifted from CompanionHash.fnv1a")
+    precondition(stableHash("forest/slots") == 16_912_484_999_438_345_198, "stableHash drifted from CompanionHash.fnv1a")
+    precondition(stableHash("village/slots") == 9_601_084_288_157_441_201, "stableHash drifted from CompanionHash.fnv1a")
+    precondition(stableHash("oak-3") == 15_916_341_269_509_778_426, "stableHash drifted from CompanionHash.fnv1a")
+    precondition(stableHash("pokemon") == 9_996_402_097_866_326_110, "stableHash drifted from CompanionHash.fnv1a")
+}
+
 /// Packs an 0xRRGGBB color and alpha into the canvas's 0xRRGGBBAA format.
 func pack(_ rgb: UInt32, _ alpha: Double = 1) -> UInt32 {
     (rgb << 8) | UInt32(max(0, min(255, Int(alpha * 255))))
@@ -998,6 +1022,8 @@ let repositoryRoot = scriptURL
 let outputRoot = arguments.count > 1
     ? URL(fileURLWithPath: arguments[1], isDirectory: true)
     : repositoryRoot.appending(path: "Resources/Companions")
+
+verifyDeterminismContract()
 
 do {
     try ForestArtwork.generate(into: outputRoot)

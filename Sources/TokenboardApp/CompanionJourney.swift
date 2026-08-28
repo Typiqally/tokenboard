@@ -302,6 +302,9 @@ enum CompanionDailyVariantSelector {
     }
 }
 
+/// Duplicated in Scripts/generate-companion-artwork.swift, which cannot import
+/// this module; CompanionRandomTests and the script's
+/// verifyDeterminismContract() pin both copies to the same output vectors.
 struct SplitMix64 {
     var state: UInt64
 

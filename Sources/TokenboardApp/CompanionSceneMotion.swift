@@ -849,7 +849,10 @@ enum CompanionMath {
 }
 
 /// One FNV-1a implementation for every deterministic companion rotation, so
-/// seeds derived from a key never drift apart between call sites.
+/// seeds derived from a key never drift apart between call sites. Duplicated
+/// as stableHash in Scripts/generate-companion-artwork.swift; both copies are
+/// pinned to the same vectors by CompanionRandomTests and the script's
+/// verifyDeterminismContract().
 enum CompanionHash {
     static func fnv1a(_ string: String) -> UInt64 {
         string.utf8.reduce(14_695_981_039_346_656_037) { value, byte in
