@@ -11,7 +11,7 @@ Model IDs that do not meet Tokenboard's strict content-safe identifier rules are
 - Historical import starts only after explicit grants and your Start Historical Import action.
 - Filesystem monitoring uses native events plus a periodic, read-only comparison of JSONL size and modification dates. There is no helper process, daemon, or analytics/telemetry channel.
 - Launch at Login is off by default and uses the main app only.
-- Companion artwork is downloaded only during development and compiled into the app. Theme selection, menu-icon visibility, a random local Pokémon-variant seed, earned tokens, the last observed lifetime aggregate, and the last acknowledged stage are stored in `UserDefaults`; the running app never downloads or uploads artwork or journey state.
+- Companion artwork is downloaded only during development and compiled into the app. Theme selection, menu-icon visibility, and a random local companion seed are stored in `UserDefaults`; stage and progress derive from today's already-stored local aggregates, so no journey state is persisted. The running app never downloads or uploads artwork or journey state.
 
 The pricing prompt is copied as plain text. Tokenboard does not launch an agent, browser, or subprocess. If you give that prompt to an external agent, the chosen prompt explicitly identifies its allowed source and whether that agent needs to fetch public pricing; the external agent's permissions and network activity are separate from Tokenboard.
 

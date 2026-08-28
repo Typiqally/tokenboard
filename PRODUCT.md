@@ -45,9 +45,9 @@ Simple, clean, mean. Quietly confident and direct, with precise language and no 
 ## Companion Journey
 
 - Offer `None`, Pokémon, Forest, Village, Old School RuneScape, Age of Empires II, and Minecraft as built-in choices. Do not expose file imports, asset folders, configuration files, or runtime downloads.
-- Establish a zero baseline from the authoritative lifetime additive-token total when the first non-`None` theme is selected. Only future positive deltas advance the journey.
-- Share one permanent journey across themes. Hiding with `None` preserves and continues initialized progress; there is no restart control.
-- Use twelve stages spread linearly at 0, then 90M steps to 900M, and a 1B summit of earned tokens. Completion stops at stage twelve without prestige loops.
+- Derive stage and progress solely from today's local token total. The journey resets at local midnight; no baseline, accumulated total, or other journey state is stored.
+- Share the one daily journey across themes. Hiding with `None` changes nothing underneath — reselecting any theme shows exactly where today's usage stands. There is no restart control.
+- Use twelve stages spread linearly at 0, then 90M steps to 900M, and a 1B summit of tokens earned today. Completion stops at stage twelve without prestige loops.
 - Pick one deterministic Pokémon starter family per local calendar day; every starter family appears once per cycle before the order repeats. Forest and Village grow one coherent place continuously — more trees and buildings keep arriving and maturing between milestones, laid out deterministically from the local seed — Old School RuneScape upgrades one adventurer through canonical gear tiers and locations, and Age of Empires II grows one West European settlement through its four ages.
 - Use authentic source artwork or original generated artwork, baked and bundled at build time, with every stage visually distinct without text. The popover scene carries no text — only a slim progress line along its bottom edge showing progress toward the next stage; journey labels and details remain in Settings.
 - Bundle three scenery plates per stage — the same place from a different vantage or on a different day — and rotate them deterministically per local calendar day, independent of the starter-family rotation, so the scene never repeats two days running while every plate still reads unmistakably as its stage.
