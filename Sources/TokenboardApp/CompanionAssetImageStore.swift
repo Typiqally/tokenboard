@@ -11,10 +11,16 @@ enum CompanionAssetImageStore {
         totalCostLimit: 64 * 1024 * 1024
     )
 
-    static func image(resource: String) -> NSImage? {
+    static func image(
+        resource: String,
+        diagnostics: CompanionDiagnostics = .shared
+    ) -> NSImage? {
         if let image = cache.value(forKey: resource) { return image }
         guard let url = resourceURL(resource),
-              let image = NSImage(contentsOf: url) else { return nil }
+              let image = NSImage(contentsOf: url) else {
+            diagnostics.record(.missingAsset(resource: resource))
+            return nil
+        }
         cache.setValue(image, forKey: resource, cost: cost(of: image))
         return image
     }

@@ -130,7 +130,12 @@ enum CompanionGrowthScene {
                 // A style/level pair the cell-height table cannot size is a
                 // build defect; skip the sprite rather than crash the render.
                 guard let heights = spec.cellHeights[style],
-                      heights.indices.contains(level) else { return nil }
+                      heights.indices.contains(level) else {
+                    CompanionDiagnostics.note(
+                        .missingAsset(resource: spec.resource(style, level))
+                    )
+                    return nil
+                }
                 return CompanionSceneLayer(
                     id: "\(spec.layerIDPrefix)\(slot.index)",
                     resource: spec.resource(style, level),

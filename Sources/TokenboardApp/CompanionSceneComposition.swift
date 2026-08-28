@@ -31,7 +31,8 @@ struct CompanionSceneComposition {
     @MainActor
     static func make(
         presentation: CompanionPresentation,
-        size: CGSize
+        size: CGSize,
+        diagnostics: CompanionDiagnostics = .shared
     ) -> CompanionSceneComposition {
         guard let asset = CompanionAssetCatalog.scene(
             theme: presentation.theme,
@@ -41,6 +42,12 @@ struct CompanionSceneComposition {
             fraction: presentation.progressFraction,
             seed: presentation.seed
         ) else {
+            if presentation.theme != .none {
+                diagnostics.record(.unresolvedScene(
+                    theme: presentation.theme,
+                    stage: presentation.stage
+                ))
+            }
             return CompanionSceneComposition(
                 asset: nil,
                 resolvedPlan: CompanionResolvedScenePlan(plan: .inert),
