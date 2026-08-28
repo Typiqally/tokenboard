@@ -335,13 +335,9 @@ private struct CompanionThemeShelf: View {
         for theme: CompanionTheme,
         date: Date
     ) -> CompanionPresentation? {
-        var state = model.companionState
-        state.theme = theme
-        guard let live = CompanionPresentation.make(
-            state: state,
-            dailyTokenTotal: model.companionDailyTokenTotal(at: date),
-            date: date,
-            calendar: .current
+        guard let live = model.companionPresentation(
+            at: date,
+            overridingTheme: theme
         ) else { return nil }
         let shelfStage = CompanionAssetCatalog.shelfPreviewStage(for: theme)
         return CompanionPresentation(
@@ -418,12 +414,7 @@ private struct CompanionSettingsPreview: View {
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
-            if let companion = CompanionPresentation.make(
-                state: model.companionState,
-                dailyTokenTotal: model.companionDailyTokenTotal(at: context.date),
-                date: context.date,
-                calendar: .current
-            ) {
+            if let companion = model.companionPresentation(at: context.date) {
                 HStack(alignment: .center, spacing: 18) {
                     // The live preview keeps the popover scene's composition
                     // and flexes to the row width the form offers, so the

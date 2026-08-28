@@ -192,12 +192,11 @@ final class RichPopoverController: NSObject, NSPopoverDelegate {
             return
         }
 
-        let currentDate = Date()
-        let companion = CompanionPresentation.make(
-            state: state.companion,
-            dailyTokenTotal: model?.companionDailyTokenTotal(at: currentDate) ?? 0,
-            date: currentDate,
-            calendar: .current
+        // The state publisher fires before the model's own state property
+        // updates, so the just-published theme rides in as the override.
+        let companion = model?.companionPresentation(
+            at: Date(),
+            overridingTheme: state.companion.theme
         )
         let image: NSImage? = companion.flatMap { companion -> NSImage? in
             guard state.companion.showInMenuBar else { return nil }
