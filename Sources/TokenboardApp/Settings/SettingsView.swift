@@ -339,15 +339,9 @@ private struct CompanionThemeShelf: View {
             at: date,
             overridingTheme: theme
         ) else { return nil }
-        let shelfStage = CompanionAssetCatalog.shelfPreviewStage(for: theme)
-        return CompanionPresentation(
-            theme: live.theme,
-            variant: live.variant,
-            stage: shelfStage,
-            // Scenery 0 keeps every shelf thumbnail on its vetted plate.
-            scenery: 0,
-            seed: live.seed,
-            stageTitle: live.stageTitle,
+        // Scenery 0 keeps every shelf thumbnail on its vetted plate.
+        return live.preview(
+            stage: CompanionAssetCatalog.shelfPreviewStage(for: theme),
             progressFraction: live.progressFraction,
             tokensUntilNextStage: live.tokensUntilNextStage,
             accessibilityLabel: "\(theme.title) preview"

@@ -64,6 +64,38 @@ struct CompanionPresentation: Equatable, Sendable {
         )
     }
 
+    /// A derived presentation for surfaces that re-stage a live one — the
+    /// settings shelf's fixed art-directed stage, or a milestone reveal's
+    /// from-stage. The stage title (and, unless overridden, the
+    /// accessibility label) is recomputed from the canonical tables so a
+    /// preview can never show one stage under another stage's name.
+    func preview(
+        stage: Int,
+        scenery: Int = 0,
+        progressFraction: Double = 0,
+        tokensUntilNextStage: Int64? = nil,
+        accessibilityLabel: String? = nil
+    ) -> CompanionPresentation {
+        let stage = CompanionJourney.clamped(stage: stage)
+        let title = Self.stageTitles(for: theme)[stage: stage]
+        return CompanionPresentation(
+            theme: theme,
+            variant: variant,
+            stage: stage,
+            scenery: scenery,
+            seed: seed,
+            stageTitle: title,
+            progressFraction: progressFraction,
+            tokensUntilNextStage: tokensUntilNextStage,
+            accessibilityLabel: accessibilityLabel ?? Self.accessibilityLabel(
+                theme: theme,
+                variant: variant,
+                stage: stage,
+                stageTitle: title
+            )
+        )
+    }
+
     private static func accessibilityLabel(
         theme: CompanionTheme,
         variant: CompanionVariant,

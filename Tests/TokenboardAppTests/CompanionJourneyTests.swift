@@ -376,15 +376,8 @@ final class CompanionJourneyTests: XCTestCase {
             let live = try XCTUnwrap(
                 CompanionPresentation.make(state: state, date: date, calendar: calendar)
             )
-            let shelf = CompanionPresentation(
-                theme: live.theme,
-                variant: live.variant,
+            let shelf = live.preview(
                 stage: CompanionAssetCatalog.shelfPreviewStage(for: theme),
-                scenery: 0,
-                seed: live.seed,
-                stageTitle: live.stageTitle,
-                progressFraction: 0,
-                tokensUntilNextStage: nil,
                 accessibilityLabel: "\(theme.title) preview"
             )
             let renderer = ImageRenderer(
