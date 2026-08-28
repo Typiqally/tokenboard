@@ -43,6 +43,41 @@ extension CompanionScenePlan {
     }
 }
 
+private extension CompanionParticleField {
+    /// A flock crossing the sky. Every world's birds share this one shape
+    /// and travel drift; each world keeps its own key, tint, timing, and
+    /// flight lane, so the effect-key disjointness tests still hold.
+    static func crossingFlock(
+        key: String,
+        tint: CompanionSceneTint,
+        count: Int,
+        lifetime: Double,
+        spawnX: ClosedRange<Double>,
+        spawnY: ClosedRange<Double>,
+        size: ClosedRange<Double>,
+        opacity: ClosedRange<Double>,
+        dx: Double,
+        dy: Double,
+        sway: Double,
+        swayPeriod: Double,
+        snapsToPixelGrid: Bool = false
+    ) -> CompanionParticleField {
+        CompanionParticleField(
+            key: key,
+            shape: .chevron,
+            tint: tint,
+            count: count,
+            lifetime: lifetime,
+            spawnX: spawnX,
+            spawnY: spawnY,
+            size: size,
+            opacity: opacity,
+            drift: .travel(dx: dx, dy: dy, sway: sway, swayPeriod: swayPeriod),
+            snapsToPixelGrid: snapsToPixelGrid
+        )
+    }
+}
+
 // MARK: - Pokémon: a warm afternoon meadow
 
 private extension CompanionScenePlan {
@@ -64,9 +99,8 @@ private extension CompanionScenePlan {
                 drift: .travel(dx: 0.10, dy: -0.45, sway: 0.020, swayPeriod: 5.3)
             ),
             // Something is always crossing the sky over a Kanto route.
-            CompanionParticleField(
+            .crossingFlock(
                 key: "pokemon/flight",
-                shape: .chevron,
                 tint: CompanionSceneTint(0.22, 0.24, 0.30),
                 count: 3,
                 lifetime: 21,
@@ -74,7 +108,7 @@ private extension CompanionScenePlan {
                 spawnY: 0.06...0.26,
                 size: 2.6...3.8,
                 opacity: 0.40...0.65,
-                drift: .travel(dx: 1.34, dy: 0.05, sway: 0.018, swayPeriod: 4.9)
+                dx: 1.34, dy: 0.05, sway: 0.018, swayPeriod: 4.9
             )
         ]
         // The air itself starts to sparkle as the journey closes.
@@ -190,9 +224,8 @@ private extension CompanionScenePlan {
                 drift: .travel(dx: 0.08, dy: -0.18, sway: 0.020, swayPeriod: 6.7),
                 snapsToPixelGrid: true
             ),
-            CompanionParticleField(
+            .crossingFlock(
                 key: "forest/flock",
-                shape: .chevron,
                 tint: CompanionSceneTint(0.20, 0.26, 0.22),
                 count: 4,
                 lifetime: 23,
@@ -200,7 +233,7 @@ private extension CompanionScenePlan {
                 spawnY: 0.05...0.30,
                 size: 2.4...3.4,
                 opacity: 0.50...0.80,
-                drift: .travel(dx: 1.36, dy: 0.06, sway: 0.020, swayPeriod: 5.1),
+                dx: 1.36, dy: 0.06, sway: 0.020, swayPeriod: 5.1,
                 snapsToPixelGrid: true
             )
         ]
@@ -351,9 +384,8 @@ private extension CompanionScenePlan {
             ])
         } else {
             fields.append(
-                CompanionParticleField(
+                .crossingFlock(
                     key: "village/birds",
-                    shape: .chevron,
                     tint: CompanionSceneTint(0.22, 0.24, 0.28),
                     count: 3,
                     lifetime: 26,
@@ -361,7 +393,7 @@ private extension CompanionScenePlan {
                     spawnY: 0.10...0.24,
                     size: 2.8...3.8,
                     opacity: 0.42...0.68,
-                    drift: .travel(dx: 1.3, dy: 0.04, sway: 0.012, swayPeriod: 5.5)
+                    dx: 1.3, dy: 0.04, sway: 0.012, swayPeriod: 5.5
                 )
             )
         }
@@ -559,9 +591,8 @@ private extension CompanionScenePlan {
                 // Two flocks at different heights and speeds: the map is
                 // read from above, so birds crossing it are the one moving
                 // thing an isometric town always has.
-                CompanionParticleField(
+                .crossingFlock(
                     key: "aoe/birds",
-                    shape: .chevron,
                     tint: CompanionSceneTint(0.14, 0.14, 0.12),
                     count: 4,
                     lifetime: 24,
@@ -569,11 +600,10 @@ private extension CompanionScenePlan {
                     spawnY: 0.10...0.42,
                     size: 3.0...4.2,
                     opacity: 0.50...0.75,
-                    drift: .travel(dx: 1.40, dy: 0.10, sway: 0.024, swayPeriod: 6.4)
+                    dx: 1.40, dy: 0.10, sway: 0.024, swayPeriod: 6.4
                 ),
-                CompanionParticleField(
+                .crossingFlock(
                     key: "aoe/birds-high",
-                    shape: .chevron,
                     tint: CompanionSceneTint(0.18, 0.18, 0.16),
                     count: 3,
                     lifetime: 37,
@@ -581,7 +611,7 @@ private extension CompanionScenePlan {
                     spawnY: 0.04...0.20,
                     size: 2.0...2.8,
                     opacity: 0.30...0.48,
-                    drift: .travel(dx: -1.40, dy: 0.06, sway: 0.018, swayPeriod: 8.1)
+                    dx: -1.40, dy: 0.06, sway: 0.018, swayPeriod: 8.1
                 )
             ],
             bands: [
@@ -697,9 +727,8 @@ enum CompanionLocationWeather: String, CaseIterable, Equatable, Sendable {
     private var fields: [CompanionParticleField] {
         switch self {
         case .openAir:
-            [CompanionParticleField(
+            [.crossingFlock(
                 key: "osrs/birds",
-                shape: .chevron,
                 tint: CompanionSceneTint(0.18, 0.18, 0.16),
                 count: 2,
                 lifetime: 24,
@@ -707,7 +736,7 @@ enum CompanionLocationWeather: String, CaseIterable, Equatable, Sendable {
                 spawnY: 0.08...0.30,
                 size: 2.6...3.6,
                 opacity: 0.45...0.72,
-                drift: .travel(dx: 1.32, dy: 0.06, sway: 0.015, swayPeriod: 6.1)
+                dx: 1.32, dy: 0.06, sway: 0.015, swayPeriod: 6.1
             )]
         case .desert:
             [CompanionParticleField(
