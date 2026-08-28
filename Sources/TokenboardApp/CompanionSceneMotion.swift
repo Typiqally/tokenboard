@@ -540,7 +540,6 @@ enum CompanionSceneMotion {
         index: Int,
         horizontalPosition: Double,
         relativeHeight: Double,
-        stage: Int,
         seed: UInt64,
         elapsed: Double,
         isMoving: Bool,

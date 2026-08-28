@@ -162,7 +162,7 @@ final class CompanionSceneMotionTests: XCTestCase, CompanionSceneFixtures {
 
         // Village holds still. Its life is elsewhere.
         XCTAssertEqual(
-            subject(signature: .townLife, role: .building, elapsed: time, stage: 10),
+            subject(signature: .townLife, role: .building, elapsed: time),
             .still
         )
 

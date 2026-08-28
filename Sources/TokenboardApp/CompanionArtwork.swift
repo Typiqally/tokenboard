@@ -260,7 +260,6 @@ struct CompanionSceneCanvas: View {
             index: placement.index,
             horizontalPosition: placement.layer.horizontalPosition,
             relativeHeight: placement.layer.relativeHeight,
-            stage: plan.stage,
             seed: plan.seed,
             elapsed: time,
             isMoving: isMoving,

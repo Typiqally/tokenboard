@@ -71,7 +71,6 @@ enum CompanionAssetCatalog {
     /// cells and converted through this fraction so subject pixels land at
     /// exactly the same size as background pixels.
     static let pixelGridWidth = 155.0
-    static let pixelGridHeight = 42.0
     private static let cellHeightFraction = (350.0 / pixelGridWidth) / 84.0
 
     /// On-screen shrink applied to sprites standing in the back band.

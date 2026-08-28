@@ -158,8 +158,8 @@ func bakeScene(_ source: CIImage, crop: Crop) throws -> CIImage {
 
 func shiftBlueTrimToPurple(_ cgImage: CGImage) throws -> CGImage {
     // Rotate strongly blue pixels toward the purple player color used by the
-    // West European Feudal/Castle/Imperial set renders, so all eight stages
-    // read as one civilization.
+    // West European Feudal/Castle/Imperial set renders, so every stage
+    // reads as one civilization.
     let width = cgImage.width
     let height = cgImage.height
     let bytesPerRow = width * 4

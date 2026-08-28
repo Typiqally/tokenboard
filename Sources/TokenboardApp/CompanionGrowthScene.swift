@@ -31,7 +31,7 @@ struct CompanionGrowthPlan: Sendable {
         return Int((lower + (upper - lower) * fraction + 1e-9).rounded(.down))
     }
 
-    /// The global journey progress (0...1 across all eight stages) at which
+    /// The global journey progress (0...1 across the whole journey) at which
     /// the given slot first becomes visible. Slots that only arrive at the
     /// journey's very end report 1.
     func appearance(of slot: Int) -> Double {

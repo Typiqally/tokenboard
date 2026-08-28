@@ -35,7 +35,6 @@ extension CompanionSceneFixtures {
         elapsed: Double,
         horizontalPosition: Double = 0.5,
         relativeHeight: Double = 0.6,
-        stage: Int = 5,
         isMoving: Bool = true,
         attention: CompanionAttention = .none
     ) -> CompanionSubjectMotion {
@@ -45,7 +44,6 @@ extension CompanionSceneFixtures {
             index: 0,
             horizontalPosition: horizontalPosition,
             relativeHeight: relativeHeight,
-            stage: stage,
             seed: seed,
             elapsed: elapsed,
             isMoving: isMoving,

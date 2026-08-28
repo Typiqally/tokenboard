@@ -350,7 +350,6 @@ private struct CompanionThemeShelf: View {
             stageTitle: live.stageTitle,
             progressFraction: live.progressFraction,
             tokensUntilNextStage: live.tokensUntilNextStage,
-            showsMilestone: false,
             accessibilityLabel: "\(theme.title) preview"
         )
     }

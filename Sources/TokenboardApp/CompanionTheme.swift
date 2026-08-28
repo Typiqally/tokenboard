@@ -91,9 +91,7 @@ enum CompanionCatalog {
     private static func named(_ titles: [String]) -> [CompanionVariant] {
         titles.map { title in
             CompanionVariant(
-                id: title.lowercased()
-                    .replacingOccurrences(of: " ", with: "-")
-                    .replacingOccurrences(of: "-gothic", with: "gothic"),
+                id: title.lowercased().replacingOccurrences(of: " ", with: "-"),
                 title: title
             )
         }

@@ -36,7 +36,10 @@ enum CompanionDailyVariantSelector {
     private static func dayOrdinal(for date: Date, calendar: Calendar) -> Int {
         let components = calendar.dateComponents([.year, .month, .day], from: date)
         let day = calendar.date(from: components) ?? calendar.startOfDay(for: date)
-        let anchor = calendar.date(from: DateComponents(year: 2001, month: 1, day: 1))!
+        // The reference date is 2001-01-01, so the fallback is the anchor
+        // itself for any calendar that cannot compose the components.
+        let anchor = calendar.date(from: DateComponents(year: 2001, month: 1, day: 1))
+            ?? Date(timeIntervalSinceReferenceDate: 0)
         return calendar.dateComponents([.day], from: anchor, to: day).day ?? 0
     }
 

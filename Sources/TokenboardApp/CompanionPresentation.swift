@@ -21,7 +21,6 @@ struct CompanionPresentation: Equatable, Sendable {
     let stageTitle: String
     let progressFraction: Double
     let tokensUntilNextStage: Int64?
-    let showsMilestone: Bool
     let accessibilityLabel: String
 
     static func make(
@@ -56,7 +55,6 @@ struct CompanionPresentation: Equatable, Sendable {
             stageTitle: title,
             progressFraction: CompanionJourney.fraction(for: earnedTokens),
             tokensUntilNextStage: CompanionJourney.tokensUntilNextStage(for: earnedTokens),
-            showsMilestone: false,
             accessibilityLabel: accessibilityLabel(
                 theme: state.theme,
                 variant: variant,

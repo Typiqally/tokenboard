@@ -187,7 +187,6 @@ final class CompanionSceneCompositionTests: XCTestCase {
             stageTitle: "",
             progressFraction: 0.6,
             tokensUntilNextStage: 1,
-            showsMilestone: false,
             accessibilityLabel: ""
         )
     }
