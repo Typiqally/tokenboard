@@ -73,16 +73,23 @@ struct CompanionScenePlacement {
     /// Windows found in this sprite's own artwork, empty for every theme and
     /// stage that has none.
     let windows: [CompanionWindowCell]
+    /// One lighting schedule per window, resolved with the composition so
+    /// drawing never re-seeds a generator.
+    let windowSchedules: [CompanionWindowLighting.Schedule]
 }
 
 struct CompanionSceneComposition {
     let asset: CompanionSceneAsset?
-    let plan: CompanionScenePlan
+    /// The plan with its seeded constants already drawn; frames advance only
+    /// time from here.
+    let resolvedPlan: CompanionResolvedScenePlan
     let placements: [CompanionScenePlacement]
     let size: CGSize
     let backgroundRect: CGRect
     /// One art pixel of the generated pixel plates, in scene points.
     let artPixel: CGFloat
+
+    var plan: CompanionScenePlan { resolvedPlan.plan }
 
     @MainActor
     static func make(
@@ -99,7 +106,7 @@ struct CompanionSceneComposition {
         ) else {
             return CompanionSceneComposition(
                 asset: nil,
-                plan: .inert,
+                resolvedPlan: CompanionResolvedScenePlan(plan: .inert),
                 placements: [],
                 size: size,
                 backgroundRect: .zero,
@@ -119,6 +126,9 @@ struct CompanionSceneComposition {
             let width = height * CompanionAssetImageStore.aspectRatio(resource: layer.resource)
             let centerX = size.width * layer.horizontalPosition
             let bottom = size.height - size.height * layer.bottomOffset
+            let windows = lightsOn
+                ? CompanionWindowMapStore.windows(resource: layer.resource)
+                : []
             return CompanionScenePlacement(
                 layer: layer,
                 index: index,
@@ -128,19 +138,26 @@ struct CompanionSceneComposition {
                     width: width,
                     height: height
                 ),
-                windows: lightsOn
-                    ? CompanionWindowMapStore.windows(resource: layer.resource)
-                    : []
+                windows: windows,
+                windowSchedules: windows.indices.map { window in
+                    CompanionWindowLighting.schedule(
+                        index: window,
+                        layerID: layer.id,
+                        seed: presentation.seed
+                    )
+                }
             )
         }
 
         return CompanionSceneComposition(
             asset: asset,
-            plan: CompanionScenePlan.make(
-                theme: presentation.theme,
-                stage: presentation.stage,
-                seed: presentation.seed,
-                layers: asset.layers
+            resolvedPlan: CompanionResolvedScenePlan(
+                plan: CompanionScenePlan.make(
+                    theme: presentation.theme,
+                    stage: presentation.stage,
+                    seed: presentation.seed,
+                    layers: asset.layers
+                )
             ),
             placements: placements,
             size: size,
@@ -186,7 +203,7 @@ struct CompanionSceneCanvas: View {
 
     var body: some View {
         let plan = composition.plan
-        let frame = plan.frame(at: elapsed, isMoving: isMoving)
+        let frame = composition.resolvedPlan.frame(at: elapsed, isMoving: isMoving)
         // A paused scene is composed at its own resting moment, so subjects
         // never freeze mid-hop or mid-gust.
         let time = isMoving
@@ -335,18 +352,9 @@ struct CompanionSceneCanvas: View {
     ) {
         guard !placement.windows.isEmpty else { return }
         for (index, cell) in placement.windows.enumerated() {
-            guard CompanionWindowLighting.animates(
-                index: index,
-                layerID: placement.layer.id,
-                seed: plan.seed
-            ) else { continue }
-            let lit = CompanionWindowLighting.isLit(
-                cell: cell,
-                index: index,
-                layerID: placement.layer.id,
-                seed: plan.seed,
-                elapsed: time
-            )
+            let schedule = placement.windowSchedules[index]
+            guard schedule != .baked else { continue }
+            let lit = schedule.isLit(bakedLit: cell.bakedLit, at: time)
             guard lit != cell.bakedLit else { continue }
             let rect = CGRect(
                 x: placement.rect.minX + placement.rect.width * cell.x,
