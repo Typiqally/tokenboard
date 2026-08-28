@@ -831,32 +831,3 @@ enum CompanionWindowLighting {
     static let litTint = CompanionSceneTint(1.0, 217.0 / 255.0, 138.0 / 255.0)
     static let darkTint = CompanionSceneTint(46.0 / 255.0, 58.0 / 255.0, 84.0 / 255.0)
 }
-
-// MARK: - Shared math
-
-enum CompanionMath {
-    /// Fractional part in 0..<1 for any sign of input.
-    static func fraction(_ value: Double) -> Double {
-        let remainder = value.truncatingRemainder(dividingBy: 1)
-        return remainder < 0 ? remainder + 1 : remainder
-    }
-
-    static func positiveModulo(_ value: Int, _ modulus: Int) -> Int {
-        guard modulus > 0 else { return 0 }
-        let remainder = value % modulus
-        return remainder >= 0 ? remainder : remainder + modulus
-    }
-}
-
-/// One FNV-1a implementation for every deterministic companion rotation, so
-/// seeds derived from a key never drift apart between call sites. Duplicated
-/// as stableHash in Scripts/generate-companion-artwork.swift; both copies are
-/// pinned to the same vectors by CompanionRandomTests and the script's
-/// verifyDeterminismContract().
-enum CompanionHash {
-    static func fnv1a(_ string: String) -> UInt64 {
-        string.utf8.reduce(14_695_981_039_346_656_037) { value, byte in
-            (value ^ UInt64(byte)) &* 1_099_511_628_211
-        }
-    }
-}
