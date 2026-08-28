@@ -195,13 +195,66 @@ final class AppModelTests: XCTestCase {
         XCTAssertTrue(setup.preferences.showCompanionInMenuBar)
     }
 
+    func testCompanionPresentationFollowsTheInjectedCalendar() async throws {
+        // 20:00 UTC: a UTC calendar is still on one local day while a
+        // calendar fourteen hours ahead has already crossed midnight — so
+        // the daily rotation must disagree between the two models if, and
+        // only if, the presentation really uses the injected calendar.
+        let date = Date(timeIntervalSinceReferenceDate: 809_985_600)
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(identifier: "UTC")!
+        var ahead = Calendar(identifier: .gregorian)
+        ahead.timeZone = TimeZone(secondsFromGMT: 14 * 3600)!
+        let seed: UInt64 = 0x5EED_C0FF_EE12_3456
+
+        let utcSetup = try makeSetup(
+            approved: false, grantedProviders: [], calendar: utc, companionSeed: seed
+        )
+        defer { utcSetup.cleanup() }
+        let aheadSetup = try makeSetup(
+            approved: false, grantedProviders: [], calendar: ahead, companionSeed: seed
+        )
+        defer { aheadSetup.cleanup() }
+        await utcSetup.model.select(companionTheme: .pokemon)
+        await aheadSetup.model.select(companionTheme: .pokemon)
+
+        let utcPresentation = try XCTUnwrap(utcSetup.model.companionPresentation(at: date))
+        let aheadPresentation = try XCTUnwrap(aheadSetup.model.companionPresentation(at: date))
+        XCTAssertEqual(
+            utcPresentation,
+            CompanionPresentation.make(
+                state: utcSetup.model.companionState,
+                dailyTokenTotal: 0,
+                date: date,
+                calendar: utc
+            ),
+            "the presentation is built on the model's own calendar"
+        )
+        XCTAssertNotEqual(
+            utcPresentation.variant,
+            aheadPresentation.variant,
+            "different local days must rotate to different starter families"
+        )
+
+        let preview = try XCTUnwrap(
+            utcSetup.model.companionPresentation(at: date, overridingTheme: .forest)
+        )
+        XCTAssertEqual(preview.theme, .forest, "the settings shelf previews unselected themes")
+        XCTAssertEqual(utcSetup.model.companionState.theme, .pokemon, "previewing changes nothing")
+    }
+
     private func makeSetup(
         approved: Bool,
         grantedProviders: Set<Provider>,
-        existingCatalogData: Data? = nil
+        existingCatalogData: Data? = nil,
+        calendar: Calendar = Calendar(identifier: .gregorian),
+        companionSeed: UInt64? = nil
     ) throws -> ModelSetup {
         let suiteName = "AppModelTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
+        if let companionSeed {
+            defaults.set(String(companionSeed), forKey: "companionSeed")
+        }
         let preferences = AppPreferences(defaults: defaults)
         preferences.historicalImportApproved = approved
         let recorder = OrderedRecorder()
@@ -229,7 +282,7 @@ final class AppModelTests: XCTestCase {
                 root: URL(fileURLWithPath: "/tmp/\(suiteName)-support", isDirectory: true)
             ),
             now: { Date(timeIntervalSince1970: 1_775_000_000) },
-            calendar: Calendar(identifier: .gregorian)
+            calendar: calendar
         )
         return ModelSetup(
             model: model,
