@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import XCTest
 @testable import TokenboardApp
@@ -147,6 +148,39 @@ final class DiscordPresenceTests: XCTestCase {
         XCTAssertFalse(candidates.contains { $0.contains("relative-path") })
     }
 
+    func testNativeClientPerformsHandshakeActivityAndPingPongOverLocalIPC() async throws {
+        let server = try DiscordIPCTestServer()
+        defer { server.close() }
+        let client = DiscordIPCClient(environment: ["TMPDIR": server.directory])
+        let applicationID = "123456789012345678"
+        let activity = DiscordPresencePresentation.activity(
+            tokenTotal: 12_345_678,
+            activeHourCount: 4
+        )
+
+        async let capturedExchange = server.captureExchange()
+        try await client.connect(applicationID: applicationID)
+        try await client.setActivity(activity)
+        let exchange = try await capturedExchange
+        await client.disconnect()
+
+        let handshake = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: exchange.handshake) as? [String: Any]
+        )
+        XCTAssertEqual(handshake["v"] as? Int, 1)
+        XCTAssertEqual(handshake["client_id"] as? String, applicationID)
+
+        let command = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: exchange.activity) as? [String: Any]
+        )
+        XCTAssertEqual(command["cmd"] as? String, "SET_ACTIVITY")
+        let arguments = try XCTUnwrap(command["args"] as? [String: Any])
+        let published = try XCTUnwrap(arguments["activity"] as? [String: Any])
+        XCTAssertEqual(published["details"] as? String, activity.details)
+        XCTAssertEqual(published["state"] as? String, activity.state)
+        XCTAssertEqual(exchange.pong, exchange.ping)
+    }
+
     func testCoordinatorConnectsUpdatesWithoutDuplicatesAndClearsOnDisable() async {
         let client = RecordingDiscordPresenceClient()
         let coordinator = DiscordPresenceCoordinator(
@@ -228,6 +262,166 @@ final class DiscordPresenceTests: XCTestCase {
         XCTAssertEqual(clearCount, 1)
         XCTAssertEqual(disconnectCount, 1)
     }
+}
+
+private struct DiscordIPCExchange: Sendable {
+    let handshake: Data
+    let activity: Data
+    let ping: Data
+    let pong: Data
+}
+
+private final class DiscordIPCTestServer: @unchecked Sendable {
+    let directory: String
+
+    private let listener: Int32
+    private let socketPath: String
+
+    init() throws {
+        directory = "/tmp/tokenboard-discord-\(UUID().uuidString.prefix(8))"
+        socketPath = "\(directory)/discord-ipc-0"
+        try FileManager.default.createDirectory(
+            atPath: directory,
+            withIntermediateDirectories: false
+        )
+
+        listener = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+        guard listener >= 0 else { throw DiscordIPCTestError.socketFailure }
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        let bytes = socketPath.utf8CString.map { UInt8(bitPattern: $0) }
+        guard bytes.count <= MemoryLayout.size(ofValue: address.sun_path) else {
+            Darwin.close(listener)
+            throw DiscordIPCTestError.socketFailure
+        }
+        withUnsafeMutableBytes(of: &address.sun_path) { destination in
+            destination.copyBytes(from: bytes)
+        }
+        address.sun_len = UInt8(MemoryLayout<sockaddr_un>.size)
+        let didBind = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.bind(
+                    listener,
+                    $0,
+                    socklen_t(MemoryLayout<sockaddr_un>.size)
+                ) == 0
+            }
+        }
+        guard didBind, Darwin.listen(listener, 1) == 0 else {
+            Darwin.close(listener)
+            throw DiscordIPCTestError.socketFailure
+        }
+    }
+
+    func captureExchange() async throws -> DiscordIPCExchange {
+        try await Task.detached(priority: .utility) { [listener] in
+            var ready = pollfd(fd: listener, events: Int16(POLLIN), revents: 0)
+            guard Darwin.poll(&ready, 1, 5_000) > 0 else {
+                throw DiscordIPCTestError.timeout
+            }
+            let connection = Darwin.accept(listener, nil, nil)
+            guard connection >= 0 else { throw DiscordIPCTestError.socketFailure }
+            defer { Darwin.close(connection) }
+
+            let handshake = try Self.readFrame(from: connection)
+            guard handshake.opcode == .handshake else {
+                throw DiscordIPCTestError.unexpectedFrame
+            }
+            let readyPayload = Data(
+                #"{"cmd":"DISPATCH","evt":"READY","data":{}}"#.utf8
+            )
+            try Self.write(
+                DiscordIPCFrameCodec.encode(opcode: .frame, payload: readyPayload),
+                to: connection
+            )
+
+            let activity = try Self.readFrame(from: connection)
+            guard activity.opcode == .frame else {
+                throw DiscordIPCTestError.unexpectedFrame
+            }
+            let ping = Data(#"{"probe":true}"#.utf8)
+            try Self.write(
+                DiscordIPCFrameCodec.encode(opcode: .ping, payload: ping),
+                to: connection
+            )
+            let pong = try Self.readFrame(from: connection)
+            guard pong.opcode == .pong else {
+                throw DiscordIPCTestError.unexpectedFrame
+            }
+            return DiscordIPCExchange(
+                handshake: handshake.payload,
+                activity: activity.payload,
+                ping: ping,
+                pong: pong.payload
+            )
+        }.value
+    }
+
+    func close() {
+        _ = Darwin.shutdown(listener, SHUT_RDWR)
+        Darwin.close(listener)
+        try? FileManager.default.removeItem(atPath: directory)
+    }
+
+    private static func readFrame(from descriptor: Int32) throws -> DiscordIPCFrame {
+        var buffer = try read(count: 8, from: descriptor)
+        let payloadSize = Int(UInt32(buffer[4])
+            | (UInt32(buffer[5]) << 8)
+            | (UInt32(buffer[6]) << 16)
+            | (UInt32(buffer[7]) << 24))
+        guard payloadSize <= DiscordIPCFrameCodec.maximumPayloadSize else {
+            throw DiscordIPCTestError.unexpectedFrame
+        }
+        buffer.append(try read(count: payloadSize, from: descriptor))
+        let frames = try DiscordIPCFrameCodec.decodeAvailableFrames(from: &buffer)
+        guard frames.count == 1, buffer.isEmpty, let frame = frames.first else {
+            throw DiscordIPCTestError.unexpectedFrame
+        }
+        return frame
+    }
+
+    private static func read(count: Int, from descriptor: Int32) throws -> Data {
+        guard count > 0 else { return Data() }
+        var result = Data(count: count)
+        var offset = 0
+        try result.withUnsafeMutableBytes { bytes in
+            guard let address = bytes.baseAddress else { return }
+            while offset < count {
+                var ready = pollfd(fd: descriptor, events: Int16(POLLIN), revents: 0)
+                guard Darwin.poll(&ready, 1, 5_000) > 0 else {
+                    throw DiscordIPCTestError.timeout
+                }
+                let received = Darwin.recv(
+                    descriptor,
+                    address.advanced(by: offset),
+                    count - offset,
+                    0
+                )
+                guard received > 0 else { throw DiscordIPCTestError.socketFailure }
+                offset += received
+            }
+        }
+        return result
+    }
+
+    private static func write(_ data: Data, to descriptor: Int32) throws {
+        try data.withUnsafeBytes { bytes in
+            guard var address = bytes.baseAddress else { return }
+            var remaining = bytes.count
+            while remaining > 0 {
+                let sent = Darwin.send(descriptor, address, remaining, 0)
+                guard sent > 0 else { throw DiscordIPCTestError.socketFailure }
+                remaining -= sent
+                address = address.advanced(by: sent)
+            }
+        }
+    }
+}
+
+private enum DiscordIPCTestError: Error {
+    case socketFailure
+    case timeout
+    case unexpectedFrame
 }
 
 private extension Data {
