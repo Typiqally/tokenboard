@@ -52,7 +52,7 @@
       <text x="337" y="332">No telemetry</text>
     </g>
 
-    <text x="64" y="380" fill="#747F90" font-size="12" font-weight="500" letter-spacing="0.3">NATIVE APPKIT  ·  SANDBOXED  ·  EVENT-DRIVEN</text>
+    <text x="64" y="380" fill="#747F90" font-size="12" font-weight="500" letter-spacing="0.3">NATIVE APPKIT  ·  SAME-USER IPC  ·  EVENT-DRIVEN</text>
 
     <g filter="url(#shadow)">
       <rect x="716" y="26" width="438" height="376" rx="24" fill="url(#desktop)" stroke="#FFFFFF" stroke-opacity="0.12"/>

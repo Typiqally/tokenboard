@@ -17,6 +17,8 @@ Develop behavior test-first. Parser fixtures must be synthetic and content-free:
 
 Any new entitlement or privacy-boundary change requires an explicit security review. Tokenboard is intentionally unsandboxed for same-user Discord IPC, but must remain signed without privilege entitlements. Do not add remote-network APIs, helper executables, daemons, XPC services, web views, analytics, telemetry, or third-party runtime dependencies. IPC code must accept only same-user Unix sockets, keep payload fields allowlisted, and never add Discord authentication. Pricing entries must cite official first-party provenance URLs and explicit effective dates; uncertainty stays unpriced.
 
+CI and tagged releases read the same public ID from the `TOKENBOARD_DISCORD_APPLICATION_ID` GitHub Actions repository variable. It is public configuration, not a secret. Keep the variable aligned with Tokenboard's shared Discord application and its `tokenboard` Rich Presence asset.
+
 ## Optional benchmark
 
 The benchmark creates exactly 5,100 synthetic JSONL files in a temporary directory and imports them through the real scanner and SQLite ledger twice. Running the script is the opt-in action:

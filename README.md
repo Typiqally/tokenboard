@@ -122,7 +122,7 @@ Scripts/verify-entitlements.sh .build/release/Tokenboard.app
 open .build/release/Tokenboard.app
 ```
 
-`build-app.sh` creates a native `Tokenboard.app`. Release builds require Tokenboard's shared 17–20 digit public Discord application ID in `TOKENBOARD_DISCORD_APPLICATION_ID`; debug builds may omit it, in which case Discord Activity is visibly unavailable. The Discord application should have a Rich Presence asset named `tokenboard`. Local builds are ad-hoc signed unless `TOKENBOARD_SIGN_IDENTITY` names a signing identity. Version tags publish an ad-hoc-signed universal app for the Homebrew Cask; Developer ID signing and notarization can be added later without changing the install command.
+`build-app.sh` creates a native `Tokenboard.app`. Release builds require Tokenboard's shared 17–20 digit public Discord application ID in `TOKENBOARD_DISCORD_APPLICATION_ID`; CI and tagged releases read it from the GitHub Actions repository variable with the same name. Debug builds may omit it, in which case Discord Activity is visibly unavailable. The Discord application should have a Rich Presence asset named `tokenboard`. Local builds are ad-hoc signed unless `TOKENBOARD_SIGN_IDENTITY` names a signing identity. Version tags publish an ad-hoc-signed universal app for the Homebrew Cask; Developer ID signing and notarization can be added later without changing the install command.
 
 ## Known limits
 
