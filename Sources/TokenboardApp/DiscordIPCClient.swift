@@ -2,8 +2,13 @@ import Darwin
 import Foundation
 
 actor DiscordIPCClient: DiscordPresenceClient {
+    private let environment: [String: String]?
     private var connection: DiscordSocketConnection?
     private var readTask: Task<Void, Never>?
+
+    init(environment: [String: String]? = nil) {
+        self.environment = environment
+    }
 
     func connect(applicationID: String) async throws {
         guard DiscordApplicationConfiguration(applicationID: applicationID) != nil else {
@@ -11,7 +16,7 @@ actor DiscordIPCClient: DiscordPresenceClient {
         }
         await disconnect()
         let candidates = DiscordIPCEndpointDiscovery.candidates(
-            environment: ProcessInfo.processInfo.environment
+            environment: environment ?? ProcessInfo.processInfo.environment
         )
         let opened = try await Task.detached(priority: .utility) {
             try DiscordSocketConnection.open(candidates: candidates)
