@@ -101,6 +101,23 @@ final class AppBundleConfigurationTests: XCTestCase {
         )
     }
 
+    func testAutomationProvidesTheSharedPublicDiscordApplicationID() throws {
+        for workflow in ["ci.yml", "release.yml"] {
+            let contents = try String(
+                contentsOf: TestRepository.root.appending(
+                    path: ".github/workflows/\(workflow)"
+                ),
+                encoding: .utf8
+            )
+            XCTAssertTrue(
+                contents.contains(
+                    "TOKENBOARD_DISCORD_APPLICATION_ID: ${{ vars.TOKENBOARD_DISCORD_APPLICATION_ID }}"
+                ),
+                workflow
+            )
+        }
+    }
+
     func testAppIconMasterIsAFullResolutionSquarePNG() throws {
         let url = TestRepository.root.appending(path: "Resources/AppIcon.png")
         let source = try XCTUnwrap(CGImageSourceCreateWithURL(url as CFURL, nil))
