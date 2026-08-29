@@ -239,6 +239,16 @@ final class DiscordPresenceTests: XCTestCase {
         XCTAssertEqual(activities, [activity])
     }
 
+    func testUnconfiguredCoordinatorIsVisiblyUnavailable() {
+        let coordinator = DiscordPresenceCoordinator(
+            configuration: nil,
+            client: RecordingDiscordPresenceClient()
+        )
+
+        XCTAssertFalse(coordinator.isConfigured)
+        XCTAssertEqual(coordinator.status, .unavailable)
+    }
+
     func testCoordinatorClearsOnShutdownWithoutBlockingFailure() async {
         let client = RecordingDiscordPresenceClient(clearError: .connectionFailed)
         let coordinator = DiscordPresenceCoordinator(
