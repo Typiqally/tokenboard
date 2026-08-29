@@ -195,15 +195,82 @@ final class AppModelTests: XCTestCase {
         XCTAssertTrue(setup.preferences.showCompanionInMenuBar)
     }
 
+    func testDiscordPresenceIsOptInPublishesTodayAndClearsOnShutdown() async throws {
+        let setup = try makeSetup(
+            approved: true,
+            grantedProviders: Set(Provider.allCases),
+            discordEnabled: true,
+            discordConsentVersion: DiscordPresencePresentation.consentVersion
+        )
+        defer { setup.cleanup() }
+
+        await setup.model.start()
+
+        XCTAssertTrue(setup.model.discordPresenceEnabled)
+        XCTAssertFalse(setup.model.discordPresenceRequiresConsent)
+        XCTAssertEqual(setup.discordPresence.status, .connected)
+        let initialActivities = await setup.discordClient.activities()
+        XCTAssertEqual(initialActivities, [
+            DiscordPresencePresentation.activity(
+                tokenTotal: 321,
+                activeHourCount: nil
+            )
+        ])
+
+        await setup.query.setHistoryTokenTotal(84)
+        await setup.model.retryUsageHistory()
+
+        let updatedActivities = await setup.discordClient.activities()
+        XCTAssertEqual(updatedActivities.last, DiscordPresencePresentation.activity(
+            tokenTotal: 84,
+            activeHourCount: nil
+        ))
+
+        await setup.model.shutdown()
+
+        let clearCount = await setup.discordClient.recordedClearCount()
+        let disconnectCount = await setup.discordClient.recordedDisconnectCount()
+        XCTAssertEqual(clearCount, 1)
+        XCTAssertEqual(disconnectCount, 1)
+    }
+
+    func testDiscordFirstEnablePersistsVersionedConsentAndDisableClears() async throws {
+        let setup = try makeSetup(approved: true, grantedProviders: Set(Provider.allCases))
+        defer { setup.cleanup() }
+        await setup.model.start()
+
+        XCTAssertTrue(setup.model.discordPresenceRequiresConsent)
+        await setup.model.confirmAndEnableDiscordPresence()
+
+        XCTAssertTrue(setup.preferences.discordPresenceEnabled)
+        XCTAssertEqual(
+            setup.preferences.discordPresenceConsentVersion,
+            DiscordPresencePresentation.consentVersion
+        )
+        XCTAssertEqual(setup.discordPresence.status, .connected)
+
+        await setup.model.setDiscordPresenceEnabled(false)
+
+        XCTAssertFalse(setup.model.discordPresenceEnabled)
+        XCTAssertFalse(setup.preferences.discordPresenceEnabled)
+        XCTAssertEqual(setup.discordPresence.status, .disabled)
+        let clearCount = await setup.discordClient.recordedClearCount()
+        XCTAssertEqual(clearCount, 1)
+    }
+
     private func makeSetup(
         approved: Bool,
         grantedProviders: Set<Provider>,
-        existingCatalogData: Data? = nil
+        existingCatalogData: Data? = nil,
+        discordEnabled: Bool = false,
+        discordConsentVersion: Int = 0
     ) throws -> ModelSetup {
         let suiteName = "AppModelTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         let preferences = AppPreferences(defaults: defaults)
         preferences.historicalImportApproved = approved
+        preferences.discordPresenceEnabled = discordEnabled
+        preferences.discordPresenceConsentVersion = discordConsentVersion
         let recorder = OrderedRecorder()
         let access = RuntimeBookmarkAccess(recorder: recorder)
         for provider in grantedProviders {
@@ -217,6 +284,13 @@ final class AppModelTests: XCTestCase {
         let ledger = RuntimeLedger(recorder: recorder, appliedCatalog: existingCatalogData)
         let coordinator = RuntimeCoordinator(recorder: recorder)
         let query = RuntimeQuery(recorder: recorder)
+        let discordClient = ModelDiscordPresenceClient()
+        let discordPresence = DiscordPresenceCoordinator(
+            configuration: DiscordApplicationConfiguration(
+                applicationID: "123456789012345678"
+            )!,
+            client: discordClient
+        )
         let model = AppModel(
             ledger: ledger,
             queryService: query,
@@ -228,6 +302,7 @@ final class AppModelTests: XCTestCase {
             applicationPaths: ApplicationPaths(
                 root: URL(fileURLWithPath: "/tmp/\(suiteName)-support", isDirectory: true)
             ),
+            discordPresence: discordPresence,
             now: { Date(timeIntervalSince1970: 1_775_000_000) },
             calendar: Calendar(identifier: .gregorian)
         )
@@ -237,6 +312,8 @@ final class AppModelTests: XCTestCase {
             query: query,
             preferences: preferences,
             coordinator: coordinator,
+            discordPresence: discordPresence,
+            discordClient: discordClient,
             access: access,
             recorder: recorder,
             defaults: defaults,
@@ -280,11 +357,37 @@ private struct ModelSetup {
     let query: RuntimeQuery
     let preferences: AppPreferences
     let coordinator: RuntimeCoordinator
+    let discordPresence: DiscordPresenceCoordinator
+    let discordClient: ModelDiscordPresenceClient
     let access: RuntimeBookmarkAccess
     let recorder: OrderedRecorder
     let defaults: UserDefaults
     let suiteName: String
     let cleanup: () -> Void
+}
+
+private actor ModelDiscordPresenceClient: DiscordPresenceClient {
+    private var recordedActivities: [DiscordPresenceActivity] = []
+    private var clears = 0
+    private var disconnects = 0
+
+    func connect(applicationID: String) {}
+
+    func setActivity(_ activity: DiscordPresenceActivity?) {
+        if let activity {
+            recordedActivities.append(activity)
+        } else {
+            clears += 1
+        }
+    }
+
+    func disconnect() {
+        disconnects += 1
+    }
+
+    func activities() -> [DiscordPresenceActivity] { recordedActivities }
+    func recordedClearCount() -> Int { clears }
+    func recordedDisconnectCount() -> Int { disconnects }
 }
 
 private final class OrderedRecorder: @unchecked Sendable {

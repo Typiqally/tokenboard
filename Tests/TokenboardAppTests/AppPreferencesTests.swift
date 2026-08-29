@@ -17,6 +17,8 @@ final class AppPreferencesTests: XCTestCase {
         XCTAssertFalse(preferences.historicalImportApproved)
         XCTAssertEqual(preferences.selectedCompanionTheme, .none)
         XCTAssertFalse(preferences.showCompanionInMenuBar)
+        XCTAssertFalse(preferences.discordPresenceEnabled)
+        XCTAssertEqual(preferences.discordPresenceConsentVersion, 0)
 
         preferences.selectedPeriod = .thisYear
         preferences.selectedDisplayMetric = .apiValue
@@ -25,6 +27,8 @@ final class AppPreferencesTests: XCTestCase {
         preferences.selectedCompanionTheme = .forest
         preferences.showCompanionInMenuBar = true
         preferences.companionSeed = 42
+        preferences.discordPresenceEnabled = true
+        preferences.discordPresenceConsentVersion = 1
 
         let persisted = defaults.persistentDomain(forName: suiteName) ?? [:]
         XCTAssertEqual(
@@ -32,7 +36,8 @@ final class AppPreferencesTests: XCTestCase {
             [
                 "selectedPeriod", "selectedDisplayMetric", "selectedDisplayCurrency",
                 "historicalImportApproved", "selectedCompanionTheme",
-                "showCompanionInMenuBar", "companionSeed"
+                "showCompanionInMenuBar", "companionSeed",
+                "discordPresenceEnabled", "discordPresenceConsentVersion"
             ]
         )
         XCTAssertEqual(persisted["selectedPeriod"] as? String, "this_year")
@@ -42,6 +47,8 @@ final class AppPreferencesTests: XCTestCase {
         XCTAssertEqual(persisted["selectedCompanionTheme"] as? String, "forest")
         XCTAssertEqual(persisted["showCompanionInMenuBar"] as? Bool, true)
         XCTAssertEqual(persisted["companionSeed"] as? String, "42")
+        XCTAssertEqual(persisted["discordPresenceEnabled"] as? Bool, true)
+        XCTAssertEqual(persisted["discordPresenceConsentVersion"] as? Int, 1)
         XCTAssertFalse(persisted.values.compactMap { $0 as? String }.contains { value in
             value.contains("/Users/") || value.contains("warning") || value.contains("project")
         })

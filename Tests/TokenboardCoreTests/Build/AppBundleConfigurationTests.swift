@@ -70,17 +70,17 @@ final class AppBundleConfigurationTests: XCTestCase {
         )
     }
 
-    func testEntitlementsAreSandboxedReadOnlyAndOffline() throws {
+    func testReleaseIsExplicitlyUnsandboxedWithNoPrivilegeEntitlements() throws {
         let url = TestRepository.root.appending(path: "Resources/Tokenboard.entitlements")
-        let data = try Data(contentsOf: url)
-        let plist = try XCTUnwrap(
-            PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+
+        let buildScript = try String(
+            contentsOf: TestRepository.root.appending(path: "Scripts/build-app.sh"),
+            encoding: .utf8
         )
-        XCTAssertEqual(plist["com.apple.security.app-sandbox"] as? Bool, true)
-        XCTAssertEqual(plist["com.apple.security.files.user-selected.read-only"] as? Bool, true)
-        XCTAssertEqual(plist["com.apple.security.files.bookmarks.app-scope"] as? Bool, true)
-        XCTAssertNil(plist["com.apple.security.network.client"])
-        XCTAssertNil(plist["com.apple.security.network.server"])
+        XCTAssertFalse(buildScript.contains("--entitlements"))
+        XCTAssertTrue(buildScript.contains("TOKENBOARD_DISCORD_APPLICATION_ID"))
+        XCTAssertTrue(buildScript.contains("TokenboardDiscordApplicationID"))
     }
 
     func testInfoPlistDefinesAnAgentOnlyApplication() throws {
@@ -95,6 +95,10 @@ final class AppBundleConfigurationTests: XCTestCase {
         XCTAssertEqual(plist["CFBundleIconFile"] as? String, "Tokenboard.icns")
         XCTAssertEqual(plist["CFBundleShortVersionString"] as? String, "0.7.1")
         XCTAssertEqual(plist["CFBundleVersion"] as? String, "12")
+        XCTAssertEqual(
+            plist["TokenboardDiscordApplicationID"] as? String,
+            "__TOKENBOARD_DISCORD_APPLICATION_ID__"
+        )
     }
 
     func testAppIconMasterIsAFullResolutionSquarePNG() throws {

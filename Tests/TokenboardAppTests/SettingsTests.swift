@@ -36,6 +36,27 @@ final class SettingsTests: XCTestCase {
         )
     }
 
+    func testDiscordSettingsMakePublicSharingAndRecoveryExplicit() {
+        XCTAssertEqual(DiscordPresenceSettingsPresentation.sectionTitle, "Discord Activity")
+        XCTAssertEqual(
+            DiscordPresenceSettingsPresentation.toggleTitle,
+            "Share activity on Discord"
+        )
+        XCTAssertEqual(
+            DiscordPresenceSettingsPresentation.confirmationTitle,
+            "Share activity on Discord?"
+        )
+        XCTAssertEqual(
+            DiscordPresenceSettingsPresentation.confirmButtonTitle,
+            "Share Activity"
+        )
+        XCTAssertEqual(DiscordPresenceSettingsPresentation.retryTitle, "Retry")
+        XCTAssertEqual(DiscordPresenceStatus.discordNotRunning.title, "Discord isn't running")
+        XCTAssertEqual(DiscordPresenceStatus.failed.title, "Couldn't connect")
+        XCTAssertTrue(DiscordPresencePresentation.disclosure.contains("profile"))
+        XCTAssertTrue(DiscordPresencePresentation.disclosure.contains("local Discord"))
+    }
+
     func testDiagnosticsCollectsCurrentSourceIssuesBehindTechnicalDetails() {
         let health = TokenboardHealth(
             claude: .warning(issue: .truncatedLog, message: "Imported log was truncated"),
@@ -66,7 +87,7 @@ final class SettingsTests: XCTestCase {
     func testPricingUpdateCopyExplainsTheNetworkBoundaryAndNextStep() {
         XCTAssertEqual(
             PricingUpdateCopy.explanation,
-            "Tokenboard has no network access. Paste this prompt into Claude Code or Codex; the agent researches pricing, reports its sources, and safely replaces the local catalog. Valid changes apply automatically."
+            "Tokenboard does not make pricing network requests. Paste this prompt into Claude Code or Codex; the agent researches pricing, reports its sources, and safely replaces the local catalog. Valid changes apply automatically."
         )
         XCTAssertEqual(PricingUpdateCopy.buttonTitle, "Copy Pricing Update Prompt")
         XCTAssertEqual(
