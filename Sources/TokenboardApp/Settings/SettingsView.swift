@@ -349,8 +349,8 @@ private struct DiscordPresenceSettingsSection: View {
                     HStack(spacing: 8) {
                         Text(coordinator.status.title)
                         if model.discordPresenceEnabled,
-                           coordinator.status == .discordNotRunning
-                            || coordinator.status == .failed {
+                           (coordinator.status == .discordNotRunning
+                            || coordinator.status == .failed) {
                             Button(DiscordPresenceSettingsPresentation.retryTitle) {
                                 Task { await model.retryDiscordPresence() }
                             }

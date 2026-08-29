@@ -112,6 +112,7 @@ final class DiscordPresenceCoordinator: ObservableObject {
     ) {
         self.configuration = configuration
         self.client = client
+        status = configuration == nil ? .unavailable : .disabled
     }
 
     func setEnabled(
