@@ -11,6 +11,8 @@ final class AppPreferences {
         static let selectedCompanionTheme = "selectedCompanionTheme"
         static let showCompanionInMenuBar = "showCompanionInMenuBar"
         static let companionSeed = "companionSeed"
+        static let discordPresenceEnabled = "discordPresenceEnabled"
+        static let discordPresenceConsentVersion = "discordPresenceConsentVersion"
         static let legacyCompanionProgress = [
             "companionProgressInitialized",
             "companionEarnedTokens",
@@ -81,6 +83,16 @@ final class AppPreferences {
             return value
         }
         set { defaults.set(String(newValue), forKey: Key.companionSeed) }
+    }
+
+    var discordPresenceEnabled: Bool {
+        get { defaults.bool(forKey: Key.discordPresenceEnabled) }
+        set { defaults.set(newValue, forKey: Key.discordPresenceEnabled) }
+    }
+
+    var discordPresenceConsentVersion: Int {
+        get { defaults.integer(forKey: Key.discordPresenceConsentVersion) }
+        set { defaults.set(newValue, forKey: Key.discordPresenceConsentVersion) }
     }
 
 }

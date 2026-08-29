@@ -11,7 +11,7 @@ struct DiscordPresenceActivity: Equatable, Sendable {
 
 enum DiscordPresencePresentation {
     static let consentVersion = 1
-    static let disclosure = "Discord may show this activity on your profile, in friend lists, and in server member lists. Tokenboard sends only this preview to the local Discord desktop client."
+    static let disclosure = "Discord may show this activity on your profile, in friend lists, and in server member lists. Tokenboard publishes only this preview through the local Discord desktop client."
 
     static func activity(
         tokenTotal: Int64,
@@ -45,11 +45,18 @@ struct DiscordApplicationConfiguration: Equatable, Sendable {
 
     init?(applicationID: String) {
         guard (17...20).contains(applicationID.count),
-              applicationID.allSatisfy(\.isNumber),
+              applicationID.utf8.allSatisfy({ (48...57).contains($0) }),
               applicationID != String(repeating: "0", count: applicationID.count) else {
             return nil
         }
         self.applicationID = applicationID
+    }
+
+    static func load(from bundle: Bundle = .main) -> DiscordApplicationConfiguration? {
+        guard let value = bundle.object(
+            forInfoDictionaryKey: "TokenboardDiscordApplicationID"
+        ) as? String else { return nil }
+        return DiscordApplicationConfiguration(applicationID: value)
     }
 }
 
@@ -59,6 +66,7 @@ enum DiscordPresenceStatus: Equatable, Sendable {
     case connected
     case discordNotRunning
     case failed
+    case unavailable
 
     var title: String {
         switch self {
@@ -67,6 +75,7 @@ enum DiscordPresenceStatus: Equatable, Sendable {
         case .connected: "Connected"
         case .discordNotRunning: "Discord isn't running"
         case .failed: "Couldn't connect"
+        case .unavailable: "Unavailable in this build"
         }
     }
 }
@@ -91,12 +100,14 @@ final class DiscordPresenceCoordinator: ObservableObject {
     @Published private(set) var isEnabled = false
     @Published private(set) var currentActivity: DiscordPresenceActivity?
 
-    private let configuration: DiscordApplicationConfiguration
+    var isConfigured: Bool { configuration != nil }
+
+    private let configuration: DiscordApplicationConfiguration?
     private let client: any DiscordPresenceClient
     private var publishedActivity: DiscordPresenceActivity?
 
     init(
-        configuration: DiscordApplicationConfiguration,
+        configuration: DiscordApplicationConfiguration?,
         client: any DiscordPresenceClient
     ) {
         self.configuration = configuration
@@ -119,6 +130,11 @@ final class DiscordPresenceCoordinator: ObservableObject {
             return
         }
 
+        guard configuration != nil else {
+            isEnabled = false
+            status = .unavailable
+            return
+        }
         isEnabled = true
         if status == .connected {
             await update(activity)
@@ -164,7 +180,10 @@ final class DiscordPresenceCoordinator: ObservableObject {
     }
 
     private func connect() async {
-        guard let currentActivity else { return }
+        guard let configuration, let currentActivity else {
+            status = .unavailable
+            return
+        }
         status = .connecting
         do {
             try await client.connect(applicationID: configuration.applicationID)

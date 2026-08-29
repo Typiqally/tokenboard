@@ -80,34 +80,28 @@ if ! /usr/bin/codesign -d --entitlements :- "$app_path" \
     print -u2 "Unable to read signed entitlements"
     exit 66
 fi
-if ! /usr/bin/plutil -lint "$entitlements_file" >/dev/null; then
-    print -u2 "Signed entitlements are not a property list"
-    exit 66
-fi
-
-entitlement_count=$(/usr/bin/xmllint --xpath 'count(/plist/dict/key)' "$entitlements_file")
-if [[ "$entitlement_count" != "3" ]]; then
-    print -u2 "Signed entitlement key set is not exact"
-    exit 67
-fi
-
-expected_entitlements=(
-    com.apple.security.app-sandbox
-    com.apple.security.files.user-selected.read-only
-    com.apple.security.files.bookmarks.app-scope
-)
-for entitlement in "${expected_entitlements[@]}"; do
-    match_count=$(/usr/bin/xmllint \
-        --xpath "count(/plist/dict/key[.='$entitlement'])" \
-        "$entitlements_file")
-    value_type=$(/usr/bin/xmllint \
-        --xpath "name(/plist/dict/key[.='$entitlement']/following-sibling::*[1])" \
-        "$entitlements_file")
-    if [[ "$match_count" != "1" || "$value_type" != "true" ]]; then
-        print -u2 "Required entitlement is not enabled"
+if [[ -s "$entitlements_file" ]]; then
+    if ! /usr/bin/plutil -lint "$entitlements_file" >/dev/null; then
+        print -u2 "Signed entitlements are not a property list"
+        exit 66
+    fi
+    entitlement_count=$(/usr/bin/xmllint --xpath 'count(/plist/dict/key)' "$entitlements_file")
+    if [[ "$entitlement_count" != "0" ]]; then
+        print -u2 "Tokenboard must be signed without privilege entitlements"
         exit 67
     fi
-done
+fi
+
+discord_application_id=$(/usr/bin/plutil \
+    -extract TokenboardDiscordApplicationID raw \
+    "$info_plist" 2>/dev/null || true)
+if [[ ${#discord_application_id} -lt 17 \
+    || ${#discord_application_id} -gt 20 \
+    || "$discord_application_id" == *[!0-9]* \
+    || -z "${discord_application_id//0/}" ]]; then
+    print -u2 "Tokenboard Discord application ID is missing or invalid"
+    exit 68
+fi
 
 if [[ $(/usr/bin/plutil -extract CFBundleExecutable raw "$info_plist") != "TokenboardApp" \
     || $(/usr/bin/plutil -extract CFBundleIdentifier raw "$info_plist") != "com.tokenboard.Tokenboard" \
@@ -192,7 +186,13 @@ for binary_architecture in "${binary_architectures[@]}"; do
     done
 done
 
-print "Tokenboard sandbox and single-process audit passed"
+if /usr/bin/nm -u "$executable" | /usr/bin/grep -Eq \
+    'NSURLSession|_nw_connection|CFHTTP|CFHost|CFSocket'; then
+    print -u2 "Remote-network-capable API import found"
+    exit 73
+fi
+
+print "Tokenboard unsandboxed local-IPC and single-process audit passed"
 }
 
 if [[ "$ZSH_EVAL_CONTEXT" == "toplevel" ]]; then

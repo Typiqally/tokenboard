@@ -35,7 +35,7 @@ into an agent. Never invent or guess model prices.
 
 ### Install manually
 
-Install Tokenboard with Homebrew. Tokenboard is not Apple-notarized; Homebrew downloads and verifies the release. The second command explicitly removes macOS's quarantine attribute from the installed app. It does not grant additional permissions: Tokenboard remains sandboxed and asks you to choose its read-only source folders on first launch.
+Install Tokenboard with Homebrew. Tokenboard is not Apple-notarized; Homebrew downloads and verifies the release. The second command explicitly removes macOS's quarantine attribute from the installed app. It does not change filesystem permissions: Tokenboard asks you to choose its source folders on first launch and its code reads only those selected roots.
 
 ```zsh
 brew install --cask typiqally/tokenboard/tokenboard
@@ -50,8 +50,9 @@ Upgrade with `brew upgrade --cask tokenboard`. Uninstall with `brew uninstall --
 - **A focused native popover.** See the exact total, API-equivalent estimate, update recency, comparison, chart, work-pattern preview, and Claude Code/Codex shares without opening a dashboard. Hover or scrub a chart bar for its exact value, then click to pin it. The popover dismisses on an outside click or Escape.
 - **Today through 90 days.** `TODAY` shows hourly progression. `7D`, `30D`, and `90D` show daily trends. These trend ranges are independent from the headline summary period.
 - **Drill-down History.** Open the resizable History window for the whole range or a provider, select a chart bar, and expand provider, model, and Input/Cache/Output totals. Switch to Work Patterns for active-hour averages, peak and recurring hours or weekdays, a selectable volume/consistency heatmap, typical first and last activity, and busiest-day context.
-- **Automatic local updates.** Native filesystem events provide the fast path. A read-only JSONL metadata reconciliation catches events that the App Sandbox does not deliver, and the recency label doubles as an explicit Refresh action.
+- **Automatic local updates.** Native filesystem events provide the fast path. A read-only JSONL metadata reconciliation catches missed events, and the recency label doubles as an explicit Refresh action.
 - **Honest estimates.** Effective-dated public list prices and locally approved exchange rates power API-equivalent values. Unknown models and uncovered dates remain counted but visibly unpriced; the estimate is never presented as a bill.
+- **Optional Discord activity.** After an exact first-use preview and confirmation, Tokenboard can publish only today's compact token total and number of active-hour buckets to the local Discord desktop client. It is off by default, can be disabled in Settings, and clears when Tokenboard quits.
 - **Optional local companions.** Choose Pokémon, Forest, Village, Old School RuneScape, Age of Empires II, or Minecraft from the visual shelf in General Settings. Every theme is a coherent, art-directed twelve-stage journey built from authentic source artwork or original generated scenes, all bundled at build time, while the popover stays visual-only. The journey follows the existing `TODAY` token source and resets at the start of each local day; `None` keeps the original compact interface.
 - **Worlds that are actually inhabited.** Each companion scene is art-directed on its own terms rather than one idle applied six times. Age of Empires II villagers walk out to the trees, chop, and carry the load home while a herd grazes and the settlement gets busier with every age. A village's windows switch on and off room by room while townsfolk and a stray work the street by day and traffic has the road after dark. Old School RuneScape moves everything — the adventurer and the other players around them — on the 0.6-second game tick, one whole tile at a time, and the Grand Exchange is as crowded as it should be. A forest sheds leaves only where the gust actually is, and birds land in the crowns the scene really grew. Minecraft spawns the mob each biome has, and leaves the ancient city and the End silent on purpose.
 
@@ -75,12 +76,13 @@ History uses the same typography, chart, range control, dividers, and provider i
 
 ## Private by construction
 
-- One sandboxed native process with no network entitlement or network requests.
-- Explicit, read-only folder grants through the native macOS picker; Tokenboard never guesses a source location.
+- One unsandboxed native process with no privilege entitlements, remote network requests, helper, daemon, or XPC service. The unsandboxed boundary is required for Discord's local Unix socket.
+- Explicit folders selected through the native macOS picker; Tokenboard's source layer enforces read-only access within those roots and never guesses a source location.
 - No telemetry, remote analytics, helper, daemon, or XPC service. Work Patterns are calculated locally from the same content-safe hourly aggregates.
 - Automatic monitoring combines native filesystem events with read-only JSONL size and modification-date reconciliation. It never edits source logs.
 - Content-safe daily and hourly aggregates and bookkeeping after ingestion—not prompts, responses, tool content, project metadata, paths below the granted roots, raw session IDs, or per-session totals.
 - Companion art is bundled with the app. Only the selected track, menu-bar visibility, and random seed are stored as companion preferences; stages derive directly from the existing local `TODAY` aggregate. No companion data is fetched or uploaded.
+- Discord activity is off by default. When enabled, Tokenboard sends its exact Settings preview over a same-user local IPC socket; it sends no provider, model, project, path, conversation, cost, buttons, party data, or secrets.
 
 See [PRIVACY.md](PRIVACY.md) for the exact local-data and retention boundary.
 
@@ -115,12 +117,12 @@ Requirements:
 
 ```zsh
 swift test
-Scripts/build-app.sh release
+TOKENBOARD_DISCORD_APPLICATION_ID=<public-app-id> Scripts/build-app.sh release
 Scripts/verify-entitlements.sh .build/release/Tokenboard.app
 open .build/release/Tokenboard.app
 ```
 
-`build-app.sh` creates a native `Tokenboard.app`. Local builds are ad-hoc signed unless `TOKENBOARD_SIGN_IDENTITY` names a signing identity. Version tags publish an ad-hoc-signed universal app for the Homebrew Cask; Developer ID signing and notarization can be added later without changing the install command.
+`build-app.sh` creates a native `Tokenboard.app`. Release builds require Tokenboard's shared 17–20 digit public Discord application ID in `TOKENBOARD_DISCORD_APPLICATION_ID`; debug builds may omit it, in which case Discord Activity is visibly unavailable. The Discord application should have a Rich Presence asset named `tokenboard`. Local builds are ad-hoc signed unless `TOKENBOARD_SIGN_IDENTITY` names a signing identity. Version tags publish an ad-hoc-signed universal app for the Homebrew Cask; Developer ID signing and notarization can be added later without changing the install command.
 
 ## Known limits
 

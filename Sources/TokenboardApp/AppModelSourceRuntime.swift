@@ -683,6 +683,7 @@ extension AppModel {
             }
         }
         commitState(next)
+        await reconcileDiscordPresence()
     }
 
     func retryUsageHistory() async {

@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsController: SettingsWindowController?
     private var historyController: HistoryWindowController?
     private var onboardingObservation: AnyCancellable?
+    private var discordObservations: Set<AnyCancellable> = []
     private var terminationPending = false
 
     override init() {
@@ -36,6 +37,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             )
             let preferences = AppPreferences()
             let grantStore = SourceGrantStore()
+            let discordPresence = DiscordPresenceCoordinator(
+                configuration: DiscordApplicationConfiguration.load(),
+                client: DiscordIPCClient()
+            )
             let model = AppModel(
                 ledger: ledger,
                 queryService: UsageQueryService(ledger: ledger),
@@ -44,7 +49,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 grantStore: grantStore,
                 preferences: preferences,
                 bundledCatalogData: bundledCatalogData,
-                applicationPaths: paths
+                applicationPaths: paths,
+                discordPresence: discordPresence
             )
             self.model = model
             popoverController = RichPopoverController(model: model)
@@ -69,6 +75,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .sink { [weak self] required in
                     self?.onboardingController?.update(isRequired: required)
                 }
+            observeDiscordLifecycle(model: model)
             Task { await model.start() }
         } catch {
             popoverController = RichPopoverController(startupError: error)
@@ -100,6 +107,55 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             throw AppStartupError.missingBundledCatalog
         }
         return url
+    }
+
+    private func observeDiscordLifecycle(model: AppModel) {
+        let workspaceCenter = NSWorkspace.shared.notificationCenter
+        workspaceCenter.publisher(for: NSWorkspace.didLaunchApplicationNotification)
+            .compactMap(Self.runningApplication(from:))
+            .filter(Self.isOfficialDiscord)
+            .sink { _ in
+                Task { @MainActor [weak model] in
+                    try? await Task.sleep(for: .seconds(1))
+                    await model?.retryDiscordPresence()
+                }
+            }
+            .store(in: &discordObservations)
+
+        workspaceCenter.publisher(for: NSWorkspace.didTerminateApplicationNotification)
+            .compactMap(Self.runningApplication(from:))
+            .filter(Self.isOfficialDiscord)
+            .sink { _ in
+                Task { @MainActor [weak model] in
+                    await model?.discordBecameUnavailable()
+                }
+            }
+            .store(in: &discordObservations)
+
+        workspaceCenter.publisher(for: NSWorkspace.didWakeNotification)
+            .sink { _ in
+                Task { @MainActor [weak model] in
+                    await model?.retryDiscordPresence()
+                }
+            }
+            .store(in: &discordObservations)
+
+        NotificationCenter.default.publisher(for: .NSCalendarDayChanged)
+            .merge(with: NotificationCenter.default.publisher(for: .NSSystemTimeZoneDidChange))
+            .sink { _ in
+                Task { @MainActor [weak model] in
+                    await model?.refreshDiscordPresenceForCalendarChange()
+                }
+            }
+            .store(in: &discordObservations)
+    }
+
+    private static func runningApplication(from notification: Notification) -> NSRunningApplication? {
+        notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+    }
+
+    private static func isOfficialDiscord(_ application: NSRunningApplication) -> Bool {
+        application.bundleIdentifier?.hasPrefix("com.hnc.Discord") == true
     }
 }
 

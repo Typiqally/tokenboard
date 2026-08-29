@@ -6,6 +6,7 @@ import TokenboardCore
 final class AppModel: ObservableObject {
     @Published private(set) var state: AppPublishedState
     @Published private(set) var settingsState: AppSettingsState
+    @Published private(set) var discordPresenceEnabled: Bool
 
     var onOpenPricing: (() -> Void)?
     var onOpenSettings: (() -> Void)?
@@ -40,6 +41,12 @@ final class AppModel: ObservableObject {
     var isDatabaseRecoveryActionLocked: Bool {
         settingsState.databaseRecoveryDisposition != .none
     }
+    var discordPresenceRequiresConsent: Bool {
+        preferences.discordPresenceConsentVersion < DiscordPresencePresentation.consentVersion
+    }
+    var discordPresencePreview: DiscordPresenceActivity {
+        makeDiscordPresenceActivity()
+    }
 
     let ledger: any AppLedgerRuntime
     let queryService: any AppUsageQuerying
@@ -56,6 +63,7 @@ final class AppModel: ObservableObject {
     let pasteboard: any AppPlainTextCopying
     let localDataRevealer: any AppLocalDataRevealing
     let databaseRecovery: any AppDatabaseRecovering
+    let discordPresence: DiscordPresenceCoordinator
     var activeGrants: [Provider: ActiveSourceGrant] = [:]
     var lastSummary: UsageSummary?
     var lifecycleGeneration: UInt64 = 0
@@ -101,6 +109,7 @@ final class AppModel: ObservableObject {
         preferences: AppPreferences,
         bundledCatalogData: Data,
         applicationPaths: ApplicationPaths,
+        discordPresence: DiscordPresenceCoordinator? = nil,
         now: @escaping @Sendable () -> Date = { Date() },
         calendar: Calendar = .current,
         discovery: any LogDiscovering = LogDiscovery(),
@@ -127,6 +136,11 @@ final class AppModel: ObservableObject {
             databaseURL: applicationPaths.ledger,
             backupDirectory: applicationPaths.backups
         )
+        self.discordPresence = discordPresence ?? DiscordPresenceCoordinator(
+            configuration: nil,
+            client: DiscordIPCClient()
+        )
+        discordPresenceEnabled = preferences.discordPresenceEnabled
         state = .initial(
             period: preferences.selectedPeriod,
             displayMetric: preferences.selectedDisplayMetric,
@@ -157,6 +171,7 @@ final class AppModel: ObservableObject {
         guard state.lifecycle != .ready else { return }
         guard await ensureReady(retryFailed: false) else { return }
         await finishStartupBehavior()
+        await reconcileDiscordPresence()
     }
 
     func startHistoricalImport() async {
@@ -253,6 +268,41 @@ final class AppModel: ObservableObject {
         var next = state
         next.companion.showInMenuBar = enabled
         commitState(next)
+    }
+
+    func confirmAndEnableDiscordPresence() async {
+        preferences.discordPresenceConsentVersion = DiscordPresencePresentation.consentVersion
+        await setDiscordPresenceEnabled(true)
+    }
+
+    func setDiscordPresenceEnabled(_ enabled: Bool) async {
+        guard !isDatabaseRestoreInProgress,
+              !isDatabaseRecoveryActionLocked,
+              state.lifecycle != .shuttingDown,
+              state.lifecycle != .stopped else { return }
+        guard !enabled || !discordPresenceRequiresConsent else { return }
+        guard !enabled || discordPresence.isConfigured else { return }
+        preferences.discordPresenceEnabled = enabled
+        discordPresenceEnabled = enabled
+        await discordPresence.setEnabled(enabled, activity: makeDiscordPresenceActivity())
+    }
+
+    func retryDiscordPresence() async {
+        guard discordPresenceEnabled else { return }
+        if discordPresence.isEnabled {
+            await discordPresence.retry()
+        } else {
+            await discordPresence.setEnabled(true, activity: makeDiscordPresenceActivity())
+        }
+    }
+
+    func discordBecameUnavailable() async {
+        await discordPresence.discordBecameUnavailable()
+    }
+
+    func refreshDiscordPresenceForCalendarChange() async {
+        guard discordPresenceEnabled else { return }
+        await discordPresence.update(makeDiscordPresenceActivity())
     }
 
     func companionDailyTokenTotal(at date: Date) -> Int64 {
@@ -368,8 +418,33 @@ final class AppModel: ObservableObject {
             return false
         }
 
+        await discordPresence.shutdown()
         publishStoppedState()
         return true
+    }
+
+    func reconcileDiscordPresence() async {
+        guard discordPresenceEnabled else { return }
+        let activity = makeDiscordPresenceActivity()
+        if discordPresence.isEnabled {
+            await discordPresence.update(activity)
+        } else {
+            await discordPresence.setEnabled(true, activity: activity)
+        }
+    }
+
+    private func makeDiscordPresenceActivity() -> DiscordPresenceActivity {
+        guard let snapshot = state.historyState.snapshots?[.today],
+              snapshot.currentInterval.contains(now()) else {
+            return DiscordPresencePresentation.activity(
+                tokenTotal: 0,
+                activeHourCount: 0
+            )
+        }
+        return DiscordPresencePresentation.activity(
+            tokenTotal: snapshot.breakdown.tokenTotal,
+            activeHourCount: snapshot.workPatterns?.totalActiveHours
+        )
     }
 
     func publishStoppedState() {

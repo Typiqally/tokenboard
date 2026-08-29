@@ -189,14 +189,16 @@ private final class DiscordSocketConnection: @unchecked Sendable {
     }
 
     func close() {
-        let descriptor = descriptorLock.withLock { () -> Int32 in
-            let current = self.descriptor
-            self.descriptor = -1
-            return current
+        writeLock.withLock {
+            let descriptor = descriptorLock.withLock { () -> Int32 in
+                let current = self.descriptor
+                self.descriptor = -1
+                return current
+            }
+            guard descriptor >= 0 else { return }
+            _ = Darwin.shutdown(descriptor, SHUT_RDWR)
+            Darwin.close(descriptor)
         }
-        guard descriptor >= 0 else { return }
-        _ = Darwin.shutdown(descriptor, SHUT_RDWR)
-        Darwin.close(descriptor)
     }
 
     private func readExactly(

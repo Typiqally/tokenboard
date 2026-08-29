@@ -72,7 +72,7 @@ enum PricingSettingsPresentation {
 
 enum PricingUpdateCopy {
     static let buttonTitle = "Copy Pricing Update Prompt"
-    static let explanation = "Tokenboard has no network access. Paste this prompt into Claude Code or Codex; the agent researches pricing, reports its sources, and safely replaces the local catalog. Valid changes apply automatically."
+    static let explanation = "Tokenboard does not make pricing network requests. Paste this prompt into Claude Code or Codex; the agent researches pricing, reports its sources, and safely replaces the local catalog. Valid changes apply automatically."
 
     static func status(
         _ status: PricingCatalogStatus?,

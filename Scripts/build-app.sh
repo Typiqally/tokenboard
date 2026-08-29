@@ -12,6 +12,20 @@ if [[ "$architecture" != "native" && "$architecture" != "universal" ]]; then
   exit 64
 fi
 
+discord_application_id=${TOKENBOARD_DISCORD_APPLICATION_ID:-}
+if [[ -z "$discord_application_id" && "$configuration" == "release" ]]; then
+  print -u2 "TOKENBOARD_DISCORD_APPLICATION_ID is required for release builds"
+  exit 78
+fi
+if [[ -n "$discord_application_id" ]]; then
+  if (( ${#discord_application_id} < 17 || ${#discord_application_id} > 20 )) \
+      || [[ "$discord_application_id" == *[!0-9]* ]] \
+      || [[ -z "${discord_application_id//0/}" ]]; then
+    print -u2 "TOKENBOARD_DISCORD_APPLICATION_ID must be a 17-20 digit public application ID"
+    exit 78
+  fi
+fi
+
 script_dir=${0:A:h}
 repository_root=${script_dir:h}
 cd "$repository_root"
@@ -43,6 +57,15 @@ else
 fi
 
 ditto Resources/Info.plist "$staging_app/Contents/Info.plist"
+if [[ -z "$discord_application_id" ]]; then
+  /usr/libexec/PlistBuddy \
+    -c "Delete :TokenboardDiscordApplicationID" \
+    "$staging_app/Contents/Info.plist"
+else
+  /usr/libexec/PlistBuddy \
+    -c "Set :TokenboardDiscordApplicationID $discord_application_id" \
+    "$staging_app/Contents/Info.plist"
+fi
 "$repository_root/Scripts/generate-app-icon.sh" \
   "$repository_root/Resources/AppIcon.png" \
   "$staging_app/Contents/Resources/Tokenboard.icns"
@@ -54,7 +77,7 @@ if [[ -d Resources/Companions ]]; then
 fi
 
 sign_identity=${TOKENBOARD_SIGN_IDENTITY:--}
-sign_arguments=(--force --sign "$sign_identity" --entitlements Resources/Tokenboard.entitlements)
+sign_arguments=(--force --sign "$sign_identity")
 if [[ "$sign_identity" != "-" ]]; then
   sign_arguments+=(--options runtime --timestamp)
 fi

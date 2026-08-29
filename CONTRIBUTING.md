@@ -8,14 +8,14 @@ Use macOS 14 or newer with Apple's Swift 6 toolchain. No package install is requ
 
 ```zsh
 swift test
-Scripts/build-app.sh release
+TOKENBOARD_DISCORD_APPLICATION_ID=<public-app-id> Scripts/build-app.sh release
 Scripts/verify-entitlements.sh .build/release/Tokenboard.app
 git diff --check
 ```
 
 Develop behavior test-first. Parser fixtures must be synthetic and content-free: no copied prompts, responses, tool data, project names, real paths, repository URLs, branches, or real session IDs. Use obviously synthetic stable identifiers only where parser behavior requires them. Every database migration needs an upgrade test from every prior supported schema and must demonstrate that usage and price totals are preserved unless the migration documents a deliberate semantic correction.
 
-Any new entitlement or privacy-boundary change requires an explicit security review. Do not add network APIs or entitlements, helper executables, daemons, XPC services, web views, analytics, telemetry, or third-party runtime dependencies. Pricing entries must cite official first-party provenance URLs and explicit effective dates; uncertainty stays unpriced.
+Any new entitlement or privacy-boundary change requires an explicit security review. Tokenboard is intentionally unsandboxed for same-user Discord IPC, but must remain signed without privilege entitlements. Do not add remote-network APIs, helper executables, daemons, XPC services, web views, analytics, telemetry, or third-party runtime dependencies. IPC code must accept only same-user Unix sockets, keep payload fields allowlisted, and never add Discord authentication. Pricing entries must cite official first-party provenance URLs and explicit effective dates; uncertainty stays unpriced.
 
 ## Optional benchmark
 
@@ -33,9 +33,10 @@ These checks are interactive and must be recorded for a tagged release; merely b
 
 1. Open the release app, explicitly select test Claude Code and Codex roots, and start a local import.
 2. Leave both roots unchanged for five minutes.
-3. In Activity Monitor, verify Sandbox is `Yes`, CPU settles to `0.0%` between filesystem events, no child/helper Tokenboard process exists, the Network view attributes zero sent and received bytes to Tokenboard, and memory does not grow during the idle interval.
+3. In Activity Monitor, verify Sandbox is `No`, CPU settles to `0.0%` between filesystem events, no child/helper Tokenboard process exists, the Network view attributes zero sent and received internet bytes to Tokenboard, and memory does not grow during the idle interval.
 4. Record initial-import time, incremental-refresh time, and peak resident memory in the release notes.
 5. Copy one synthetic fixture into a temporary granted root, import it, delete only that synthetic copy, refresh, and confirm the committed aggregate remains. Never delete or modify real source logs.
+6. With synthetic usage only, enable Discord Activity, confirm the alert matches the Settings preview, verify the activity in Discord, then disable it and confirm it clears. Repeat with Discord closed to verify the recoverable status and Retry path.
 
 Do not claim this five-minute acceptance check was run unless a person completed it in the native UI.
 

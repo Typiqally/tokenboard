@@ -3,8 +3,16 @@ import TokenboardCore
 
 enum SettingsCopy {
     static let launchAtLogin = "Off by default. No helper process."
-    static let privacy = "No network entitlement · No conversation content stored"
+    static let privacy = "No remote network requests · No conversation content stored"
     static let technicalDetails = "Technical details"
+}
+
+enum DiscordPresenceSettingsPresentation {
+    static let sectionTitle = "Discord Activity"
+    static let toggleTitle = "Share activity on Discord"
+    static let confirmationTitle = "Share activity on Discord?"
+    static let confirmButtonTitle = "Share Activity"
+    static let retryTitle = "Retry"
 }
 
 enum SettingsSection: String, CaseIterable, Identifiable {
@@ -172,6 +180,9 @@ struct SettingsView: View {
         }
         .disabled(model.isDatabaseRecoveryActionLocked)
 
+        DiscordPresenceSettingsSection(model: model, coordinator: model.discordPresence)
+            .disabled(model.isDatabaseRecoveryActionLocked)
+
         Section("General") {
             Toggle("Launch at Login", isOn: Binding(
                 get: { launchAtLogin.isEnabled },
@@ -290,6 +301,80 @@ struct SettingsView: View {
         switch state {
         case .healthy: "Healthy"
         case let .recoveryRequired(message): "Recovery required · \(message)"
+        }
+    }
+}
+
+private struct DiscordPresenceSettingsSection: View {
+    @ObservedObject var model: AppModel
+    @ObservedObject var coordinator: DiscordPresenceCoordinator
+    @State private var confirmationPresented = false
+
+    var body: some View {
+        Section(DiscordPresenceSettingsPresentation.sectionTitle) {
+            Toggle(
+                DiscordPresenceSettingsPresentation.toggleTitle,
+                isOn: Binding(
+                    get: { model.discordPresenceEnabled },
+                    set: { enabled in
+                        if !enabled {
+                            Task { await model.setDiscordPresenceEnabled(false) }
+                        } else if model.discordPresenceRequiresConsent {
+                            confirmationPresented = true
+                        } else {
+                            Task { await model.setDiscordPresenceEnabled(true) }
+                        }
+                    }
+                )
+            )
+            .disabled(!coordinator.isConfigured)
+
+            LabeledContent("Preview") {
+                let activity = model.discordPresencePreview
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text("Playing Tokenboard")
+                        .font(.headline)
+                    Text(activity.details)
+                    Text(activity.state)
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(
+                    DiscordPresencePresentation.accessibilityPreview(activity)
+                )
+            }
+
+            if model.discordPresenceEnabled || !coordinator.isConfigured {
+                LabeledContent("Status") {
+                    HStack(spacing: 8) {
+                        Text(coordinator.status.title)
+                        if model.discordPresenceEnabled,
+                           coordinator.status == .discordNotRunning
+                            || coordinator.status == .failed {
+                            Button(DiscordPresenceSettingsPresentation.retryTitle) {
+                                Task { await model.retryDiscordPresence() }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Text(DiscordPresencePresentation.disclosure)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .alert(
+            DiscordPresenceSettingsPresentation.confirmationTitle,
+            isPresented: $confirmationPresented
+        ) {
+            Button(DiscordPresenceSettingsPresentation.confirmButtonTitle) {
+                Task { await model.confirmAndEnableDiscordPresence() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(
+                "\(DiscordPresencePresentation.accessibilityPreview(model.discordPresencePreview))\n\n\(DiscordPresencePresentation.disclosure)"
+            )
         }
     }
 }

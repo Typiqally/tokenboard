@@ -28,7 +28,7 @@ Simple, clean, mean. Quietly confident and direct, with precise language and no 
 ## Design Principles
 
 1. Earn the glance: put one compact, trustworthy value in the menu bar and keep detail one click away.
-2. Make local behavior inspectable: permission, import, pricing, and recovery actions are explicit and name their effects.
+2. Make local behavior inspectable: source selection, import, pricing, recovery, and public Discord sharing actions are explicit and name their effects.
 3. Use the platform: prefer standard AppKit and SwiftUI controls, menus, shortcuts, focus behavior, and system appearance.
 4. Separate fact from estimate: exact token totals, API-equivalent estimates, and unpriced quantities remain visibly distinct.
 5. Stay quiet at rest: refresh from local events and user actions, with no decorative timers, polling, or hidden helpers.
@@ -41,6 +41,14 @@ Simple, clean, mean. Quietly confident and direct, with precise language and no 
 - Use a standard resizable History window with Usage and Work Patterns views for selectable usage details, provider/model/token-type disclosures, active-hour summaries, and recurring local-time patterns.
 - Keep durable display preferences in General Settings; the popover owns only the summary period and session-only trend range.
 - Share one visual grammar across popover and History. The detailed contract lives in [DESIGN.md](DESIGN.md).
+
+## Discord Activity
+
+- Keep Discord Activity off by default in General Settings. The first enable shows the exact current preview and requires explicit confirmation; later toggles may reuse a versioned consent until the disclosure changes.
+- Publish one deliberately narrow daily summary: `Playing Tokenboard`, today's AI coding usage, a compact token total, and the count of active local hour buckets. Do not include provider, model, project, path, conversation, cost, timestamps, buttons, party data, or secrets.
+- Connect only to the running desktop client's documented local IPC socket. Tokenboard does not authenticate a Discord account, contact Discord remotely, or keep a helper alive.
+- Keep the preference enabled across launches, retry when Discord launches or the Mac wakes, update after local usage refreshes and calendar changes, and clear activity on disable or clean shutdown.
+- Make `Connected`, `Discord isn't running`, failure, and unavailable-build states visible, with an explicit Retry action for recoverable states.
 
 ## Companion Journey
 
@@ -95,7 +103,7 @@ Simple, clean, mean. Quietly confident and direct, with precise language and no 
 - Use Decimal for model pricing, FX rates, and conversion. Do not use binary floating point for monetary calculations.
 - Format USD, EUR, GBP, and CNY with two fractional digits and JPY with none.
 - Preserve the approximation marker for every API-equivalent value in any currency.
-- Keep the app network entitlement absent. Agents perform any explicitly requested research and write only the local candidate file for Tokenboard validation and approval.
+- Keep remote-network APIs absent. Agents perform any explicitly requested research and write only the local candidate file for Tokenboard validation and approval.
 
 ### Verification
 

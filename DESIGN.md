@@ -44,6 +44,14 @@ The approved visual direction is the **rich popover**. Its companion History win
 - Every stage bundles three scenery plates — alternate art-directed vantages of the same place for the photographic themes, and "same place, different day" variants (clouds, birds, stars, flowers, light) for the generated pixel themes. A keyed daily rotation, independent of the starter-family pick and stable within a day, chooses the plate; the shelf thumbnails always show the canonical first plate. Derived vantages anchor the crop's bottom edge so the walkable ground line survives every variant.
 - Menu-bar silhouettes derive from each theme's transparent subject artwork; Age of Empires II uses drawn settlement glyphs because its scenes are opaque screenshots. Every stage has a readable `18 × 18` template silhouette and no icon is a rectangular photograph.
 
+### Discord Activity settings
+
+- Place a native `Discord Activity` section in General Settings, near the other durable app behavior. The primary control is an off-by-default `Share activity on Discord` toggle.
+- Always show the exact preview as `Playing Tokenboard`, a daily-usage detail line, and today's compact tokens plus active-hour bucket count. The preview has one combined VoiceOver label in spoken order.
+- On first enable, show a native confirmation alert containing that exact preview and the disclosure that Discord may show it on the user's profile, friend lists, and server member lists. Cancel leaves the preference off.
+- When enabled, show concise connection status. Offer `Retry` only when Discord is not running or a connection failed; keep failures non-blocking for the rest of Tokenboard.
+- If a debug build has no shared Discord application ID, disable the toggle and label the status `Unavailable in this build` while retaining the preview and disclosure.
+
 ### Companion motion
 
 Each world is art-directed separately. There is one shared vocabulary — subject motion, particle fields, sweeping shadow bands, breathing light sources, a whole-scene wash, and a population of inhabitants — but no two themes draw from it the same way, and no effect is shared between two themes.
@@ -122,13 +130,14 @@ System appearance, increased contrast, reduced motion, Dynamic Type behavior, ke
 - `UsageSurfaceComponents` contains the shared range control, chart, provider row, typography, and disclosure row.
 - `UsageQueryService.history` produces deterministic local snapshots; `AppModel` refreshes and caches Today, 7D, 30D, and 90D snapshots after ingestion and pricing changes.
 - `WorkPatternCalculator` derives work-pattern snapshots from content-safe hourly aggregates; `WorkPatternView` renders the History working view without adding a storage schema or preference.
+- `DiscordPresenceCoordinator` owns opt-in state and app lifecycle reconciliation. `DiscordIPCClient` implements Discord's framed local Unix-socket protocol directly, verifies a same-user socket and peer, and serializes only the allowlisted preview fields.
 - `CompanionJourney` owns milestones, permanent delta accumulation, and deterministic Pokémon starter variants. `CompanionAssetCatalog` maps every visible theme and stage to bundle-relative baked scenes and subject placements.
 - `CompanionSceneMotion` is the pure motion vocabulary — signatures, particle fields, shadow bands, glows, washes, subject motion, and window lighting — with no AppKit or SwiftUI in it. `CompanionSceneActors` is the equally pure population layer: body plans, routes, and the attention a world's subjects answer to. `CompanionSceneDirection` holds the per-world, per-stage art direction as data. `CompanionArtwork` composes a scene once per layout and draws every frame in one `Canvas`; `CompanionWindowMap` recovers each village sprite's own window grid from its pixels; `CompanionSceneVisibility` gates motion on the host window really being on screen; `CompanionMenuIcon` renders the menu silhouettes.
 - `SQLiteLedger.lifetimeAdditiveTokenTotal` supplies an additive-only observation without a schema change.
 
 ## Guardrails
 
-- Do not add network access, telemetry, accounts, or cloud sync to make a surface easier to populate.
+- Do not add remote network access, telemetry, accounts, or cloud sync to make a surface easier to populate. Discord support is limited to the documented same-user local IPC socket.
 - Do not turn the popover into a settings panel; durable preferences belong in Settings.
 - Do not add decorative cards, gradients, animation, or accent colors outside the explicitly selected companion scene without semantic purpose.
 - Do not hide scope, pricing coverage, loading, empty, or failure states for visual cleanliness.
