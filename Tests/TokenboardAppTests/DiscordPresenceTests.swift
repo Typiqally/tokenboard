@@ -168,14 +168,18 @@ final class DiscordPresenceTests: XCTestCase {
         await coordinator.update(updated)
 
         XCTAssertEqual(coordinator.status, .connected)
-        XCTAssertEqual(await client.applicationIDs(), ["123456789012345678"])
-        XCTAssertEqual(await client.activities(), [initial, updated])
+        let applicationIDs = await client.applicationIDs()
+        let activities = await client.activities()
+        XCTAssertEqual(applicationIDs, ["123456789012345678"])
+        XCTAssertEqual(activities, [initial, updated])
 
         await coordinator.setEnabled(false, activity: updated)
 
         XCTAssertEqual(coordinator.status, .disabled)
-        XCTAssertEqual(await client.clearCount(), 1)
-        XCTAssertEqual(await client.disconnectCount(), 1)
+        let clearCount = await client.clearCount()
+        let disconnectCount = await client.disconnectCount()
+        XCTAssertEqual(clearCount, 1)
+        XCTAssertEqual(disconnectCount, 1)
     }
 
     func testCoordinatorDistinguishesDiscordNotRunningAndRetries() async {
@@ -196,7 +200,8 @@ final class DiscordPresenceTests: XCTestCase {
 
         await coordinator.retry()
         XCTAssertEqual(coordinator.status, .connected)
-        XCTAssertEqual(await client.activities(), [activity])
+        let activities = await client.activities()
+        XCTAssertEqual(activities, [activity])
     }
 
     func testCoordinatorClearsOnShutdownWithoutBlockingFailure() async {
@@ -217,8 +222,10 @@ final class DiscordPresenceTests: XCTestCase {
 
         await coordinator.shutdown()
 
-        XCTAssertEqual(await client.clearCount(), 1)
-        XCTAssertEqual(await client.disconnectCount(), 1)
+        let clearCount = await client.clearCount()
+        let disconnectCount = await client.disconnectCount()
+        XCTAssertEqual(clearCount, 1)
+        XCTAssertEqual(disconnectCount, 1)
     }
 }
 
