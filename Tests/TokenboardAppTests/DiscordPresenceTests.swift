@@ -90,6 +90,7 @@ final class DiscordPresenceTests: XCTestCase {
         XCTAssertNil(DiscordApplicationConfiguration(applicationID: ""))
         XCTAssertNil(DiscordApplicationConfiguration(applicationID: "123"))
         XCTAssertNil(DiscordApplicationConfiguration(applicationID: "not-a-client-id"))
+        XCTAssertNil(DiscordApplicationConfiguration(applicationID: "١٢٣٤٥٦٧٨٩٠١٢٣٤٥٦٧٨"))
         XCTAssertNil(DiscordApplicationConfiguration(
             applicationID: "__TOKENBOARD_DISCORD_APPLICATION_ID__"
         ))
