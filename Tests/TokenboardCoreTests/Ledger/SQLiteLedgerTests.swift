@@ -237,7 +237,7 @@ final class SQLiteLedgerTests: XCTestCase {
         let connection = try SQLiteConnection(url: directory.appending(path: "ledger.sqlite"))
         XCTAssertEqual(
             try connection.queryStrings("SELECT version FROM schema_migrations ORDER BY version;"),
-            ["1", "2", "3", "4"]
+            ["1", "2", "3", "4", "5"]
         )
         XCTAssertEqual(
             try connection.queryStrings("SELECT applied_at FROM schema_migrations WHERE version = 4;" ).count,

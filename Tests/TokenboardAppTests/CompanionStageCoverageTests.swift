@@ -75,7 +75,7 @@ final class CompanionStageCoverageTests: XCTestCase {
                     variant: variant,
                     stage: stage
                 )
-                if theme == .ageOfEmpiresII {
+                if [.ageOfEmpiresII, .banished, .frostpunk].contains(theme) {
                     XCTAssertNil(iconResource, "\(label) draws a glyph, not a resource")
                 } else {
                     XCTAssertNotNil(iconResource, "\(label) has no menu icon resource")
