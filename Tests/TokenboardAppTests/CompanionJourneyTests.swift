@@ -287,12 +287,12 @@ final class CompanionJourneyTests: XCTestCase {
         )
         renderer.scale = 2
         let image = try XCTUnwrap(renderer.nsImage)
-        XCTAssertEqual(image.size, NSSize(width: 350, height: 236))
+        XCTAssertEqual(image.size, NSSize(width: 350, height: 224))
         try writeSnapshotIfRequested(image, name: "panorama-osrs")
 
         let composition = CompanionSceneComposition.make(
             presentation: presentation,
-            size: NSSize(width: 350, height: 236),
+            size: NSSize(width: 350, height: 224),
             layout: .panorama
         )
         let hero = try XCTUnwrap(composition.placements.first)
