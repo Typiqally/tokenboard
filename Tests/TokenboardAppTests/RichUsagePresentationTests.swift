@@ -240,7 +240,7 @@ final class RichUsagePresentationTests: XCTestCase {
         XCTAssertEqual(TokenboardSurfaceMetrics.companionSubtitleFontSize, 13)
         XCTAssertEqual(TokenboardSurfaceMetrics.companionBottomFadeHeight, 44)
         XCTAssertEqual(TokenboardSurfaceMetrics.companionFooterSeparatorOpacity, 0.36)
-        XCTAssertEqual(TokenboardSurfaceMetrics.companionFooterContentOffset, -1)
+        XCTAssertEqual(TokenboardSurfaceMetrics.companionFooterContentOffset, -7)
         XCTAssertEqual(TokenboardSurfaceMetrics.popoverContentWidth, 310)
         XCTAssertEqual(TokenboardSurfaceMetrics.providerPercentageWidth, 44)
         XCTAssertEqual(TokenboardSurfaceMetrics.popoverFooterHeight, 52)

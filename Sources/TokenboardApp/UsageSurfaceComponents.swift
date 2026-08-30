@@ -122,7 +122,6 @@ struct UsageTrendChart: View {
     var compact = false
     var onHover: ((String?) -> Void)?
     var onPin: ((String?) -> Void)?
-    @FocusState private var isChartFocused: Bool
 
     var body: some View {
         VStack(spacing: 7) {
@@ -198,15 +197,7 @@ struct UsageTrendChart: View {
                 }
             }
             .focusable(onPin != nil)
-            .focused($isChartFocused)
             .focusEffectDisabled()
-            .overlay {
-                if isChartFocused {
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
-                        .stroke(Color.accentColor.opacity(0.62), lineWidth: 1)
-                        .allowsHitTesting(false)
-                }
-            }
             .onMoveCommand { direction in
                 switch direction {
                 case .left: moveSelection(by: -1)

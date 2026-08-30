@@ -45,7 +45,7 @@ enum TokenboardSurfaceMetrics {
     static let companionSubtitleFontSize: CGFloat = 13
     static let companionBottomFadeHeight: CGFloat = 44
     static let companionFooterSeparatorOpacity = 0.36
-    static let companionFooterContentOffset: CGFloat = -1
+    static let companionFooterContentOffset: CGFloat = -7
     /// The original scene height remains the reference scale for subjects,
     /// particles, and Settings thumbnails.
     static let companionSceneHeight: CGFloat = 84
