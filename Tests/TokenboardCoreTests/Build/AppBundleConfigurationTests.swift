@@ -81,6 +81,14 @@ final class AppBundleConfigurationTests: XCTestCase {
         XCTAssertFalse(buildScript.contains("--entitlements"))
         XCTAssertTrue(buildScript.contains("TOKENBOARD_DISCORD_APPLICATION_ID"))
         XCTAssertTrue(buildScript.contains("TokenboardDiscordApplicationID"))
+
+        let runtimeGate = try String(
+            contentsOf: TestRepository.root.appending(path: "Scripts/verify-runtime-resources.sh"),
+            encoding: .utf8
+        )
+        XCTAssertFalse(runtimeGate.contains("--entitlements"))
+        XCTAssertTrue(runtimeGate.contains("-showCompanionInMenuBar NO"))
+        XCTAssertTrue(runtimeGate.contains("-discordPresenceEnabled NO"))
     }
 
     func testInfoPlistDefinesAnAgentOnlyApplication() throws {

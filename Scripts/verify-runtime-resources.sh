@@ -46,9 +46,7 @@ trap cleanup EXIT
 /usr/bin/ditto "$app_path" "$probe_app"
 /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $probe_identifier" \
   "$probe_app/Contents/Info.plist"
-/usr/bin/codesign --force --sign - \
-  --entitlements "$repository_root/Resources/Tokenboard.entitlements" \
-  "$probe_app" >/dev/null
+/usr/bin/codesign --force --sign - "$probe_app" >/dev/null
 
 # Command-line defaults live in NSArgumentDomain and therefore outrank any
 # values retained by macOS in the fixed ResourceGate sandbox. In particular,
@@ -59,6 +57,8 @@ trap cleanup EXIT
   -sourceBookmark.codex "" \
   -historicalImportApproved NO \
   -selectedCompanionTheme none \
+  -showCompanionInMenuBar NO \
+  -discordPresenceEnabled NO \
   >"$probe_root/stdout" 2>"$probe_root/stderr" &
 probe_pid=$!
 /bin/sleep 5
