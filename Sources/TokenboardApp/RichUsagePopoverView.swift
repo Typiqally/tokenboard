@@ -100,9 +100,18 @@ struct RichUsagePopoverView: View {
                             ),
                             location: 0
                         ),
-                        .init(color: .black.opacity(0.50), location: 64 / 236),
-                        .init(color: .black.opacity(0.18), location: 112 / 236),
-                        .init(color: .clear, location: 160 / 236),
+                        .init(
+                            color: .black.opacity(0.50),
+                            location: 64 / TokenboardSurfaceMetrics.companionPanoramaHeight
+                        ),
+                        .init(
+                            color: .black.opacity(0.18),
+                            location: 112 / TokenboardSurfaceMetrics.companionPanoramaHeight
+                        ),
+                        .init(
+                            color: .clear,
+                            location: 160 / TokenboardSurfaceMetrics.companionPanoramaHeight
+                        ),
                     ]),
                     startPoint: .top,
                     endPoint: .bottom
@@ -134,7 +143,7 @@ struct RichUsagePopoverView: View {
             companionMainContent(presentation)
                 .padding(.horizontal, TokenboardVisualStyle.pageInset)
                 .padding(.top, TokenboardSurfaceMetrics.popoverContentSpacing)
-                .padding(.bottom, 12)
+                .padding(.bottom, TokenboardSurfaceMetrics.companionContentBottomPadding)
                 .background(Color(nsColor: .windowBackgroundColor))
         }
     }
@@ -180,7 +189,7 @@ struct RichUsagePopoverView: View {
         case .loading:
             VStack(
                 alignment: .leading,
-                spacing: TokenboardSurfaceMetrics.popoverContentSpacing
+                spacing: TokenboardSurfaceMetrics.companionContentSpacing
             ) {
                 UsageRangePicker(selection: historyRangeBinding)
                     .frame(width: TokenboardSurfaceMetrics.popoverContentWidth)
@@ -200,7 +209,7 @@ struct RichUsagePopoverView: View {
         case let .failed(message):
             VStack(
                 alignment: .leading,
-                spacing: TokenboardSurfaceMetrics.popoverContentSpacing
+                spacing: TokenboardSurfaceMetrics.companionContentSpacing
             ) {
                 Text(message)
                     .font(.callout)
@@ -213,7 +222,7 @@ struct RichUsagePopoverView: View {
             }
             .frame(maxWidth: .infinity, minHeight: 260, alignment: .topLeading)
         case .ready:
-            readyDetailsContent(presentation)
+            readyDetailsContent(presentation, compactForCompanion: true)
         }
     }
 
@@ -387,17 +396,28 @@ struct RichUsagePopoverView: View {
     }
 
     private func readyDetailsContent(
-        _ presentation: RichPopoverPresentation
+        _ presentation: RichPopoverPresentation,
+        compactForCompanion: Bool = false
     ) -> some View {
-        VStack(
+        let contentSpacing = compactForCompanion
+            ? TokenboardSurfaceMetrics.companionContentSpacing
+            : TokenboardSurfaceMetrics.popoverContentSpacing
+        let chartHeight = compactForCompanion
+            ? TokenboardSurfaceMetrics.companionChartHeight
+            : 152
+        let providerSpacing = compactForCompanion
+            ? TokenboardSurfaceMetrics.companionProviderSpacing
+            : 10
+
+        return VStack(
             alignment: .leading,
-            spacing: TokenboardSurfaceMetrics.popoverContentSpacing
+            spacing: contentSpacing
         ) {
             UsageRangePicker(selection: historyRangeBinding)
                 .frame(width: TokenboardSurfaceMetrics.popoverContentWidth)
 
             trendContent(presentation)
-                .frame(height: 152)
+                .frame(height: chartHeight)
 
             if let comparison = presentation.comparison {
                 Label(comparison.title, systemImage: comparison.systemImageName)
@@ -414,7 +434,7 @@ struct RichUsagePopoverView: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, minHeight: 72, alignment: .center)
             } else {
-                VStack(spacing: 10) {
+                VStack(spacing: providerSpacing) {
                     ForEach(presentation.providerRows) { row in
                         ProviderShareRow(row: row) {
                             model.openHistory(

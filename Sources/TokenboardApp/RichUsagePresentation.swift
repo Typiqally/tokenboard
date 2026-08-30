@@ -34,20 +34,22 @@ struct RecencyPresentation: Equatable, Sendable {
 enum TokenboardSurfaceMetrics {
     static let popoverSize = NSSize(width: 350, height: 560)
     static let companionPopoverSize = NSSize(width: 350, height: 656)
-    /// The approved B2 panorama merges the header and headline into the
-    /// companion world instead of adding another strip to the popover.
-    static let companionPanoramaHeight: CGFloat = 236
-    /// The live NSPopover needs more breathing room than the flat browser
-    /// mockup around its arrow and rounded top edge.
-    static let companionHUDTopPadding: CGFloat = 24
-    static let companionHUDSpacing: CGFloat = 11
+    /// The panorama merges the header and headline into the companion world
+    /// while preserving enough room for the data stack and footer below it.
+    static let companionPanoramaHeight: CGFloat = 224
+    static let companionHUDTopPadding: CGFloat = 12
+    static let companionHUDSpacing: CGFloat = 8
     static let companionHeaderHeight: CGFloat = 20
     static let companionTopScrimOpacity = 0.84
     static let companionHeadlineFontSize: CGFloat = 27
     static let companionSubtitleFontSize: CGFloat = 13
     static let companionBottomFadeHeight: CGFloat = 44
     static let companionFooterSeparatorOpacity = 0.36
-    static let companionFooterContentOffset: CGFloat = -10
+    static let companionContentSpacing: CGFloat = 8
+    static let companionChartHeight: CGFloat = 144
+    static let companionProviderSpacing: CGFloat = 8
+    static let companionContentBottomPadding: CGFloat = 8
+    static let companionFooterContentOffset: CGFloat = 0
     /// The original scene height remains the reference scale for subjects,
     /// particles, and Settings thumbnails.
     static let companionSceneHeight: CGFloat = 84

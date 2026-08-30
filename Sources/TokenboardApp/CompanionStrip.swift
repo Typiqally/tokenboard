@@ -59,7 +59,7 @@ struct CompanionStrip: View {
     }
 }
 
-/// The approved popover treatment: a 236-point world occupying the whole
+/// The approved popover treatment: a compact world occupying the whole
 /// header region. Header and headline are layered by RichUsagePopoverView so
 /// this view remains reusable, text-free companion artwork.
 struct CompanionPanorama: View {
