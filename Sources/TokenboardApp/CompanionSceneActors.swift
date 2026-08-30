@@ -155,6 +155,42 @@ struct CompanionActor: Equatable, Sendable {
     let opacity: Double
     let snapsToPixelGrid: Bool
     let drawsAttention: Bool
+
+    init(
+        x: Double,
+        y: Double,
+        height: Double,
+        facing: Double,
+        stride: Double,
+        speed: Double,
+        lift: Double,
+        pose: CompanionActorPose,
+        body: CompanionActorBody,
+        sprite: CompanionActorSprite? = nil,
+        spriteFrame: Int? = nil,
+        tint: CompanionSceneTint,
+        accent: CompanionSceneTint,
+        opacity: Double,
+        snapsToPixelGrid: Bool,
+        drawsAttention: Bool
+    ) {
+        self.x = x
+        self.y = y
+        self.height = height
+        self.facing = facing
+        self.stride = stride
+        self.speed = speed
+        self.lift = lift
+        self.pose = pose
+        self.body = body
+        self.sprite = sprite
+        self.spriteFrame = spriteFrame
+        self.tint = tint
+        self.accent = accent
+        self.opacity = opacity
+        self.snapsToPixelGrid = snapsToPixelGrid
+        self.drawsAttention = drawsAttention
+    }
 }
 
 /// Where the scene's subjects should be looking. A world feels inhabited when

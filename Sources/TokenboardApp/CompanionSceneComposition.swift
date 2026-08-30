@@ -13,6 +13,20 @@ struct CompanionScenePlacement {
     /// One lighting schedule per window, resolved with the composition so
     /// drawing never re-seeds a generator.
     let windowSchedules: [CompanionWindowLighting.Schedule]
+
+    init(
+        layer: CompanionSceneLayer,
+        index: Int,
+        rect: CGRect,
+        windows: [CompanionWindowCell],
+        windowSchedules: [CompanionWindowLighting.Schedule] = []
+    ) {
+        self.layer = layer
+        self.index = index
+        self.rect = rect
+        self.windows = windows
+        self.windowSchedules = windowSchedules
+    }
 }
 
 struct CompanionSceneComposition {

@@ -96,6 +96,16 @@ struct CompanionPresentation: Equatable, Sendable {
         )
     }
 
+    static func shelfPreview(from live: CompanionPresentation) -> CompanionPresentation {
+        live.preview(
+            stage: CompanionAssetCatalog.shelfPreviewStage(for: live.theme),
+            scenery: 0,
+            progressFraction: 0,
+            tokensUntilNextStage: nil,
+            accessibilityLabel: "\(live.theme.title) preview"
+        )
+    }
+
     private static func accessibilityLabel(
         theme: CompanionTheme,
         variant: CompanionVariant,
