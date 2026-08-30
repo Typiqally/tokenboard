@@ -268,6 +268,38 @@ final class CompanionJourneyTests: XCTestCase {
     }
 
     @MainActor
+    func testPanoramaGivesTheCompanionAnApprovedTopThirdStage() throws {
+        let theme = CompanionTheme.oldSchoolRuneScape
+        let variant = try XCTUnwrap(CompanionCatalog.variants(for: theme).first)
+        let presentation = CompanionPresentation(
+            theme: theme,
+            variant: variant,
+            stage: 0,
+            scenery: 0,
+            seed: 7,
+            stageTitle: "Stage 1",
+            progressFraction: 0.42,
+            tokensUntilNextStage: 190_000_000,
+            accessibilityLabel: "Old School RuneScape panorama"
+        )
+        let renderer = ImageRenderer(
+            content: CompanionPanorama(presentation: presentation)
+        )
+        renderer.scale = 2
+        let image = try XCTUnwrap(renderer.nsImage)
+        XCTAssertEqual(image.size, NSSize(width: 350, height: 236))
+
+        let composition = CompanionSceneComposition.make(
+            presentation: presentation,
+            size: NSSize(width: 350, height: 236),
+            layout: .panorama
+        )
+        let hero = try XCTUnwrap(composition.placements.first)
+        XCTAssertGreaterThanOrEqual(hero.rect.height, 74)
+        XCTAssertLessThanOrEqual(hero.rect.height, 84)
+    }
+
+    @MainActor
     func testCompanionStripDrawsTheJourneyProgressLineAlongItsBottomEdge() throws {
         for theme in CompanionTheme.allCases where theme != .none {
             let variant = try XCTUnwrap(CompanionCatalog.variants(for: theme).first)

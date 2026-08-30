@@ -233,6 +233,7 @@ final class RichUsagePresentationTests: XCTestCase {
         XCTAssertEqual(TokenboardSurfaceMetrics.popoverSize(companionEnabled: false), NSSize(width: 350, height: 560))
         XCTAssertEqual(TokenboardSurfaceMetrics.popoverSize(companionEnabled: true), NSSize(width: 350, height: 656))
         XCTAssertEqual(TokenboardSurfaceMetrics.companionSceneHeight, 84)
+        XCTAssertEqual(TokenboardSurfaceMetrics.companionPanoramaHeight, 236)
         XCTAssertEqual(TokenboardSurfaceMetrics.popoverContentWidth, 310)
         XCTAssertEqual(TokenboardSurfaceMetrics.providerPercentageWidth, 44)
         XCTAssertEqual(TokenboardSurfaceMetrics.popoverFooterHeight, 52)

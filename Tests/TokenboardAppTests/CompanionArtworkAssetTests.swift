@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 import XCTest
 @testable import TokenboardApp
 
@@ -52,6 +53,38 @@ final class CompanionArtworkAssetTests: XCTestCase {
                 CompanionJourney.thresholds.count,
                 "\(theme.title) reuses a background between stages: \(backgrounds)"
             )
+        }
+    }
+
+    func testEveryBackgroundPlateHasRetinaPanoramaResolution() throws {
+        var resources = Set<String>()
+        for theme in CompanionTheme.allCases where theme != .none {
+            let variant = try XCTUnwrap(CompanionCatalog.variants(for: theme).first)
+            for stage in 0..<CompanionJourney.thresholds.count {
+                for scenery in 0..<CompanionAssetCatalog.sceneryCount(for: theme) {
+                    let scene = try XCTUnwrap(
+                        CompanionAssetCatalog.scene(
+                            theme: theme,
+                            variant: variant,
+                            stage: stage,
+                            scenery: scenery
+                        )
+                    )
+                    resources.insert(scene.backgroundResource)
+                }
+            }
+        }
+
+        for resource in resources {
+            let url = developmentCompanionResourceURL(resource)
+            let source = try XCTUnwrap(CGImageSourceCreateWithURL(url as CFURL, nil))
+            let properties = try XCTUnwrap(
+                CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+            )
+            let width = try XCTUnwrap(properties[kCGImagePropertyPixelWidth] as? Int)
+            let height = try XCTUnwrap(properties[kCGImagePropertyPixelHeight] as? Int)
+            XCTAssertGreaterThanOrEqual(width, 1_240, resource)
+            XCTAssertGreaterThanOrEqual(height, 832, resource)
         }
     }
 
