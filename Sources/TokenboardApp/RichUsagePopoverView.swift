@@ -94,9 +94,15 @@ struct RichUsagePopoverView: View {
 
                 LinearGradient(
                     gradient: Gradient(stops: [
-                        .init(color: .black.opacity(0.78), location: 0),
-                        .init(color: .black.opacity(0.28), location: 90 / 236),
-                        .init(color: .clear, location: 150 / 236),
+                        .init(
+                            color: .black.opacity(
+                                TokenboardSurfaceMetrics.companionTopScrimOpacity
+                            ),
+                            location: 0
+                        ),
+                        .init(color: .black.opacity(0.50), location: 64 / 236),
+                        .init(color: .black.opacity(0.18), location: 112 / 236),
+                        .init(color: .clear, location: 160 / 236),
                     ]),
                     startPoint: .top,
                     endPoint: .bottom
@@ -107,7 +113,11 @@ struct RichUsagePopoverView: View {
                     alignment: .leading,
                     spacing: TokenboardSurfaceMetrics.companionHUDSpacing
                 ) {
-                    header(presentation, refreshPresentation: refreshPresentation)
+                    header(
+                        presentation,
+                        refreshPresentation: refreshPresentation,
+                        overArtwork: true
+                    )
                     panoramaHeadline(presentation)
                 }
                 .padding(.horizontal, TokenboardVisualStyle.pageInset)
@@ -209,9 +219,14 @@ struct RichUsagePopoverView: View {
 
     private func header(
         _ presentation: RichPopoverPresentation,
-        refreshPresentation: RichPopoverRefreshPresentation
+        refreshPresentation: RichPopoverRefreshPresentation,
+        overArtwork: Bool = false
     ) -> some View {
-        HStack {
+        let controlColor = overArtwork
+            ? Color.white.opacity(0.84)
+            : Color(nsColor: .secondaryLabelColor)
+
+        return HStack(alignment: .center, spacing: 6) {
             Menu {
                 ForEach(RichPopoverPeriodOption.all) { option in
                     Button {
@@ -221,10 +236,14 @@ struct RichUsagePopoverView: View {
                     }
                 }
             } label: {
-                SurfaceEyebrow(title: presentation.periodTitle)
+                SurfaceEyebrow(
+                    title: presentation.periodTitle,
+                    foregroundColor: controlColor
+                )
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.visible)
+            .tint(controlColor)
             .fixedSize()
             .accessibilityLabel("Summary period, \(presentation.periodTitle)")
 
@@ -253,7 +272,8 @@ struct RichUsagePopoverView: View {
                             .accessibilityHidden(true)
                     }
                 }
-                .foregroundStyle(.secondary)
+                .foregroundStyle(controlColor)
+                .frame(height: TokenboardSurfaceMetrics.companionHeaderHeight)
             }
             .buttonStyle(.plain)
             .disabled(refreshPresentation.isInProgress)
@@ -266,7 +286,7 @@ struct RichUsagePopoverView: View {
             } label: {
                 Image(systemName: quitAction.systemImageName)
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(controlColor)
                     .frame(width: 20, height: 20)
                     .contentShape(Rectangle())
                     .accessibilityHidden(true)
@@ -276,6 +296,7 @@ struct RichUsagePopoverView: View {
             .help(quitAction.title)
             .accessibilityLabel(quitAction.title)
         }
+        .frame(height: TokenboardSurfaceMetrics.companionHeaderHeight)
     }
 
     @ViewBuilder

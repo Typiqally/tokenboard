@@ -28,12 +28,13 @@ enum TokenboardVisualStyle {
 
 struct SurfaceEyebrow: View {
     let title: String
+    var foregroundColor = Color(nsColor: .secondaryLabelColor)
 
     var body: some View {
         Text(title.uppercased())
             .font(.system(size: 11, weight: .semibold))
             .tracking(0.6)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(foregroundColor)
     }
 }
 

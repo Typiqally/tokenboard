@@ -41,11 +41,13 @@ enum TokenboardSurfaceMetrics {
     /// mockup around its arrow and rounded top edge.
     static let companionHUDTopPadding: CGFloat = 24
     static let companionHUDSpacing: CGFloat = 11
+    static let companionHeaderHeight: CGFloat = 20
+    static let companionTopScrimOpacity = 0.84
     static let companionHeadlineFontSize: CGFloat = 27
     static let companionSubtitleFontSize: CGFloat = 13
     static let companionBottomFadeHeight: CGFloat = 44
     static let companionFooterSeparatorOpacity = 0.36
-    static let companionFooterContentOffset: CGFloat = -7
+    static let companionFooterContentOffset: CGFloat = -10
     /// The original scene height remains the reference scale for subjects,
     /// particles, and Settings thumbnails.
     static let companionSceneHeight: CGFloat = 84
