@@ -29,22 +29,34 @@ struct RichUsagePopoverView: View {
             )
             let companion = model.companionPresentation(at: context.date)
             VStack(spacing: 0) {
-                VStack(
-                    alignment: .leading,
-                    spacing: TokenboardSurfaceMetrics.popoverHeaderSpacing
-                ) {
-                    header(presentation, refreshPresentation: refreshPresentation)
-                    mainContent(presentation, companion: companion)
+                if let companion {
+                    companionContent(
+                        presentation,
+                        refreshPresentation: refreshPresentation,
+                        companion: companion
+                    )
+                } else {
+                    VStack(
+                        alignment: .leading,
+                        spacing: TokenboardSurfaceMetrics.popoverHeaderSpacing
+                    ) {
+                        header(presentation, refreshPresentation: refreshPresentation)
+                        mainContent(presentation)
+                    }
+                    .padding(.horizontal, TokenboardVisualStyle.pageInset)
+                    .padding(.top, TokenboardSurfaceMetrics.popoverTopPadding)
+                    .padding(.bottom, 12)
                 }
-                .padding(.horizontal, TokenboardVisualStyle.pageInset)
-                .padding(.top, TokenboardSurfaceMetrics.popoverTopPadding)
-                .padding(.bottom, 12)
 
                 Spacer(minLength: 0)
-                Divider()
-                footer
-                    .padding(.horizontal, 12)
-                    .frame(height: TokenboardSurfaceMetrics.popoverFooterHeight)
+                if companion != nil {
+                    companionFooter
+                } else {
+                    Divider()
+                    footer
+                        .padding(.horizontal, 12)
+                        .frame(height: TokenboardSurfaceMetrics.popoverFooterHeight)
+                }
             }
             .frame(
                 width: TokenboardSurfaceMetrics.popoverSize.width,
@@ -65,6 +77,133 @@ struct RichUsagePopoverView: View {
         }
         .onChange(of: visibility.isPresented) { _, isPresented in
             if !isPresented { chartSelection.clearAll() }
+        }
+    }
+
+    private func companionContent(
+        _ presentation: RichPopoverPresentation,
+        refreshPresentation: RichPopoverRefreshPresentation,
+        companion: CompanionPresentation
+    ) -> some View {
+        VStack(spacing: 0) {
+            ZStack(alignment: .topLeading) {
+                CompanionPanorama(
+                    presentation: companion,
+                    isAmbientMotionActive: visibility.isPresented
+                )
+
+                LinearGradient(
+                    gradient: Gradient(stops: [
+                        .init(color: .black.opacity(0.78), location: 0),
+                        .init(color: .black.opacity(0.28), location: 90 / 236),
+                        .init(color: .clear, location: 150 / 236),
+                    ]),
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .allowsHitTesting(false)
+
+                VStack(
+                    alignment: .leading,
+                    spacing: TokenboardSurfaceMetrics.companionHUDSpacing
+                ) {
+                    header(presentation, refreshPresentation: refreshPresentation)
+                    panoramaHeadline(presentation)
+                }
+                .padding(.horizontal, TokenboardVisualStyle.pageInset)
+                .padding(.top, TokenboardSurfaceMetrics.companionHUDTopPadding)
+                .foregroundStyle(.white)
+                .environment(\.colorScheme, .dark)
+                .shadow(color: .black.opacity(0.58), radius: 3, y: 1)
+            }
+            .frame(
+                width: TokenboardSurfaceMetrics.popoverSize.width,
+                height: TokenboardSurfaceMetrics.companionPanoramaHeight
+            )
+
+            companionMainContent(presentation)
+                .padding(.horizontal, TokenboardVisualStyle.pageInset)
+                .padding(.top, TokenboardSurfaceMetrics.popoverContentSpacing)
+                .padding(.bottom, 12)
+                .background(Color(nsColor: .windowBackgroundColor))
+        }
+    }
+
+    @ViewBuilder
+    private func panoramaHeadline(_ presentation: RichPopoverPresentation) -> some View {
+        switch presentation.contentState {
+        case .loading:
+            HStack(spacing: 10) {
+                ProgressView()
+                    .controlSize(.small)
+                panoramaHeadlineText(presentation)
+            }
+        case .failed, .ready:
+            panoramaHeadlineText(presentation)
+        }
+    }
+
+    private func panoramaHeadlineText(
+        _ presentation: RichPopoverPresentation
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(presentation.headline)
+                .font(.system(
+                    size: TokenboardSurfaceMetrics.companionHeadlineFontSize,
+                    weight: .semibold,
+                    design: .rounded
+                ))
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            Text(presentation.apiValueTitle)
+                .font(.system(size: TokenboardSurfaceMetrics.companionSubtitleFontSize))
+                .foregroundStyle(.white.opacity(0.82))
+        }
+    }
+
+    @ViewBuilder
+    private func companionMainContent(
+        _ presentation: RichPopoverPresentation
+    ) -> some View {
+        switch presentation.contentState {
+        case .loading:
+            VStack(
+                alignment: .leading,
+                spacing: TokenboardSurfaceMetrics.popoverContentSpacing
+            ) {
+                UsageRangePicker(selection: historyRangeBinding)
+                    .frame(width: TokenboardSurfaceMetrics.popoverContentWidth)
+                    .disabled(true)
+                VStack(spacing: 10) {
+                    ForEach([0.72, 0.48, 0.85, 0.61], id: \.self) { width in
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(Color(nsColor: .quaternaryLabelColor))
+                            .frame(maxWidth: 310 * width, minHeight: 8, maxHeight: 8)
+                    }
+                }
+                .frame(maxWidth: .infinity, minHeight: 170, alignment: .leading)
+                Text("Totals appear as soon as local records are parsed.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+        case let .failed(message):
+            VStack(
+                alignment: .leading,
+                spacing: TokenboardSurfaceMetrics.popoverContentSpacing
+            ) {
+                Text(message)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button("Open Settings") {
+                    model.openSettings()
+                    dismiss()
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 260, alignment: .topLeading)
+        case .ready:
+            readyDetailsContent(presentation)
         }
     }
 
@@ -140,24 +279,18 @@ struct RichUsagePopoverView: View {
     }
 
     @ViewBuilder
-    private func mainContent(
-        _ presentation: RichPopoverPresentation,
-        companion: CompanionPresentation?
-    ) -> some View {
+    private func mainContent(_ presentation: RichPopoverPresentation) -> some View {
         switch presentation.contentState {
         case .loading:
-            loadingContent(presentation, companion: companion)
+            loadingContent(presentation)
         case let .failed(message):
-            failureContent(presentation, message: message, companion: companion)
+            failureContent(presentation, message: message)
         case .ready:
-            readyContent(presentation, companion: companion)
+            readyContent(presentation)
         }
     }
 
-    private func loadingContent(
-        _ presentation: RichPopoverPresentation,
-        companion: CompanionPresentation?
-    ) -> some View {
+    private func loadingContent(_ presentation: RichPopoverPresentation) -> some View {
         VStack(
             alignment: .leading,
             spacing: TokenboardSurfaceMetrics.popoverContentSpacing
@@ -172,9 +305,6 @@ struct RichUsagePopoverView: View {
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
-            }
-            if let companion {
-                companionBand(companion)
             }
             UsageRangePicker(selection: historyRangeBinding)
                 .frame(width: TokenboardSurfaceMetrics.popoverContentWidth)
@@ -195,8 +325,7 @@ struct RichUsagePopoverView: View {
 
     private func failureContent(
         _ presentation: RichPopoverPresentation,
-        message: String,
-        companion: CompanionPresentation?
+        message: String
     ) -> some View {
         VStack(
             alignment: .leading,
@@ -208,9 +337,6 @@ struct RichUsagePopoverView: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            if let companion {
-                companionBand(companion)
-            }
             Button("Open Settings") {
                 model.openSettings()
                 dismiss()
@@ -219,10 +345,7 @@ struct RichUsagePopoverView: View {
         .frame(maxWidth: .infinity, minHeight: 390, alignment: .topLeading)
     }
 
-    private func readyContent(
-        _ presentation: RichPopoverPresentation,
-        companion: CompanionPresentation?
-    ) -> some View {
+    private func readyContent(_ presentation: RichPopoverPresentation) -> some View {
         VStack(
             alignment: .leading,
             spacing: TokenboardSurfaceMetrics.popoverContentSpacing
@@ -238,10 +361,17 @@ struct RichUsagePopoverView: View {
                     .foregroundStyle(.secondary)
             }
 
-            if let companion {
-                companionBand(companion)
-            }
+            readyDetailsContent(presentation)
+        }
+    }
 
+    private func readyDetailsContent(
+        _ presentation: RichPopoverPresentation
+    ) -> some View {
+        VStack(
+            alignment: .leading,
+            spacing: TokenboardSurfaceMetrics.popoverContentSpacing
+        ) {
             UsageRangePicker(selection: historyRangeBinding)
                 .frame(width: TokenboardSurfaceMetrics.popoverContentWidth)
 
@@ -433,15 +563,6 @@ struct RichUsagePopoverView: View {
         )
     }
 
-    /// The companion band bleeds through the page inset to the popover edges.
-    private func companionBand(_ companion: CompanionPresentation) -> some View {
-        CompanionStrip(
-            presentation: companion,
-            isAmbientMotionActive: visibility.isPresented
-        )
-            .padding(.horizontal, -TokenboardVisualStyle.pageInset)
-    }
-
     private var historyRangeBinding: Binding<UsageHistoryRange> {
         Binding(
             get: { model.selectedHistoryRange },
@@ -459,6 +580,21 @@ struct RichUsagePopoverView: View {
             }
         }
         .font(.callout)
+    }
+
+    private var companionFooter: some View {
+        footer
+            .padding(.horizontal, 12)
+            .offset(y: TokenboardSurfaceMetrics.companionFooterContentOffset)
+            .frame(height: TokenboardSurfaceMetrics.popoverFooterHeight)
+            .background(Color(nsColor: .windowBackgroundColor))
+            .overlay(alignment: .top) {
+                Rectangle()
+                    .fill(Color(nsColor: .separatorColor).opacity(
+                        TokenboardSurfaceMetrics.companionFooterSeparatorOpacity
+                    ))
+                    .frame(height: 1)
+            }
     }
 
     private func footerButton(_ action: RichPopoverFooterAction) -> some View {

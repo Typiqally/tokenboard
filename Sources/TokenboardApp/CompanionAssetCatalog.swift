@@ -37,9 +37,9 @@ struct CompanionSceneAsset: Equatable, Sendable {
 
 /// Maps every visible theme, variant, and journey stage to the bundled
 /// artwork baked by `Scripts/bake-companion-assets.swift` and
-/// `Scripts/generate-companion-artwork.swift`. Every background is already
-/// composed at the scene's 310 x 84 point aspect, so the catalog only places
-/// subjects; it never crops at runtime.
+/// `Scripts/generate-companion-artwork.swift`. Every background is a Retina
+/// panorama; the popover shows it whole while compact previews take a
+/// bottom-aligned crop from the same plate.
 enum CompanionAssetCatalog {
     // Generation 1-4 starter families, in `CompanionCatalog.variants` order.
     private static let pokemonEvolutionLines: [[Int]] = [
@@ -66,8 +66,8 @@ enum CompanionAssetCatalog {
     // MARK: Pixel-art scene geometry
 
     /// The generated pixel plates use one art pixel per grid cell on a
-    /// 155 x 42 grid composed for the 350 x 84 point band, so a cell spans
-    /// 350 / 155 points on screen. Sprite layer heights are expressed in
+    /// 155-column grid, so a cell spans 350 / 155 points on screen. Sprite
+    /// layer heights are expressed in
     /// cells and converted through this fraction so subject pixels land at
     /// exactly the same size as background pixels.
     static let pixelGridWidth = 155.0

@@ -6,15 +6,18 @@ import SwiftUI
 struct CompanionSceneView: View {
     let presentation: CompanionPresentation
     let isAmbientMotionActive: Bool
+    let layout: CompanionSceneLayout
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.companionSceneOnScreen) private var sceneOnScreen
 
     init(
         presentation: CompanionPresentation,
-        isAmbientMotionActive: Bool = false
+        isAmbientMotionActive: Bool = false,
+        layout: CompanionSceneLayout = .strip
     ) {
         self.presentation = presentation
         self.isAmbientMotionActive = isAmbientMotionActive
+        self.layout = layout
     }
 
     /// Motion runs only when the caller says this scene is presented, the
@@ -30,7 +33,8 @@ struct CompanionSceneView: View {
             // effect plan depend on the journey, never on the clock.
             let composition = CompanionSceneComposition.make(
                 presentation: presentation,
-                size: proxy.size
+                size: proxy.size,
+                layout: layout
             )
             // A still scene carries no timeline at all, so a companion that
             // is not on screen costs exactly nothing.

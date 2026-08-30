@@ -5,14 +5,15 @@
 //
 // <raw-root> is the directory populated by Scripts/fetch-companion-assets.sh.
 // The output root defaults to Resources/Companions. The baker art-directs
-// each source into the final bundled 1240 x 336 scene (4x the 310 x 84 point
-// canvas), so the app never ships oversized originals or crops at runtime.
+// each source into the final bundled 1240 x 836 panorama. The app shows the
+// full source-grounded crop in its 350 x 236 popover header and derives the
+// compact Settings crop from the same Retina plate at runtime.
 
 import AppKit
 import CoreImage
 import ImageIO
 
-let sceneSize = CGSize(width: 1240, height: 336)
+let sceneSize = CGSize(width: 1240, height: 836)
 let sceneAspect = sceneSize.width / sceneSize.height
 let ciContext = CIContext(options: [.useSoftwareRenderer: false])
 
@@ -67,11 +68,20 @@ struct Crop {
     let width: Double
 
     func rect(in extent: CGRect) -> CGRect {
-        let cropWidth = extent.width * width
+        // Some source captures are only 16:9. A panorama that is taller than
+        // the old strip therefore needs the source's full height and a tighter
+        // horizontal crop; it must never upscale a 1240 x 336 derivative.
+        let requestedWidth = extent.width * width
+        let cropWidth = min(requestedWidth, extent.height * sceneAspect)
         let cropHeight = cropWidth / sceneAspect
+        let normalizedWidth = cropWidth / extent.width
+        let centerX = x + width / 2
+        let left = min(max(centerX - normalizedWidth / 2, 0), 1 - normalizedWidth)
+        let normalizedHeight = cropHeight / extent.height
+        let top = min(max(y, 0), 1 - normalizedHeight)
         return CGRect(
-            x: extent.minX + extent.width * x,
-            y: extent.maxY - extent.height * y - cropHeight,
+            x: extent.minX + extent.width * left,
+            y: extent.maxY - extent.height * top - cropHeight,
             width: cropWidth,
             height: cropHeight
         )
@@ -143,7 +153,7 @@ func lanczosScale(_ image: CIImage, scale: Double) -> CIImage {
     return filter.outputImage!
 }
 
-/// Crops the source and scales it to the 1240 x 336 scene.
+/// Crops the full-resolution source and scales it to the Retina panorama.
 func bakeScene(_ source: CIImage, crop: Crop) throws -> CIImage {
     let cropRect = crop.rect(in: source.extent).integral
     guard source.extent.insetBy(dx: -1, dy: -1).contains(cropRect) else {

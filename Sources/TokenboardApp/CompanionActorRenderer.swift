@@ -9,16 +9,16 @@ enum CompanionActorRenderer {
         actor: CompanionActor,
         motion: CompanionBackgroundMotion,
         artPixel: CGFloat,
+        effectScale: CGFloat,
         in context: inout GraphicsContext,
         size: CGSize
     ) {
         guard actor.opacity > 0.01, size.height > 0 else { return }
-        let scale = size.height / TokenboardSurfaceMetrics.companionSceneHeight
-        var height = max(3, actor.height * scale)
+        var height = max(3, actor.height * effectScale)
         // Inhabitants stand in the world, so they travel with its camera.
         var ground = CGPoint(
             x: actor.x * size.width + motion.offsetX,
-            y: actor.y * size.height - actor.lift * scale + motion.offsetY
+            y: actor.y * size.height - actor.lift * effectScale + motion.offsetY
         )
         guard ground.x > -height * 2, ground.x < size.width + height * 2 else { return }
         if actor.snapsToPixelGrid {

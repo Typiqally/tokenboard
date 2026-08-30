@@ -48,6 +48,7 @@ struct CompanionSceneCanvas: View {
                         actor: frame.actors[index],
                         motion: frame.background,
                         artPixel: composition.artPixel,
+                        effectScale: composition.effectScale,
                         in: &context,
                         size: size
                     )
@@ -55,10 +56,16 @@ struct CompanionSceneCanvas: View {
             }
             // Atmosphere crosses the whole world, including its inhabitants.
             CompanionAtmosphereRenderer.draw(bands: frame.bands, in: &context, size: size)
-            CompanionAtmosphereRenderer.draw(glows: frame.glows, in: &context, size: size)
+            CompanionAtmosphereRenderer.draw(
+                glows: frame.glows,
+                effectScale: composition.effectScale,
+                in: &context,
+                size: size
+            )
             CompanionParticleRenderer.draw(
                 particles: frame.particles,
                 artPixel: composition.artPixel,
+                effectScale: composition.effectScale,
                 in: &context,
                 size: size
             )

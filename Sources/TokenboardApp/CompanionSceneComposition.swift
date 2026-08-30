@@ -1,6 +1,33 @@
 import CoreGraphics
 import Foundation
 
+enum CompanionSceneLayout: Equatable, Sendable {
+    case strip
+    case panorama
+
+    func subjectHeightBasis(for size: CGSize) -> CGFloat {
+        switch self {
+        case .strip:
+            size.height
+        case .panorama:
+            // Keeps foreground heroes within the approved 74–84 point range
+            // while the panorama gains room for the world around them.
+            112
+        }
+    }
+
+    func effectScale(for size: CGSize) -> CGFloat {
+        switch self {
+        case .strip:
+            size.height / TokenboardSurfaceMetrics.companionSceneHeight
+        case .panorama:
+            // Inhabitants and atmosphere grow enough to read without turning
+            // every background actor into a second foreground hero.
+            1.6
+        }
+    }
+}
+
 /// Where every part of a scene sits on screen, resolved once per layout.
 struct CompanionScenePlacement {
     let layer: CompanionSceneLayer
@@ -39,6 +66,7 @@ struct CompanionSceneComposition {
     let backgroundRect: CGRect
     /// One art pixel of the generated pixel plates, in scene points.
     let artPixel: CGFloat
+    let effectScale: CGFloat
 
     var plan: CompanionScenePlan { resolvedPlan.plan }
 
@@ -46,6 +74,7 @@ struct CompanionSceneComposition {
     static func make(
         presentation: CompanionPresentation,
         size: CGSize,
+        layout: CompanionSceneLayout = .strip,
         diagnostics: CompanionDiagnostics = .shared
     ) -> CompanionSceneComposition {
         guard let asset = CompanionAssetCatalog.scene(
@@ -68,7 +97,8 @@ struct CompanionSceneComposition {
                 placements: [],
                 size: size,
                 backgroundRect: .zero,
-                artPixel: 1
+                artPixel: 1,
+                effectScale: layout.effectScale(for: size)
             )
         }
 
@@ -79,8 +109,9 @@ struct CompanionSceneComposition {
         )
         let lightsOn = presentation.theme == .village
             && presentation.stage >= CompanionAssetCatalog.villageLitStageThreshold
+        let subjectHeightBasis = layout.subjectHeightBasis(for: size)
         let placements = asset.layers.enumerated().map { index, layer in
-            let height = size.height * layer.relativeHeight
+            let height = subjectHeightBasis * layer.relativeHeight
             let width = height * CompanionAssetImageStore.aspectRatio(resource: layer.resource)
             let centerX = size.width * layer.horizontalPosition
             let bottom = size.height - size.height * layer.bottomOffset
@@ -123,7 +154,8 @@ struct CompanionSceneComposition {
             artPixel: max(
                 1,
                 backgroundRect.width / CompanionAssetCatalog.pixelGridWidth
-            )
+            ),
+            effectScale: layout.effectScale(for: size)
         )
     }
 

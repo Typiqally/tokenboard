@@ -47,15 +47,15 @@ enum CompanionAtmosphereRenderer {
 
     static func draw(
         glows: [CompanionGlow],
+        effectScale: CGFloat,
         in context: inout GraphicsContext,
         size: CGSize
     ) {
         guard !glows.isEmpty else { return }
-        let scale = size.height / TokenboardSurfaceMetrics.companionSceneHeight
         context.drawLayer { layer in
             layer.blendMode = .plusLighter
             for glow in glows {
-                let radius = max(1, glow.radius * scale)
+                let radius = max(1, glow.radius * effectScale)
                 let center = CGPoint(x: glow.x * size.width, y: glow.y * size.height)
                 layer.fill(
                     Path(

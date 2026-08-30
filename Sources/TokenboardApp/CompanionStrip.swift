@@ -59,6 +59,78 @@ struct CompanionStrip: View {
     }
 }
 
+/// The approved popover treatment: a 236-point world occupying the whole
+/// header region. Header and headline are layered by RichUsagePopoverView so
+/// this view remains reusable, text-free companion artwork.
+struct CompanionPanorama: View {
+    let presentation: CompanionPresentation
+    let isAmbientMotionActive: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    init(
+        presentation: CompanionPresentation,
+        isAmbientMotionActive: Bool = false
+    ) {
+        self.presentation = presentation
+        self.isAmbientMotionActive = isAmbientMotionActive
+    }
+
+    var body: some View {
+        CompanionSceneView(
+            presentation: presentation,
+            isAmbientMotionActive: isAmbientMotionActive,
+            layout: .panorama
+        )
+        .accessibilityValue(progressAccessibilityValue)
+        .frame(
+            width: TokenboardSurfaceMetrics.popoverSize.width,
+            height: TokenboardSurfaceMetrics.companionPanoramaHeight
+        )
+        .background(Color(nsColor: .underPageBackgroundColor))
+        .clipped()
+        .overlay { CompanionStripInsetShading() }
+        .overlay(alignment: .bottom) { bottomFade }
+        .overlay(alignment: .bottom) {
+            CompanionStripProgressBar(fraction: presentation.progressFraction)
+        }
+        .overlay(alignment: .bottom) { hairline }
+        .contentTransition(.opacity)
+        .animation(
+            reduceMotion ? nil : .easeInOut(duration: 0.22),
+            value: presentation.stage
+        )
+        .animation(
+            reduceMotion ? nil : .easeInOut(duration: 0.3),
+            value: presentation.progressFraction
+        )
+    }
+
+    private var progressAccessibilityValue: String {
+        presentation.tokensUntilNextStage == nil
+            ? "Journey complete"
+            : "\(Int((presentation.progressFraction * 100).rounded())) percent to the next scene"
+    }
+
+    private var bottomFade: some View {
+        LinearGradient(
+            colors: [
+                .clear,
+                Color(nsColor: .windowBackgroundColor).opacity(0.68),
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .frame(height: TokenboardSurfaceMetrics.companionBottomFadeHeight)
+        .allowsHitTesting(false)
+    }
+
+    private var hairline: some View {
+        Rectangle()
+            .fill(Color(nsColor: .separatorColor).opacity(0.55))
+            .frame(height: 1)
+    }
+}
+
 /// The slim journey-progress line along the band's bottom edge. A soft scrim
 /// keeps it readable over bright artwork; artwork itself stays text-free.
 private struct CompanionStripProgressBar: View {

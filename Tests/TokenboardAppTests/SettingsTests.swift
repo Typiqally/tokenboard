@@ -105,6 +105,35 @@ final class SettingsTests: XCTestCase {
         }
     }
 
+    func testApprovedCompanionPopoverRendersThePanoramaHUDAtNativeSize() async throws {
+        let setup = try makeSetup()
+        defer { setup.cleanup() }
+        await setup.model.start()
+        await setup.model.select(companionTheme: .oldSchoolRuneScape)
+        let visibility = RichPopoverVisibility()
+
+        let renderer = ImageRenderer(
+            content: RichUsagePopoverView(
+                model: setup.model,
+                visibility: visibility,
+                dismiss: {}
+            )
+            .environment(\.colorScheme, .dark)
+        )
+        renderer.scale = 2
+        let image = try XCTUnwrap(renderer.nsImage)
+        XCTAssertEqual(image.size, NSSize(width: 350, height: 656))
+
+        if let path = ProcessInfo.processInfo.environment[
+            "TOKENBOARD_POPOVER_SNAPSHOT_PATH"
+        ] {
+            let representation = try XCTUnwrap(image.tiffRepresentation)
+            let bitmap = try XCTUnwrap(NSBitmapImageRep(data: representation))
+            let png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+            try png.write(to: URL(fileURLWithPath: path))
+        }
+    }
+
     func testDiagnosticsCollectsCurrentSourceIssuesBehindTechnicalDetails() {
         let health = TokenboardHealth(
             claude: .warning(issue: .truncatedLog, message: "Imported log was truncated"),

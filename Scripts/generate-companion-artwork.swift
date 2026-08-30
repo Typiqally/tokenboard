@@ -9,8 +9,8 @@
 // bundled artwork can be regenerated and reviewed from source control alone.
 //
 // Geometry contract with `CompanionAssetCatalog`:
-// - Scenes are a 155 x 42 cell grid, exported at 8 image pixels per cell
-//   (1240 x 336), matching the 310 x 84 point scene composition.
+// - Scenes are a 155 x 104 cell grid, exported at 8 image pixels per cell
+//   (1240 x 832), matching the 350 x 236 panorama at Retina density.
 // - Sprites are exported at the same 8 pixels per cell with no trimming, so
 //   the PNG pixel height equals `cells * 8` and the catalog can size layers
 //   in whole cells. The catalog's cell-height tables are verified against
@@ -22,7 +22,8 @@ import AppKit
 
 let cellScale = 8
 let sceneGridWidth = 155
-let sceneGridHeight = 42
+let sceneGridHeight = 104
+let panoramaSkyExpansion = sceneGridHeight - 42
 let stageCount = 12
 
 // Each stage ships three scenery variants — the same place on a different
@@ -325,7 +326,7 @@ enum ForestArtwork {
 
         // Low sun, drifting a little per variant, warming across the arc.
         let sunX = Int(Double(canvas.width) * (0.80 + [0.0, -0.09, 0.05][variant]))
-        let sunY = 31 + [0, 2, -1][variant]
+        let sunY = panoramaSkyExpansion + 31 + [0, 2, -1][variant]
         let sunColor = mixRGB(0xFFF4CE, 0xFFE9AC, seasonProgress(stage))
         canvas.disc(cx: sunX, cy: sunY, rx: 3.4, ry: 3.4, pack(sunColor))
         canvas.disc(cx: sunX, cy: sunY, rx: 5.2, ry: 5.2, pack(sunColor, 0.25))
@@ -333,7 +334,10 @@ enum ForestArtwork {
         var cloudRNG = SplitMix64(state: 0xA11CE &+ UInt64(stage) &+ variantSalt)
         for _ in 0..<[3, 2, 4][variant] {
             let x = cloudRNG.int(6, canvas.width - 22)
-            let y = cloudRNG.int(26, 38)
+            let y = cloudRNG.int(
+                panoramaSkyExpansion + 26,
+                panoramaSkyExpansion + 38
+            )
             let w = cloudRNG.int(9, 16)
             drawPuffCloud(canvas, x: x, y: y, w: w, color: pack(0xFFFFFF, 0.62))
         }
@@ -345,7 +349,10 @@ enum ForestArtwork {
                 drawBird(
                     canvas,
                     x: birdRNG.int(8, canvas.width - 40),
-                    y: birdRNG.int(28, 37),
+                    y: birdRNG.int(
+                        panoramaSkyExpansion + 28,
+                        panoramaSkyExpansion + 37
+                    ),
                     color: pack(0x44525A, 0.85)
                 )
             }
@@ -696,7 +703,7 @@ enum VillageArtwork {
             // Crescent moon: outer disc minus an offset bite, drawn cell by
             // cell so the sky behind stays untouched.
             let moonX = Int(Double(canvas.width) * (0.18 + [0.0, 0.08, -0.05][variant]))
-            let moonY = 33 + [0, -2, 1][variant]
+            let moonY = panoramaSkyExpansion + 33 + [0, -2, 1][variant]
             for dy in -3...3 {
                 for dx in -3...3 {
                     let outer = Double(dx * dx + dy * dy)
@@ -712,7 +719,9 @@ enum VillageArtwork {
             // Sun sliding from dawn-low toward sunset-low across the stages.
             let arc = Double(stage) / 8
             let sunX = Int(Double(canvas.width) * (0.2 + arc * 0.6 + [0.0, -0.05, 0.05][variant]))
-            let sunY = Int(30 + sin(arc * .pi) * 7) + [0, 1, -1][variant]
+            let sunY = panoramaSkyExpansion
+                + Int(30 + sin(arc * .pi) * 7)
+                + [0, 1, -1][variant]
             let sunColor = mixRGB(0xFFEFC4, 0xFFC470, abs(arc - 0.5) * 2)
             canvas.disc(cx: sunX, cy: sunY, rx: 3.2, ry: 3.2, pack(sunColor))
             canvas.disc(cx: sunX, cy: sunY, rx: 5.0, ry: 5.0, pack(sunColor, 0.25))
@@ -723,7 +732,10 @@ enum VillageArtwork {
                 drawPuffCloud(
                     canvas,
                     x: cloudRNG.int(4, canvas.width - 22),
-                    y: cloudRNG.int(25, 37),
+                    y: cloudRNG.int(
+                        panoramaSkyExpansion + 25,
+                        panoramaSkyExpansion + 37
+                    ),
                     w: cloudRNG.int(9, 16),
                     color: cloudColor
                 )

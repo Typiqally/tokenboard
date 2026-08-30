@@ -8,14 +8,14 @@ enum CompanionParticleRenderer {
     static func draw(
         particles: [CompanionParticle],
         artPixel: CGFloat,
+        effectScale: CGFloat,
         in context: inout GraphicsContext,
         size: CGSize
     ) {
         guard !particles.isEmpty else { return }
-        let scale = size.height / TokenboardSurfaceMetrics.companionSceneHeight
         for particle in particles where particle.opacity > 0.004 {
             var point = CGPoint(x: particle.x * size.width, y: particle.y * size.height)
-            var extent = max(0.5, particle.size * scale)
+            var extent = max(0.5, particle.size * effectScale)
             guard point.x > -extent * 3, point.x < size.width + extent * 3,
                   point.y > -extent * 3, point.y < size.height + extent * 3 else { continue }
             if particle.snapsToPixelGrid {
