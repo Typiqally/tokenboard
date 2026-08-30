@@ -3,8 +3,24 @@ import XCTest
 @testable import TokenboardCore
 
 final class LogDiscoveryTests: XCTestCase {
+    func testMissingRootIsReportedInsteadOfBecomingAnEmptyInventory() async {
+        let missing = canonicalTestTemporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+
+        XCTAssertThrowsError(try LogDiscovery().jsonlFiles(under: missing))
+        do {
+            try await LogDiscovery().enumerateJSONLFiles(
+                under: missing,
+                maximumChunkSize: 64
+            ) { _ in }
+            XCTFail("expected missing root to fail")
+        } catch {
+            XCTAssertFalse(error is CancellationError)
+        }
+    }
+
     func testChunkEnumerationBoundsEveryDeliveryWithoutDroppingFiles() async throws {
-        let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let root = canonicalTestTemporaryDirectory.appending(path: UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let expected = Set((0..<130).map { index in
@@ -27,7 +43,7 @@ final class LogDiscoveryTests: XCTestCase {
     }
 
     func testRecursivelyReturnsOnlyRegularJSONLFilesInSortedOrder() throws {
-        let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let root = canonicalTestTemporaryDirectory.appending(path: UUID().uuidString)
         let nested = root.appending(path: "nested/deeper")
         let hidden = root.appending(path: ".hidden")
         try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)

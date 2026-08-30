@@ -49,8 +49,8 @@ Upgrade with `brew upgrade --cask tokenboard`. Uninstall with `brew uninstall --
 - **A useful menu-bar value.** Show compact tokens or API-equivalent value for Today, This Week, This Month, This Year, or All Time. The selected period, metric, and display currency persist across launches.
 - **A focused native popover.** See the exact total, API-equivalent estimate, update recency, comparison, chart, work-pattern preview, and Claude Code/Codex shares without opening a dashboard. Hover or scrub a chart bar for its exact value, then click to pin it. The popover dismisses on an outside click or Escape.
 - **Today through 90 days.** `TODAY` shows hourly progression. `7D`, `30D`, and `90D` show daily trends. These trend ranges are independent from the headline summary period.
-- **Drill-down History.** Open the resizable History window for the whole range or a provider, select a chart bar, and expand provider, model, and Input/Cache/Output totals. Switch to Work Patterns for active-hour averages, peak and recurring hours or weekdays, a selectable volume/consistency heatmap, typical first and last activity, and busiest-day context.
-- **Automatic local updates.** Native filesystem events provide the fast path. A read-only JSONL metadata reconciliation catches missed events, and the recency label doubles as an explicit Refresh action.
+- **Drill-down History.** Open the resizable History window for the whole range or a provider, select a chart bar, and expand provider, model, and Input/Cache/Output totals. Reasoning output is explained and never counted twice. Switch to Work Patterns for active-hour averages, peak and recurring hours or weekdays, a selectable volume/consistency heatmap, typical first and last activity, and busiest-day context.
+- **Automatic local updates.** Native filesystem events refresh changed usage without periodic polling, and the recency label doubles as an explicit full Refresh action.
 - **Honest estimates.** Effective-dated public list prices and locally approved exchange rates power API-equivalent values. Unknown models and uncovered dates remain counted but visibly unpriced; the estimate is never presented as a bill.
 - **Optional Discord activity.** After an exact first-use preview and confirmation, Tokenboard can publish only today's compact token total and number of active-hour buckets to the local Discord desktop client. It is off by default, can be disabled in Settings, and clears when Tokenboard quits.
 - **Optional local companions.** Choose Pokémon, Forest, Village, Old School RuneScape, Age of Empires II, or Minecraft from the visual shelf in General Settings. Every theme is a coherent, art-directed twelve-stage journey built from authentic source artwork or original generated scenes, all bundled at build time, while the popover stays visual-only. The journey follows the existing `TODAY` token source and resets at the start of each local day; `None` keeps the original compact interface.
@@ -79,7 +79,7 @@ History uses the same typography, chart, range control, dividers, and provider i
 - One unsandboxed native process with no privilege entitlements, remote network requests, helper, daemon, or XPC service. The unsandboxed boundary is required for Discord's local Unix socket.
 - Explicit folders selected through the native macOS picker; Tokenboard's source layer enforces read-only access within those roots and never guesses a source location.
 - No telemetry, remote analytics, helper, daemon, or XPC service. Work Patterns are calculated locally from the same content-safe hourly aggregates.
-- Automatic monitoring combines native filesystem events with read-only JSONL size and modification-date reconciliation. It never edits source logs.
+- Automatic monitoring uses native filesystem events and never edits source logs.
 - Content-safe daily and hourly aggregates and bookkeeping after ingestion—not prompts, responses, tool content, project metadata, paths below the granted roots, raw session IDs, or per-session totals.
 - Companion art is bundled with the app. Only the selected track, menu-bar visibility, and random seed are stored as companion preferences; stages derive directly from the existing local `TODAY` aggregate. No companion data is fetched or uploaded.
 - Discord activity is off by default. When enabled, Tokenboard sends its exact Settings preview over a same-user local IPC socket; it sends no provider, model, project, path, conversation, cost, buttons, party data, or secrets.
@@ -99,13 +99,13 @@ Committed daily and hourly aggregates survive later source-log deletion, and rec
 
 API-equivalent value estimates what the recorded token categories would cost at standard public API list prices. It is not a bill or a report of Claude or ChatGPT subscription spend. It cannot reproduce provider discounts, credits, batch pricing, negotiated terms, or billing-side classification.
 
-Pricing is effective-dated: Tokenboard applies the rate covering each local usage day instead of repricing old usage at today's rate. Tokens from an unknown model or uncovered date still count but remain visibly unpriced rather than guessed. USD is the canonical pricing currency; other display currencies use the latest locally approved conversion snapshot.
+Pricing is effective-dated: Tokenboard applies the rate covering each local usage day instead of repricing old usage at today's rate. An exact zero rate is known-free coverage and contributes $0; a missing rate remains unpriced. Tokens from an unknown model or uncovered date still count but remain visibly unpriced rather than guessed. USD is the canonical pricing currency; other display currencies use the latest locally approved conversion snapshot.
 
 ## Updating pricing through your agent
 
 Tokenboard never fetches pricing. In Settings, copy the pricing-update prompt and paste it into Claude Code or Codex. The external agent requests its own network or filesystem access, researches the allowed public sources, reports what it used, and writes a complete local candidate.
 
-Tokenboard validates that candidate locally and applies it atomically. An invalid update leaves the last valid catalog active. Valid updates can append history, correct an entry, or remove an unsupported entry; uncertain coverage remains unpriced.
+Tokenboard validates that candidate locally and applies it atomically. An invalid update leaves the last valid catalog active. Every approved import remains in an immutable audit history while a normalized active projection drives estimates. Valid updates can append effective-dated history, correct the active projection, or remove an unsupported active entry; uncertain coverage remains unpriced.
 
 ## Build from source
 
@@ -117,12 +117,17 @@ Requirements:
 
 ```zsh
 swift test
-TOKENBOARD_DISCORD_APPLICATION_ID=<public-app-id> Scripts/build-app.sh release
+Scripts/benchmark-import.sh
+Scripts/verify-asset-rights.sh development
+Scripts/test-tooling-contracts.sh
+TOKENBOARD_DISCORD_APPLICATION_ID=<public-app-id> Scripts/build-app.sh release universal
 Scripts/verify-entitlements.sh .build/release/Tokenboard.app
-open .build/release/Tokenboard.app
+Scripts/verify-runtime-resources.sh .build/release/Tokenboard.app
 ```
 
-`build-app.sh` creates a native `Tokenboard.app`. Release builds require Tokenboard's shared 17–20 digit public Discord application ID in `TOKENBOARD_DISCORD_APPLICATION_ID`; CI and tagged releases read it from the GitHub Actions repository variable with the same name. Debug builds may omit it, in which case Discord Activity is visibly unavailable. The Discord application should have a Rich Presence asset named `tokenboard`. Local builds are ad-hoc signed unless `TOKENBOARD_SIGN_IDENTITY` names a signing identity. Version tags publish an ad-hoc-signed universal app for the Homebrew Cask; Developer ID signing and notarization can be added later without changing the install command.
+These automated commands own functional, import-performance, idle-resource, entitlement, tooling-safety, and development asset-inventory acceptance. Opening the app afterward is an optional visual smoke check, not a performance or release gate.
+
+`build-app.sh` creates a native `Tokenboard.app`. Release builds require Tokenboard's shared 17–20 digit public Discord application ID in `TOKENBOARD_DISCORD_APPLICATION_ID`; CI and tagged releases read it from the GitHub Actions repository variable with the same name. Debug builds may omit it, in which case Discord Activity is visibly unavailable. The Discord application should have a Rich Presence asset named `tokenboard`. Local builds are ad-hoc signed unless `TOKENBOARD_SIGN_IDENTITY` names a signing identity. Version tags can publish an ad-hoc-signed universal app for the Homebrew Cask only after every bundled asset group has machine-verifiable redistribution clearance; Developer ID signing and notarization can be added later without changing the install command.
 
 ## Known limits
 
@@ -130,7 +135,7 @@ open .build/release/Tokenboard.app
 - Logs deleted before the first import are unavailable.
 - Unknown formats are skipped and reported; unknown models remain counted but unpriced.
 - API-equivalent estimates use standard public API list prices, with the limitations described above.
-- Automatic reconciliation watches JSONL size and modification dates; Refresh remains available for an immediate full local rescan.
+- Refresh remains available for an immediate full local rescan if an event is missed.
 - Calendar buckets reflect the Mac's local timezone at ingestion; changing timezones later does not rewrite historical buckets.
 - Active-hour insights begin where reliable hourly coverage begins. Earlier daily-only totals remain available in Usage and are never presented as precise work time.
 

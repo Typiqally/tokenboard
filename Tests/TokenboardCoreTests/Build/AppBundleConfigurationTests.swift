@@ -95,6 +95,15 @@ final class AppBundleConfigurationTests: XCTestCase {
         XCTAssertEqual(plist["CFBundleIconFile"] as? String, "Tokenboard.icns")
         XCTAssertEqual(plist["CFBundleShortVersionString"] as? String, "0.7.1")
         XCTAssertEqual(plist["CFBundleVersion"] as? String, "12")
+        let shortVersion = try XCTUnwrap(plist["CFBundleShortVersionString"] as? String)
+        XCTAssertNotNil(
+            shortVersion.range(
+                of: #"^[0-9]+\.[0-9]+\.[0-9]+$"#,
+                options: .regularExpression
+            )
+        )
+        let buildNumber = try XCTUnwrap(plist["CFBundleVersion"] as? String)
+        XCTAssertGreaterThan(Int(buildNumber) ?? 0, 0)
         XCTAssertEqual(
             plist["TokenboardDiscordApplicationID"] as? String,
             "__TOKENBOARD_DISCORD_APPLICATION_ID__"

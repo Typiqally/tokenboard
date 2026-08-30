@@ -25,16 +25,28 @@ if [[ "$bundle_version" != "$version" ]]; then
   exit 65
 fi
 
+"$repository_root/Scripts/verify-asset-rights.sh" release
 "$repository_root/Scripts/build-app.sh" release universal
 app_path="$repository_root/.build/release/Tokenboard.app"
 "$repository_root/Scripts/verify-entitlements.sh" "$app_path"
 
 archive_path="$output_directory/Tokenboard-$version.zip"
-temporary_archive=$(/usr/bin/mktemp "${TMPDIR:-/tmp}/tokenboard-release.XXXXXX")
-trap '/bin/rm -f -- "$temporary_archive"' EXIT
+checksum_path="$archive_path.sha256"
+if [[ -e "$archive_path" || -e "$checksum_path" ]]; then
+  print -u2 "refusing to overwrite an existing release artifact for $version"
+  exit 73
+fi
+temporary_archive=$(/usr/bin/mktemp "$output_directory/.tokenboard-release.XXXXXX")
+temporary_checksum=$(/usr/bin/mktemp "$output_directory/.tokenboard-checksum.XXXXXX")
+trap '/bin/rm -f -- "$temporary_archive" "$temporary_checksum"' EXIT
 
 /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$app_path" "$temporary_archive"
-/bin/mv -f -- "$temporary_archive" "$archive_path"
+/bin/ln -- "$temporary_archive" "$archive_path"
+/bin/rm -f -- "$temporary_archive"
+archive_hash=$(/usr/bin/shasum -a 256 "$archive_path" | /usr/bin/awk '{print $1}')
+print -r -- "$archive_hash  ${archive_path:t}" > "$temporary_checksum"
+/bin/ln -- "$temporary_checksum" "$checksum_path"
+/bin/rm -f -- "$temporary_checksum"
 trap - EXIT
 
-/usr/bin/shasum -a 256 "$archive_path"
+/bin/cat "$checksum_path"

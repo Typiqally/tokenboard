@@ -196,12 +196,28 @@ struct CompanionSceneCanvas: View {
         Canvas(opaque: false, rendersAsynchronously: false) { context, size in
             guard let asset = composition.asset else { return }
             draw(background: asset, frame: frame, in: &context, size: size)
-            for placement in composition.placements {
-                draw(placement: placement, frame: frame, time: time, in: &context)
+            for item in CompanionSceneDepth.painterOrder(
+                placements: composition.placements,
+                actors: frame.actors
+            ) {
+                switch item {
+                case let .placement(index):
+                    draw(
+                        placement: composition.placements[index],
+                        frame: frame,
+                        time: time,
+                        in: &context
+                    )
+                case let .actor(index):
+                    draw(
+                        actor: frame.actors[index],
+                        motion: frame.background,
+                        in: &context,
+                        size: size
+                    )
+                }
             }
-            // The inhabitants stand in the near foreground of their world, so
-            // the weather above them still passes over them.
-            draw(actors: frame.actors, motion: frame.background, in: &context, size: size)
+            // Atmosphere crosses the whole world, including its inhabitants.
             draw(bands: frame.bands, in: &context, size: size)
             draw(glows: frame.glows, in: &context, size: size)
             draw(particles: frame.particles, in: &context, size: size)
@@ -370,33 +386,45 @@ struct CompanionSceneCanvas: View {
 
     // MARK: Inhabitants
 
-    /// The scene's own people and animals. Nothing here is a sprite: each is
-    /// built from the same handful of rectangles the worlds are drawn in, so
-    /// a village can be populated without another frame of artwork.
+    /// The scene's own people and animals. Branded worlds draw their authentic
+    /// bundled strips; Forest and Village retain Tokenboard's original body
+    /// plans so those worlds stay wholly original artwork.
     private func draw(
-        actors: [CompanionActor],
+        actor: CompanionActor,
         motion: CompanionBackgroundMotion,
         in context: inout GraphicsContext,
         size: CGSize
     ) {
-        guard !actors.isEmpty, size.height > 0 else { return }
+        guard actor.opacity > 0.01, size.height > 0 else { return }
         let scale = size.height / TokenboardSurfaceMetrics.companionSceneHeight
-        for actor in actors where actor.opacity > 0.01 {
-            var height = max(3, actor.height * scale)
-            // Inhabitants stand in the world, so they travel with its camera.
-            var ground = CGPoint(
-                x: actor.x * size.width + motion.offsetX,
-                y: actor.y * size.height - actor.lift * scale + motion.offsetY
+        var height = max(3, actor.height * scale)
+        // Inhabitants stand in the world, so they travel with its camera.
+        var ground = CGPoint(
+            x: actor.x * size.width + motion.offsetX,
+            y: actor.y * size.height - actor.lift * scale + motion.offsetY
+        )
+        guard ground.x > -height * 2, ground.x < size.width + height * 2 else { return }
+        if actor.snapsToPixelGrid {
+            let grid = composition.artPixel
+            height = max(grid * 2, (height / grid).rounded() * grid)
+            ground = CGPoint(
+                x: (ground.x / grid).rounded() * grid,
+                y: (ground.y / grid).rounded() * grid
             )
-            guard ground.x > -height * 2, ground.x < size.width + height * 2 else { continue }
-            if actor.snapsToPixelGrid {
-                let grid = composition.artPixel
-                height = max(grid * 2, (height / grid).rounded() * grid)
-                ground = CGPoint(
-                    x: (ground.x / grid).rounded() * grid,
-                    y: (ground.y / grid).rounded() * grid
-                )
+        }
+        if let sprite = actor.sprite {
+            if actor.body != .flier || actor.pose == .perched || actor.pose == .idle {
+                drawContactShadow(for: actor, at: ground, height: height, in: &context)
             }
+            drawSprite(
+                sprite,
+                frame: actor.spriteFrame ?? 0,
+                for: actor,
+                at: ground,
+                height: height,
+                in: &context
+            )
+        } else {
             switch actor.body {
             case .biped:
                 drawContactShadow(for: actor, at: ground, height: height, in: &context)
@@ -407,6 +435,51 @@ struct CompanionSceneCanvas: View {
             case .flier:
                 drawFlier(actor, at: ground, height: height, in: &context)
             }
+        }
+    }
+
+    /// Draws one equal-width cell from a baked horizontal strip. Clipping the
+    /// actor-sized cell and shifting the whole strip is cheaper than creating
+    /// a separate image object for every frame at runtime.
+    private func drawSprite(
+        _ sprite: CompanionActorSprite,
+        frame: Int,
+        for actor: CompanionActor,
+        at ground: CGPoint,
+        height: CGFloat,
+        in context: inout GraphicsContext
+    ) {
+        guard let image = CompanionAssetImageStore.image(resource: sprite.resource) else {
+            return
+        }
+        let frames = max(1, sprite.frameCount)
+        let cellAspect = CompanionAssetImageStore.aspectRatio(resource: sprite.resource)
+            / Double(frames)
+        let width = max(1, height * cellAspect)
+        let cell = CGRect(
+            x: ground.x - width / 2,
+            y: ground.y - height,
+            width: width,
+            height: height
+        )
+        let index = min(max(frame, 0), frames - 1)
+        let sourceFacing: Double = sprite.facesRight ? 1 : -1
+        let flips = actor.facing != sourceFacing
+
+        context.drawLayer { layer in
+            layer.clip(to: Path(cell))
+            if flips {
+                layer.translateBy(x: ground.x, y: ground.y)
+                layer.scaleBy(x: -1, y: 1)
+                layer.translateBy(x: -ground.x, y: -ground.y)
+            }
+            let strip = CGRect(
+                x: cell.minX - CGFloat(index) * width,
+                y: cell.minY,
+                width: width * CGFloat(frames),
+                height: height
+            )
+            layer.draw(resolved(image, in: layer), in: strip)
         }
     }
 

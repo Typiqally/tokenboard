@@ -2,6 +2,9 @@
 # Development-time downloader for the raw companion source material.
 #
 # Usage: Scripts/fetch-companion-assets.sh <raw-root>
+#        TOKENBOARD_FETCH_ACTORS_ONLY=1 Scripts/fetch-companion-assets.sh <raw-root>
+#        TOKENBOARD_FETCH_PREFIX=banished Scripts/fetch-companion-assets.sh <raw-root>
+#        TOKENBOARD_FETCH_PREFIX=frostpunk Scripts/fetch-companion-assets.sh <raw-root>
 #
 # Downloads every third-party source image the companion feature is baked
 # from, into <raw-root>, using the layout expected by
@@ -16,22 +19,70 @@ if (( $# != 1 )); then
   exit 64
 fi
 raw_root=${1:A}
+script_dir=${0:A:h}
+hash_manifest="$script_dir/companion-source-hashes.sha256"
+verify_manifest_only=${TOKENBOARD_VERIFY_ASSET_MANIFEST_ONLY:-0}
+fetch_actors_only=${TOKENBOARD_FETCH_ACTORS_ONLY:-0}
+fetch_prefix=${TOKENBOARD_FETCH_PREFIX:-}
+typeset -A requested_assets
 
 fetch_asset() {
   local source_url=$1
-  local destination="$raw_root/$2"
-  local temporary_path="${destination}.download"
+  local relative_path=$2
+  local destination="$raw_root/$relative_path"
+  if [[ -n ${requested_assets[$relative_path]-} ]]; then
+    print -u2 "duplicate source asset request: $relative_path"
+    exit 65
+  fi
+  requested_assets[$relative_path]=1
+  local expected_hash=$(/usr/bin/awk -v path="$relative_path" '$2 == path { print $1 }' "$hash_manifest")
+  if [[ ! "$expected_hash" =~ '^[0-9a-f]{64}$' ]]; then
+    print -u2 "missing or invalid source hash: $relative_path"
+    exit 65
+  fi
+  if [[ "$verify_manifest_only" == "1" ]]; then
+    return
+  fi
+  if [[ -n "$fetch_prefix" && "$relative_path" != "$fetch_prefix"/* ]]; then
+    return
+  fi
+  if [[ "$fetch_actors_only" == "1" && "$relative_path" != */actors/* ]]; then
+    return
+  fi
   mkdir -p "${destination:h}"
+  if [[ -e "$destination" ]]; then
+    local existing_hash=$(/usr/bin/shasum -a 256 "$destination" | /usr/bin/awk '{ print $1 }')
+    if [[ "$existing_hash" == "$expected_hash" ]]; then
+      return
+    fi
+    print -u2 "refusing to replace mismatched existing asset: $relative_path"
+    exit 73
+  fi
+  local temporary_path=$(/usr/bin/mktemp "${destination:h}/.${destination:t}.XXXXXX")
   curl \
     --location \
     --fail \
     --silent \
     --show-error \
     --retry 3 \
+    --proto '=https' \
+    --tlsv1.2 \
+    --max-time 120 \
     --user-agent 'Tokenboard companion asset bundler (local development)' \
     "$source_url" \
-    --output "$temporary_path"
-  mv "$temporary_path" "$destination"
+    --output "$temporary_path" || {
+      /bin/rm -f -- "$temporary_path"
+      return 1
+    }
+  local actual_hash=$(/usr/bin/shasum -a 256 "$temporary_path" | /usr/bin/awk '{ print $1 }')
+  if [[ "$actual_hash" != "$expected_hash" ]]; then
+    /bin/rm -f -- "$temporary_path"
+    print -u2 "source hash mismatch: $relative_path"
+    exit 65
+  fi
+  /bin/chmod 0644 "$temporary_path"
+  /bin/ln -- "$temporary_path" "$destination"
+  /bin/rm -f -- "$temporary_path"
 }
 
 # --- Pokémon -----------------------------------------------------------------
@@ -60,6 +111,12 @@ for identifier in 1 2 3 4 5 6 7 8 9 \
     "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${identifier}.png" \
     "pokemon/artwork/${identifier}.png"
 done
+
+# The route visitor uses PokéAPI's preserved animated battle sprite. The baker
+# turns its GIF frames into a compact horizontal PNG strip for Canvas drawing.
+fetch_asset \
+  'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/showdown/16.gif' \
+  'pokemon/actors/pidgey.gif'
 
 # --- Old School RuneScape ----------------------------------------------------
 # Full-resolution location scapes and equipped-armour renders served by the
@@ -90,6 +147,13 @@ fetch_asset 'https://oldschool.runescape.wiki/images/Armadyl_armour_equipped_mal
 fetch_asset 'https://oldschool.runescape.wiki/images/Crystal_armour_equipped_male.png' 'osrs/characters/11-crystal.png'
 fetch_asset 'https://oldschool.runescape.wiki/images/Masori_armour_equipped_male.png' 'osrs/characters/12-masori.png'
 
+# Recognizable NPC renders for the ambient population.
+fetch_asset 'https://oldschool.runescape.wiki/images/Man_%28blue%29.png?d82a7' 'osrs/actors/man-blue.png'
+fetch_asset 'https://oldschool.runescape.wiki/images/Man_%28red%29.png?91a46' 'osrs/actors/man-red.png'
+fetch_asset 'https://oldschool.runescape.wiki/images/Man_%28pink%29.png?a7e97' 'osrs/actors/man-pink.png'
+fetch_asset 'https://oldschool.runescape.wiki/images/Chicken_%281%29.png?a7258' 'osrs/actors/chicken.png'
+fetch_asset 'https://oldschool.runescape.wiki/images/Seagull.png?4a534' 'osrs/actors/seagull.png'
+
 # --- Age of Empires II -------------------------------------------------------
 # Definitive Edition architecture-set renders (one arrangement per age, the
 # shared Dark Age set plus the West European set) served by the Age of
@@ -98,6 +162,13 @@ fetch_asset 'https://static.wikia.nocookie.net/ageofempires/images/1/12/Dark_Age
 fetch_asset 'https://static.wikia.nocookie.net/ageofempires/images/5/5c/Arch_set_West_European_Feudal_Age_AoE2DE.png/revision/latest?format=original' 'aoe2/feudal-age-set.png'
 fetch_asset 'https://static.wikia.nocookie.net/ageofempires/images/e/e6/Arch_set_West_European_Castle_Age_AoE2DE.png/revision/latest?format=original' 'aoe2/castle-age-set.png'
 fetch_asset 'https://static.wikia.nocookie.net/ageofempires/images/6/6b/Arch_set_West_European_Imperial_Age_AoE2DE.png/revision/latest?format=original' 'aoe2/imperial-age-set.png'
+
+# Original animated unit sprites and animal renders. `format=original` avoids
+# Fandom's content-negotiated WebP derivative so the pinned bytes stay stable.
+fetch_asset 'https://static.wikia.nocookie.net/ageofempires/images/d/df/Villager_m_walkanim_aoe2.gif/revision/latest?format=original' 'aoe2/actors/villager-m-walk.gif'
+fetch_asset 'https://static.wikia.nocookie.net/ageofempires/images/f/f3/Villager_f_walkanim_aoe2.gif/revision/latest?format=original' 'aoe2/actors/villager-f-walk.gif'
+fetch_asset 'https://static.wikia.nocookie.net/ageofempires/images/2/2f/Sheep_aoe2de.png/revision/latest?format=original' 'aoe2/actors/sheep.png'
+fetch_asset 'https://static.wikia.nocookie.net/ageofempires/images/5/52/Hawk_anim_aoe2.gif/revision/latest?format=original' 'aoe2/actors/hawk.gif'
 
 # --- Minecraft ---------------------------------------------------------------
 # Biome, structure, and dimension screenshots plus the canonical player and
@@ -123,5 +194,74 @@ fetch_asset 'https://minecraft.wiki/images/Iron_Armor_JE2_BE2.png' 'minecraft/ch
 fetch_asset 'https://minecraft.wiki/images/Diamond_Armor_JE2_BE2.png' 'minecraft/characters/diamond.png'
 fetch_asset 'https://minecraft.wiki/images/Netherite_Armor_JE2.png' 'minecraft/characters/netherite.png'
 
-print "Raw companion source material downloaded to $raw_root"
-print "Bake it with: swift Scripts/bake-companion-assets.swift $raw_root"
+# Current Java Edition entity renders; animated wiki GIFs are retained where
+# the source offers them and baked into strips alongside the still renders.
+fetch_asset 'https://minecraft.wiki/images/Chicken_JE2_BE2.png?30245' 'minecraft/actors/chicken.png'
+fetch_asset 'https://minecraft.wiki/images/Pig_JE2_BE1.png?6e6d8' 'minecraft/actors/pig.png'
+fetch_asset 'https://minecraft.wiki/images/Plains_Villager_Base_JE2.png?a2fcc' 'minecraft/actors/villager.png'
+fetch_asset 'https://minecraft.wiki/images/Bat_JE4_BE3.gif?db68c' 'minecraft/actors/bat.gif'
+fetch_asset 'https://minecraft.wiki/images/Goat_%28two_horns%29_JE1_BE1.png?a5c0c' 'minecraft/actors/goat.png'
+fetch_asset 'https://minecraft.wiki/images/Piglin_JE1.png?a498e' 'minecraft/actors/piglin.png'
+fetch_asset 'https://minecraft.wiki/images/Hoglin_JE3.png?65eaa' 'minecraft/actors/hoglin.png'
+fetch_asset 'https://minecraft.wiki/images/Silverfish_JE1_BE1.gif?d40a7' 'minecraft/actors/silverfish.gif'
+
+# --- Banished ----------------------------------------------------------------
+# Seasonal settlement screenshots and the original citizen-model sheet,
+# hosted by developer Shining Rock Software. The baker crops these into the
+# fixed scene plates and transparent citizen sprites used at runtime.
+fetch_asset 'https://shiningrocksoftware.com/wp-content/uploads/2012/03/HunterOrchard.jpg' 'banished/backgrounds/01-first-shelter.jpg'
+fetch_asset 'https://shiningrocksoftware.com/wp-content/uploads/2021/06/x03.jpg' 'banished/backgrounds/02-gatherers-clearing.jpg'
+fetch_asset 'https://shiningrocksoftware.com/wp-content/uploads/2021/06/s06.jpg' 'banished/backgrounds/03-first-harvest.jpg'
+fetch_asset 'https://shiningrocksoftware.com/wp-content/uploads/2021/06/s02.jpg' 'banished/backgrounds/04-pasture-raised.jpg'
+fetch_asset 'https://shiningrocksoftware.com/wp-content/uploads/2013/04/PavedRoads.jpg' 'banished/backgrounds/05-roads-laid.jpg'
+fetch_asset 'https://shiningrocksoftware.com/wp-content/uploads/2021/06/s08.jpg' 'banished/backgrounds/06-river-crossing.jpg'
+fetch_asset 'https://shiningrocksoftware.com/wp-content/uploads/2021/06/s03.jpg' 'banished/backgrounds/07-trading-post.jpg'
+fetch_asset 'https://shiningrocksoftware.com/wp-content/uploads/2021/06/s05.jpg' 'banished/backgrounds/08-market-town.jpg'
+fetch_asset 'https://shiningrocksoftware.com/wp-content/uploads/2021/06/x09.jpg' 'banished/backgrounds/09-stone-village.jpg'
+fetch_asset 'https://shiningrocksoftware.com/wp-content/uploads/2021/06/s10.jpg' 'banished/backgrounds/10-first-hard-winter.jpg'
+fetch_asset 'https://shiningrocksoftware.com/wp-content/uploads/2021/06/x06.jpg' 'banished/backgrounds/11-winter-endured.jpg'
+fetch_asset 'https://shiningrocksoftware.com/wp-content/uploads/2021/06/x01.jpg' 'banished/backgrounds/12-thriving-township.jpg'
+fetch_asset 'https://shiningrocksoftware.com/wp-content/uploads/2011/06/Thumb_Citizens.jpg' 'banished/actors/citizens.jpg'
+
+# --- Frostpunk ---------------------------------------------------------------
+# Official New London screenshots hosted by developer 11 bit studios. Twelve
+# authored stage crops are baked from these four clean city views. Native
+# population and automaton art is preserved by the official Frostpunk Wiki.
+fetch_asset 'https://11bitstudios.com/wp-content/uploads/2021/03/05.jpg' 'frostpunk/backgrounds/generator-city.jpg'
+fetch_asset 'https://11bitstudios.com/wp-content/uploads/2021/03/03.jpg' 'frostpunk/backgrounds/city-overview.jpg'
+fetch_asset 'https://11bitstudios.com/wp-content/uploads/2021/03/07.jpg' 'frostpunk/backgrounds/new-london.jpg'
+fetch_asset 'https://11bitstudios.com/wp-content/uploads/2021/03/01.jpg' 'frostpunk/backgrounds/industrial-city.jpg'
+fetch_asset 'https://static.wikia.nocookie.net/frostpunk_gamepedia_en/images/3/33/Worker_Icon.png/revision/latest?cb=20200824201451&format=original' 'frostpunk/actors/worker.png'
+fetch_asset 'https://static.wikia.nocookie.net/frostpunk_gamepedia_en/images/0/0d/Engineer_Icon.png/revision/latest?cb=20200824201448&format=original' 'frostpunk/actors/engineer.png'
+fetch_asset 'https://static.wikia.nocookie.net/frostpunk_gamepedia_en/images/a/ae/Child_Icon.png/revision/latest?cb=20200824201444&format=original' 'frostpunk/actors/child.png'
+fetch_asset 'https://static.wikia.nocookie.net/frostpunk_gamepedia_en/images/6/6c/Automatons.png/revision/latest?cb=20190715004425&format=original' 'frostpunk/actors/automaton.png'
+
+manifest_count=0
+while read -r source_hash source_path; do
+  if [[ ! "$source_hash" =~ '^[0-9a-f]{64}$' || -z "$source_path" ]]; then
+    print -u2 "invalid companion source hash manifest entry"
+    exit 65
+  fi
+  if [[ -z ${requested_assets[$source_path]-} ]]; then
+    print -u2 "unused companion source hash: $source_path"
+    exit 65
+  fi
+  (( manifest_count += 1 ))
+done < "$hash_manifest"
+if (( manifest_count != ${#requested_assets} )); then
+  print -u2 "companion source request count does not match hash manifest"
+  exit 65
+fi
+
+if [[ "$verify_manifest_only" == "1" ]]; then
+  print "Companion source manifest verified"
+  exit 0
+fi
+
+if [[ "$fetch_actors_only" == "1" ]]; then
+  print "Raw companion actor sources downloaded to $raw_root"
+  print "Bake them with: swift Scripts/bake-companion-assets.swift --actors-only $raw_root"
+else
+  print "Raw companion source material downloaded to $raw_root"
+  print "Bake it with: swift Scripts/bake-companion-assets.swift $raw_root"
+fi

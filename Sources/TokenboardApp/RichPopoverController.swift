@@ -193,12 +193,7 @@ final class RichPopoverController: NSObject, NSPopoverDelegate {
         }
 
         let currentDate = Date()
-        let companion = CompanionPresentation.make(
-            state: state.companion,
-            dailyTokenTotal: model?.companionDailyTokenTotal(at: currentDate) ?? 0,
-            date: currentDate,
-            calendar: .current
-        )
+        let companion = model?.companionPresentation(for: state, at: currentDate)
         let image: NSImage? = companion.flatMap { companion -> NSImage? in
             guard state.companion.showInMenuBar else { return nil }
             return CompanionMenuIconRenderer.image(
@@ -250,9 +245,12 @@ final class RichPopoverController: NSObject, NSPopoverDelegate {
         let center = NotificationCenter.default
         center.publisher(for: .NSCalendarDayChanged)
             .merge(with: center.publisher(for: .NSSystemTimeZoneDidChange))
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 guard let self, let model = self.model else { return }
-                self.updateStatus(for: model.state)
+                Task { @MainActor in
+                    await model.refreshForCalendarChange(.current)
+                }
             }
             .store(in: &calendarObservations)
     }

@@ -3,10 +3,9 @@ import Foundation
 /// The inhabitants of a companion scene: the villagers, animals, and birds
 /// that give a world an errand of its own rather than only weather.
 ///
-/// Nothing here is a sprite. An inhabitant is a body plan plus a route, drawn
-/// procedurally at the scene's own scale, so a world can be populated without
-/// shipping another frame of artwork — and every position stays a pure
-/// function of the install's companion seed and the clock.
+/// An inhabitant is a body plan plus a route. Original Tokenboard worlds draw
+/// that body procedurally; branded worlds attach a bundled sprite sourced from
+/// the game so identity changes without duplicating any routing behavior.
 
 // MARK: - Vocabulary
 
@@ -47,6 +46,29 @@ enum CompanionActorBody: String, Equatable, Sendable, CaseIterable {
     case quadruped
     /// A small flier whose wings beat in the air and fold when it lands.
     case flier
+}
+
+/// One horizontal sprite strip. A one-frame strip is a still source render
+/// whose route supplies the motion; multi-frame strips retain animation from
+/// the source GIF after the development-time baker turns it into a PNG.
+struct CompanionActorSprite: Hashable, Sendable {
+    let resource: String
+    let frameCount: Int
+    let framesPerSecond: Double
+    /// The direction the source artwork faces before the route flips it.
+    let facesRight: Bool
+
+    init(
+        resource: String,
+        frameCount: Int = 1,
+        framesPerSecond: Double = 0,
+        facesRight: Bool
+    ) {
+        self.resource = resource
+        self.frameCount = max(1, frameCount)
+        self.framesPerSecond = max(0, framesPerSecond)
+        self.facesRight = facesRight
+    }
 }
 
 /// What an inhabitant is doing at this moment.
@@ -124,6 +146,10 @@ struct CompanionActor: Equatable, Sendable {
     let lift: Double
     let pose: CompanionActorPose
     let body: CompanionActorBody
+    /// Nil only for Tokenboard's original procedural Forest and Village art.
+    let sprite: CompanionActorSprite?
+    /// The selected cell of the sprite's horizontal strip.
+    let spriteFrame: Int?
     let tint: CompanionSceneTint
     let accent: CompanionSceneTint
     let opacity: Double
@@ -151,6 +177,9 @@ struct CompanionAttention: Equatable, Sendable {
 struct CompanionActorField: Equatable, Sendable {
     let key: String
     let body: CompanionActorBody
+    /// Authentic alternatives for this population. A stable seed chooses one
+    /// per inhabitant, so a crowd keeps its identity across launches.
+    let sprites: [CompanionActorSprite]
     let count: Int
     let route: CompanionActorRoute
     /// Standing height in points at the reference 84-point scene height.
@@ -171,6 +200,7 @@ struct CompanionActorField: Equatable, Sendable {
     init(
         key: String,
         body: CompanionActorBody,
+        sprites: [CompanionActorSprite] = [],
         count: Int,
         route: CompanionActorRoute,
         height: ClosedRange<Double>,
@@ -184,6 +214,7 @@ struct CompanionActorField: Equatable, Sendable {
     ) {
         self.key = key
         self.body = body
+        self.sprites = sprites
         self.count = max(0, count)
         self.route = route
         self.height = height
@@ -249,6 +280,16 @@ struct CompanionActorField: Equatable, Sendable {
                     / CompanionActorRouting.referenceSpeed
             )
             let facing = now.facing ?? (travel.x < -1e-9 ? -1 : 1)
+            let sprite = sprites.isEmpty
+                ? nil
+                : sprites[Int(rng.next() % UInt64(sprites.count))]
+            let spriteFrame = sprite.map { sprite in
+                guard sprite.frameCount > 1, sprite.framesPerSecond > 0 else { return 0 }
+                let cycle = CompanionMath.fraction(
+                    elapsed * sprite.framesPerSecond / Double(sprite.frameCount) + phase
+                )
+                return min(sprite.frameCount - 1, Int(cycle * Double(sprite.frameCount)))
+            }
 
             return CompanionActor(
                 x: now.point.x,
@@ -261,6 +302,8 @@ struct CompanionActorField: Equatable, Sendable {
                 lift: now.lift,
                 pose: now.pose,
                 body: body,
+                sprite: sprite,
+                spriteFrame: spriteFrame,
                 tint: tint.shaded(by: shade),
                 accent: accent.shaded(by: shade),
                 opacity: opacity,

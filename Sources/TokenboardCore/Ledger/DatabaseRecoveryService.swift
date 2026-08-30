@@ -34,6 +34,8 @@ public enum DatabaseRecoveryError: Error, Equatable, Sendable {
     case preservationRetryRequired
     case preservationFailed
     case backupTooLarge(maximumBytes: Int)
+    case backupInventoryTooLarge(maximumCandidates: Int)
+    case backupDirectoryTooLarge(maximumEntries: Int)
 }
 
 enum DatabaseRecoveryStage: Equatable, Sendable {
@@ -68,6 +70,8 @@ public actor DatabaseRecoveryService {
     /// Recovery is intentionally capped so a selected file cannot force an
     /// unbounded allocation while it is migrated in a private SQLite image.
     public static let maximumRecoveryImageBytes = 256 * 1_024 * 1_024
+    static let maximumBackupCandidates = 64
+    static let maximumBackupDirectoryEntries = 4_096
     private static let databaseFilename = "ledger.sqlite"
     private static let backupDirectoryName = "Backups"
     private static let recoverySnapshotPrefix = ".tokenboard-pre-restore-"
@@ -144,8 +148,23 @@ public actor DatabaseRecoveryService {
 
         var backups: [DatabaseBackup] = []
         var foundOversized = false
-        for filename in try listNames(in: descriptors.backups) {
+        let names: [String]
+        do {
+            names = try listNames(in: descriptors.backups)
+        } catch RecoveryDirectoryInventoryError.tooManyEntries {
+            throw DatabaseRecoveryError.backupDirectoryTooLarge(
+                maximumEntries: Self.maximumBackupDirectoryEntries
+            )
+        }
+        var candidateCount = 0
+        for filename in names {
             guard Self.isBackupFilename(filename) else { continue }
+            candidateCount += 1
+            guard candidateCount <= Self.maximumBackupCandidates else {
+                throw DatabaseRecoveryError.backupInventoryTooLarge(
+                    maximumCandidates: Self.maximumBackupCandidates
+                )
+            }
             let descriptor: Int32
             do {
                 descriptor = try openRegular(
@@ -240,7 +259,9 @@ public actor DatabaseRecoveryService {
                 from: backupDescriptor,
                 to: restoreDescriptor,
                 operation: .restoreCopyChunk,
-                syncOperation: .syncStagedRestore
+                syncOperation: .syncStagedRestore,
+                expectedByteCount: confirmedBackup.identity.size,
+                sourceChanged: .backupChanged
             )
             guard copiedDigest == confirmedBackup.identity.digest,
                   try identity(of: backupDescriptor) == confirmedBackup.identity else {
@@ -254,7 +275,9 @@ public actor DatabaseRecoveryService {
             let rollbackDigest = try copy(
                 from: databaseDescriptor,
                 to: rollbackDescriptor,
-                syncOperation: .syncRollbackSnapshot
+                syncOperation: .syncRollbackSnapshot,
+                expectedByteCount: databaseIdentity.size,
+                sourceChanged: .unsafeDatabase
             )
             guard rollbackDigest == databaseIdentity.digest,
                   try identity(of: databaseDescriptor) == databaseIdentity else {
@@ -484,7 +507,8 @@ public actor DatabaseRecoveryService {
                 from: pending.snapshot,
                 to: artifact,
                 operation: .preservationCopyChunk,
-                expectedByteCount: pending.identity.size
+                expectedByteCount: pending.identity.size,
+                sourceChanged: .preservationFailed
             )
             guard digest == pending.identity.digest,
                   try identity(of: pending.snapshot) == pending.identity,
@@ -574,7 +598,9 @@ public actor DatabaseRecoveryService {
                 from: snapshot,
                 to: install,
                 operation: .rollbackCopyChunk,
-                syncOperation: .syncRollbackInstall
+                syncOperation: .syncRollbackInstall,
+                expectedByteCount: snapshotIdentity.size,
+                sourceChanged: .rollbackFailed
             )
             guard copiedDigest == snapshotIdentity.digest,
                   try identity(of: snapshot) == snapshotIdentity else {
@@ -1186,7 +1212,12 @@ public actor DatabaseRecoveryService {
                     String(cString: $0)
                 }
             }
-            if name != ".", name != ".." { names.append(name) }
+            if name != ".", name != ".." {
+                guard names.count < Self.maximumBackupDirectoryEntries else {
+                    throw RecoveryDirectoryInventoryError.tooManyEntries
+                }
+                names.append(name)
+            }
         }
         return names
     }
@@ -1196,7 +1227,15 @@ public actor DatabaseRecoveryService {
         guard fstat(descriptor, &before) == 0, Self.isRegular(before) else {
             throw posixFailure()
         }
-        let digest = try digest(of: descriptor)
+        let digest: String
+        do {
+            digest = try BoundedDescriptorRead.digest(
+                descriptor: descriptor,
+                exactByteCount: Int64(before.st_size)
+            )
+        } catch is BoundedDescriptorReadError {
+            throw DatabaseRecoveryError.backupChanged
+        }
         var after = stat()
         guard fstat(descriptor, &after) == 0,
               RecoveryFileIdentity.sameMetadata(before, after) else {
@@ -1205,71 +1244,44 @@ public actor DatabaseRecoveryService {
         return RecoveryFileIdentity(information: after, digest: digest)
     }
 
-    private func digest(of descriptor: Int32) throws -> String {
-        guard lseek(descriptor, 0, SEEK_SET) >= 0 else { throw posixFailure() }
-        var hasher = SHA256()
-        var buffer = [UInt8](repeating: 0, count: 64 * 1024)
-        while true {
-            let count = Darwin.read(descriptor, &buffer, buffer.count)
-            if count == 0 { break }
-            guard count > 0 else {
-                if errno == EINTR { continue }
-                throw posixFailure()
-            }
-            hasher.update(data: Data(buffer[0..<count]))
-        }
-        guard lseek(descriptor, 0, SEEK_SET) >= 0 else { throw posixFailure() }
-        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
-    }
-
     private func copy(
         from source: Int32,
         to destination: Int32,
         operation: DatabaseRecoveryFileOperation? = nil,
         syncOperation: DatabaseRecoveryFileOperation? = nil,
-        expectedByteCount: Int64? = nil
+        expectedByteCount: Int64,
+        sourceChanged: DatabaseRecoveryError
     ) throws -> String {
-        guard lseek(source, 0, SEEK_SET) >= 0 else { throw posixFailure() }
         var hasher = SHA256()
-        var buffer = [UInt8](repeating: 0, count: 64 * 1024)
-        var copiedByteCount: Int64 = 0
-        while true {
-            let count = Darwin.read(source, &buffer, buffer.count)
-            if count == 0 { break }
-            guard count > 0 else {
-                if errno == EINTR { continue }
-                throw posixFailure()
-            }
-            let (nextCount, overflowed) = copiedByteCount.addingReportingOverflow(Int64(count))
-            guard !overflowed,
-                  expectedByteCount.map({ nextCount <= $0 }) ?? true else {
-                throw DatabaseRecoveryError.preservationFailed
-            }
-            copiedByteCount = nextCount
-            hasher.update(data: Data(buffer[0..<count]))
-            var written = 0
-            while written < count {
-                let result = buffer.withUnsafeBytes { bytes in
-                    Darwin.write(
-                        destination,
-                        bytes.baseAddress!.advanced(by: written),
-                        count - written
-                    )
+        do {
+            try BoundedDescriptorRead.consume(
+                descriptor: source,
+                exactByteCount: expectedByteCount
+            ) { data in
+                hasher.update(data: data)
+                let count = data.count
+                var written = 0
+                while written < count {
+                    let result = data.withUnsafeBytes { bytes in
+                        Darwin.write(
+                            destination,
+                            bytes.baseAddress!.advanced(by: written),
+                            count - written
+                        )
+                    }
+                    guard result > 0 else {
+                        if result < 0, errno == EINTR { continue }
+                        throw posixFailure()
+                    }
+                    written += result
+                    if let operation { try fileOperationHandler(operation) }
                 }
-                guard result > 0 else {
-                    if result < 0, errno == EINTR { continue }
-                    throw posixFailure()
-                }
-                written += result
-                if let operation { try fileOperationHandler(operation) }
             }
-        }
-        guard expectedByteCount.map({ copiedByteCount == $0 }) ?? true else {
-            throw DatabaseRecoveryError.preservationFailed
+        } catch is BoundedDescriptorReadError {
+            throw sourceChanged
         }
         if let syncOperation { try fileOperationHandler(syncOperation) }
         guard fsync(destination) == 0 else { throw posixFailure() }
-        guard lseek(source, 0, SEEK_SET) >= 0 else { throw posixFailure() }
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
@@ -1346,6 +1358,10 @@ public actor DatabaseRecoveryService {
     private static func isRegular(_ information: stat) -> Bool {
         information.st_mode & S_IFMT == S_IFREG
     }
+}
+
+private enum RecoveryDirectoryInventoryError: Error {
+    case tooManyEntries
 }
 
 private struct RecoveryDirectories {

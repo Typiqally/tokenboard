@@ -2,6 +2,35 @@ import AppKit
 import Foundation
 import TokenboardCore
 
+struct RecencyPresentation: Equatable, Sendable {
+    let visualTitle: String
+    let accessibilityTitle: String
+
+    init(lastUpdated: Date?, relativeTo: Date) {
+        guard let lastUpdated else {
+            visualTitle = "Updated never"
+            accessibilityTitle = "Updated never"
+            return
+        }
+
+        let visualFormatter = RelativeDateTimeFormatter()
+        visualFormatter.unitsStyle = .abbreviated
+        let visualRelative = visualFormatter.localizedString(
+            for: lastUpdated,
+            relativeTo: relativeTo
+        )
+        visualTitle = "Updated \(visualRelative)"
+
+        let accessibilityFormatter = RelativeDateTimeFormatter()
+        accessibilityFormatter.unitsStyle = .full
+        let accessibilityRelative = accessibilityFormatter.localizedString(
+            for: lastUpdated,
+            relativeTo: relativeTo
+        )
+        accessibilityTitle = "Updated \(accessibilityRelative)"
+    }
+}
+
 enum TokenboardSurfaceMetrics {
     static let popoverSize = NSSize(width: 350, height: 560)
     static let companionPopoverSize = NSSize(width: 350, height: 656)
@@ -251,7 +280,7 @@ struct RichPopoverPresentation: Equatable, Sendable {
         startupError: String?,
         relativeTo date: Date
     ) -> RichPopoverPresentation {
-        let recency = MenuRecencyPresentation(
+        let recency = RecencyPresentation(
             lastUpdated: state.lastUpdated,
             relativeTo: date
         )
@@ -380,19 +409,23 @@ enum UsageHistoryPresentation {
                 accessibilityTitle: "New usage activity \(spokenSuffix)"
             )
         }
-        let rounded = Int(NSDecimalNumber(decimal: percent).doubleValue.rounded())
+        var source = percent
+        var rounded = Decimal()
+        NSDecimalRound(&rounded, &source, 0, .plain)
+        let magnitude = rounded < 0 ? -rounded : rounded
+        let formatted = NSDecimalNumber(decimal: magnitude).stringValue
         if rounded > 0 {
             return UsageComparisonPresentation(
-                title: "+\(rounded)% \(visualSuffix)",
+                title: "+\(formatted)% \(visualSuffix)",
                 systemImageName: "arrow.up.right",
-                accessibilityTitle: "Usage increased \(rounded) percent \(spokenSuffix)"
+                accessibilityTitle: "Usage increased \(formatted) percent \(spokenSuffix)"
             )
         }
         if rounded < 0 {
             return UsageComparisonPresentation(
-                title: "−\(abs(rounded))% \(visualSuffix)",
+                title: "−\(formatted)% \(visualSuffix)",
                 systemImageName: "arrow.down.right",
-                accessibilityTitle: "Usage decreased \(abs(rounded)) percent \(spokenSuffix)"
+                accessibilityTitle: "Usage decreased \(formatted) percent \(spokenSuffix)"
             )
         }
         return UsageComparisonPresentation(

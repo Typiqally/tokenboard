@@ -112,23 +112,6 @@ final class SourceGrantStoreTests: XCTestCase {
         XCTAssertEqual(setup.defaults.data(forKey: "sourceBookmark.claude_code"), oldBookmark)
     }
 
-    func testCommittedReplacementPublishesBookmarkAndTransfersActiveGrant() throws {
-        let setup = makeSetup()
-        defer { setup.cleanup() }
-        let root = URL(fileURLWithPath: "/tmp/replacement")
-        setup.defaults.set(Data([9]), forKey: "sourceBookmark.codex")
-        let prepared = try setup.store.prepareGrant(url: root, for: .codex)
-
-        let grant = setup.store.commit(prepared, for: .codex)
-
-        XCTAssertEqual(setup.defaults.data(forKey: "sourceBookmark.codex"), Data([1]))
-        XCTAssertEqual(grant.root, root.standardizedFileURL)
-        prepared.close()
-        XCTAssertEqual(setup.access.stopCount, 0)
-        grant.close()
-        XCTAssertEqual(setup.access.stopCount, 1)
-    }
-
     func testPreparedGrantCanActivateBeforeBookmarkCommitForRestartRollback() throws {
         let setup = makeSetup()
         defer { setup.cleanup() }

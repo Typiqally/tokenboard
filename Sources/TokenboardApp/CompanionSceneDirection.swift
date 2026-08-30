@@ -30,6 +30,10 @@ extension CompanionScenePlan {
             return diorama(stage: stage, seed: seed)
         case .blockyBiome:
             return CompanionBiome.forMinecraft(stage: stage).plan(stage: stage, seed: seed)
+        case .seasonalSettlement:
+            return banishedSettlement(stage: stage, seed: seed)
+        case .frozenIndustry:
+            return frostpunkCity(stage: stage, seed: seed)
         }
     }
 
@@ -40,6 +44,327 @@ extension CompanionScenePlan {
             .union(bands.map(\.key))
             .union(glows.map(\.key))
             .union(actors.map(\.key))
+    }
+}
+
+// MARK: - Frostpunk: frozen industry around the Generator
+
+private extension CompanionScenePlan {
+    static func frostpunkCity(stage: Int, seed: UInt64) -> CompanionScenePlan {
+        let corridor = frostpunkCorridor(stage: stage)
+        let citizenCount = min(6, 2 + stage / 2)
+        var actors = [
+            CompanionActorField(
+                key: "frostpunk/workers",
+                body: .biped,
+                sprites: CompanionActorSpriteCatalog.frostpunkCitizens,
+                count: citizenCount,
+                route: .errand(
+                    home: corridor.home,
+                    site: corridor.site,
+                    period: 31,
+                    workShare: 0.18
+                ),
+                height: 4.8...6.2,
+                tint: CompanionSceneTint(0.78, 0.81, 0.84),
+                accent: CompanionSceneTint(0.93, 0.54, 0.24),
+                opacity: 0.95,
+                spread: 0.035,
+                variation: 0
+            )
+        ]
+        if stage >= 8 {
+            actors.append(
+                CompanionActorField(
+                    key: "frostpunk/automaton",
+                    body: .quadruped,
+                    sprites: [CompanionActorSpriteCatalog.frostpunkAutomaton],
+                    count: 1,
+                    route: .errand(
+                        home: corridor.home,
+                        site: corridor.site,
+                        period: 38,
+                        workShare: 0.24
+                    ),
+                    height: 12.5...13.5,
+                    tint: CompanionSceneTint(0.40, 0.42, 0.43),
+                    accent: CompanionSceneTint(0.96, 0.44, 0.15),
+                    opacity: 0.98,
+                    variation: 0
+                )
+            )
+        }
+
+        let storm = stage == 10
+        let snowCount = storm ? 58 : min(34, 16 + stage * 2)
+        return CompanionScenePlan(
+            signature: .frozenIndustry,
+            stage: stage,
+            seed: seed,
+            backgroundDrift: .still,
+            fields: [
+                CompanionParticleField(
+                    key: "frostpunk/generator-smoke",
+                    shape: .mote,
+                    tint: CompanionSceneTint(0.70, 0.76, 0.80),
+                    count: min(22, 10 + stage),
+                    lifetime: 13,
+                    spawnX: 0.30...0.68,
+                    spawnY: 0.18...0.48,
+                    size: 1.8...3.8,
+                    opacity: 0.12...0.30,
+                    drift: .travel(dx: 0.10, dy: -0.40, sway: 0.028, swayPeriod: 5.2),
+                    fade: .rise,
+                    growth: 2.4
+                ),
+                CompanionParticleField(
+                    key: "frostpunk/snow",
+                    shape: .mote,
+                    tint: CompanionSceneTint(0.94, 0.98, 1.0),
+                    count: snowCount,
+                    lifetime: storm ? 5.8 : 9.2,
+                    spawnX: -0.08...1.02,
+                    spawnY: -0.10...0.62,
+                    size: 1.0...2.7,
+                    opacity: 0.25...(storm ? 0.78 : 0.58),
+                    drift: .travel(
+                        dx: storm ? 0.42 : 0.18,
+                        dy: storm ? 0.56 : 0.64,
+                        sway: storm ? 0.05 : 0.025,
+                        swayPeriod: 3.5
+                    )
+                )
+            ],
+            bands: [
+                CompanionShadowBandField(
+                    key: "frostpunk/storm-front",
+                    count: storm ? 2 : 1,
+                    width: storm ? 0.72 : 0.52,
+                    skew: -0.18,
+                    period: storm ? 22 : 48,
+                    opacity: storm ? 0.20 : 0.075,
+                    tint: CompanionSceneTint(0.06, 0.12, 0.17),
+                    top: 0,
+                    bottom: 1
+                )
+            ],
+            glows: [
+                CompanionGlowSpec(
+                    key: "frostpunk/generator-glow",
+                    x: 0.50,
+                    y: 0.68,
+                    radius: 32 + Double(stage),
+                    tint: CompanionSceneTint(1.0, 0.38, 0.08),
+                    opacity: storm ? 0.17 : 0.12,
+                    flickerDepth: 0.24,
+                    flickerPeriod: 3.4
+                )
+            ],
+            actors: actors,
+            wash: CompanionWashSpec(
+                tint: storm
+                    ? CompanionSceneTint(0.42, 0.58, 0.72)
+                    : CompanionSceneTint(0.62, 0.74, 0.84),
+                opacity: storm ? 0.075 : 0.028,
+                amplitude: storm ? 0.018 : 0.006,
+                period: 34
+            )
+        )
+    }
+
+    /// Safe ground corridors are authored per crop so inhabitants remain on
+    /// streets and snowfields instead of walking across roofs or machinery.
+    static func frostpunkCorridor(
+        stage: Int
+    ) -> (home: CompanionScenePoint, site: CompanionScenePoint) {
+        let points: [(CompanionScenePoint, CompanionScenePoint)] = [
+            (CompanionScenePoint(0.18, 0.80), CompanionScenePoint(0.48, 0.72)),
+            (CompanionScenePoint(0.14, 0.82), CompanionScenePoint(0.52, 0.74)),
+            (CompanionScenePoint(0.44, 0.82), CompanionScenePoint(0.76, 0.70)),
+            (CompanionScenePoint(0.18, 0.72), CompanionScenePoint(0.48, 0.80)),
+            (CompanionScenePoint(0.32, 0.74), CompanionScenePoint(0.64, 0.68)),
+            (CompanionScenePoint(0.24, 0.76), CompanionScenePoint(0.55, 0.70)),
+            (CompanionScenePoint(0.34, 0.76), CompanionScenePoint(0.67, 0.69)),
+            (CompanionScenePoint(0.27, 0.80), CompanionScenePoint(0.60, 0.72)),
+            (CompanionScenePoint(0.47, 0.78), CompanionScenePoint(0.76, 0.69)),
+            (CompanionScenePoint(0.30, 0.81), CompanionScenePoint(0.64, 0.72)),
+            (CompanionScenePoint(0.21, 0.78), CompanionScenePoint(0.55, 0.70)),
+            (CompanionScenePoint(0.34, 0.81), CompanionScenePoint(0.68, 0.73))
+        ]
+        return points[min(max(stage, 0), points.count - 1)]
+    }
+}
+
+// MARK: - Banished: a settlement turning through the year
+
+private extension CompanionScenePlan {
+    static func banishedSettlement(stage: Int, seed: UInt64) -> CompanionScenePlan {
+        var fields = [
+            CompanionParticleField(
+                key: "banished/chimney-smoke",
+                shape: .mote,
+                tint: CompanionSceneTint(0.76, 0.75, 0.70),
+                count: min(14, 4 + stage),
+                lifetime: 12,
+                spawnX: 0.18...0.84,
+                spawnY: 0.25...0.62,
+                size: 1.6...3.1,
+                opacity: 0.12...0.28,
+                drift: .travel(dx: 0.08, dy: -0.32, sway: 0.022, swayPeriod: 5.8),
+                fade: .rise,
+                growth: 2.2
+            )
+        ]
+        if stage == 9 || stage == 10 {
+            fields.append(
+                CompanionParticleField(
+                    key: "banished/snow",
+                    shape: .mote,
+                    tint: CompanionSceneTint(0.96, 0.98, 1.0),
+                    count: 34,
+                    lifetime: 8.5,
+                    spawnX: -0.05...1.0,
+                    spawnY: -0.08...0.56,
+                    size: 1.2...2.8,
+                    opacity: 0.28...0.68,
+                    drift: .travel(dx: 0.16, dy: 0.60, sway: 0.035, swayPeriod: 3.8)
+                )
+            )
+        }
+        if (6...8).contains(stage) {
+            fields.append(
+                CompanionParticleField(
+                    key: "banished/autumn-leaves",
+                    shape: .leaf,
+                    tint: CompanionSceneTint(0.72, 0.38, 0.12),
+                    count: 10,
+                    lifetime: 10,
+                    spawnX: 0.0...0.94,
+                    spawnY: 0.12...0.68,
+                    size: 1.4...2.5,
+                    opacity: 0.24...0.46,
+                    drift: .travel(dx: 0.18, dy: 0.38, sway: 0.045, swayPeriod: 4.6)
+                )
+            )
+        }
+
+        let laborerCount = min(5, 2 + stage / 3)
+        let carrierCount = min(4, stage / 3)
+        let corridor = banishedCorridor(stage: stage)
+        let depthHeight = 3.6 + 3.8 * max(corridor.home.y, corridor.site.y)
+        var actors = [
+            CompanionActorField(
+                key: "banished/laborers",
+                body: .biped,
+                sprites: CompanionActorSpriteCatalog.banishedCitizens,
+                count: laborerCount,
+                route: corridor.laborRoute,
+                height: depthHeight...(depthHeight + 1.2),
+                tint: CompanionSceneTint(0.42, 0.31, 0.22),
+                accent: CompanionSceneTint(0.62, 0.52, 0.39),
+                opacity: 0.96,
+                spread: 0.035,
+                variation: 0
+            )
+        ]
+        if carrierCount > 0 {
+            actors.append(
+                CompanionActorField(
+                    key: "banished/carriers",
+                    body: .biped,
+                    sprites: CompanionActorSpriteCatalog.banishedCitizens,
+                    count: carrierCount,
+                    route: .errand(
+                        home: CompanionScenePoint(
+                            corridor.home.x,
+                            min(1.02, corridor.home.y + 0.035)
+                        ),
+                        site: CompanionScenePoint(
+                            corridor.site.x,
+                            min(1.02, corridor.site.y + 0.035)
+                        ),
+                        period: 25,
+                        workShare: 0.30
+                    ),
+                    height: (depthHeight - 0.3)...(depthHeight + 0.9),
+                    tint: CompanionSceneTint(0.42, 0.31, 0.22),
+                    accent: CompanionSceneTint(0.62, 0.52, 0.39),
+                    opacity: 0.94,
+                    spread: 0.025,
+                    variation: 0
+                )
+            )
+        }
+
+        let winter = stage == 9 || stage == 10
+        return CompanionScenePlan(
+            signature: .seasonalSettlement,
+            stage: stage,
+            seed: seed,
+            backgroundDrift: .still,
+            fields: fields,
+            bands: [
+                CompanionShadowBandField(
+                    key: "banished/weather-front",
+                    count: 1,
+                    width: 0.62,
+                    skew: -0.08,
+                    period: 46,
+                    opacity: winter ? 0.12 : 0.065,
+                    tint: CompanionSceneTint(0.09, 0.11, 0.13),
+                    top: 0,
+                    bottom: 1
+                )
+            ],
+            glows: [],
+            actors: actors,
+            wash: CompanionWashSpec(
+                tint: winter
+                    ? CompanionSceneTint(0.64, 0.73, 0.82)
+                    : CompanionSceneTint(0.92, 0.74, 0.48),
+                opacity: winter ? 0.045 : 0.012,
+                amplitude: 0.008,
+                period: 39
+            )
+        )
+    }
+
+    /// Each source plate has its own safe piece of ground. Dense scenes use
+    /// a reversible errand inside that corridor; the two open working fields
+    /// can support a full off-screen patrol without crossing a roof.
+    static func banishedCorridor(
+        stage: Int
+    ) -> (home: CompanionScenePoint, site: CompanionScenePoint, laborRoute: CompanionActorRoute) {
+        if stage == 1 {
+            let home = CompanionScenePoint(-0.16, 0.64)
+            let site = CompanionScenePoint(1.16, 0.72)
+            return (home, site, .patrol(from: home, to: site, period: 30, pauses: 3))
+        }
+        if stage == 3 {
+            let home = CompanionScenePoint(-0.16, 0.58)
+            let site = CompanionScenePoint(1.16, 0.74)
+            return (home, site, .patrol(from: home, to: site, period: 31, pauses: 2))
+        }
+        let points: [(CompanionScenePoint, CompanionScenePoint)] = [
+            (CompanionScenePoint(0.32, 0.86), CompanionScenePoint(0.80, 0.82)),
+            (CompanionScenePoint(-0.16, 0.64), CompanionScenePoint(1.16, 0.72)),
+            (CompanionScenePoint(0.16, 0.60), CompanionScenePoint(0.63, 0.63)),
+            (CompanionScenePoint(-0.16, 0.58), CompanionScenePoint(1.16, 0.74)),
+            (CompanionScenePoint(0.18, 0.58), CompanionScenePoint(0.68, 0.70)),
+            (CompanionScenePoint(0.74, 0.56), CompanionScenePoint(1.02, 0.42)),
+            (CompanionScenePoint(0.28, 0.78), CompanionScenePoint(0.47, 0.76)),
+            (CompanionScenePoint(0.24, 0.28), CompanionScenePoint(0.55, 0.25)),
+            (CompanionScenePoint(0.40, 0.55), CompanionScenePoint(0.60, 0.68)),
+            (CompanionScenePoint(0.08, 0.82), CompanionScenePoint(0.43, 0.91)),
+            (CompanionScenePoint(0.22, 0.70), CompanionScenePoint(0.62, 0.72)),
+            (CompanionScenePoint(0.42, 0.58), CompanionScenePoint(0.60, 0.64))
+        ]
+        let pair = points[min(max(stage, 0), points.count - 1)]
+        return (
+            pair.0,
+            pair.1,
+            .errand(home: pair.0, site: pair.1, period: 27, workShare: 0.32)
+        )
     }
 }
 
@@ -59,19 +384,6 @@ private extension CompanionScenePlan {
                 size: 1.8...3.4,
                 opacity: 0.28...0.55,
                 drift: .travel(dx: 0.10, dy: -0.45, sway: 0.020, swayPeriod: 5.3)
-            ),
-            // Something is always crossing the sky over a Kanto route.
-            CompanionParticleField(
-                key: "pokemon/flight",
-                shape: .chevron,
-                tint: CompanionSceneTint(0.22, 0.24, 0.30),
-                count: 3,
-                lifetime: 21,
-                spawnX: -0.18...(-0.04),
-                spawnY: 0.06...0.26,
-                size: 2.6...3.8,
-                opacity: 0.40...0.65,
-                drift: .travel(dx: 1.34, dy: 0.05, sway: 0.018, swayPeriod: 4.9)
             )
         ]
         // Victory Road and the Plateau catch the light differently: the air
@@ -108,6 +420,7 @@ private extension CompanionScenePlan {
                 CompanionActorField(
                     key: "pokemon/visitor",
                     body: .flier,
+                    sprites: [CompanionActorSpriteCatalog.pidgey],
                     count: 1,
                     route: .perch(
                         at: CompanionScenePoint(0.30, 0.925),
@@ -121,6 +434,26 @@ private extension CompanionScenePlan {
                     opacity: 0.92,
                     spread: 0.12,
                     drawsAttention: true
+                ),
+                // Real Pidgey sprites replace the old chevrons in the sky.
+                // They land at a second grass verge so the route remains a
+                // recognizable arrival instead of a stamped icon fly-by.
+                CompanionActorField(
+                    key: "pokemon/flight",
+                    body: .flier,
+                    sprites: [CompanionActorSpriteCatalog.pidgey],
+                    count: 2,
+                    route: .perch(
+                        at: CompanionScenePoint(0.72, 0.925),
+                        approachFrom: CompanionScenePoint(1.18, 0.26),
+                        period: 31,
+                        perchShare: 0.26
+                    ),
+                    height: 4.4...5.2,
+                    tint: CompanionSceneTint(1, 1, 1),
+                    accent: CompanionSceneTint(1, 1, 1),
+                    opacity: 0.92,
+                    spread: 0.16
                 )
             ],
             wash: CompanionWashSpec(
@@ -294,7 +627,7 @@ private extension CompanionScenePlan {
         seed: UInt64,
         layers: [CompanionSceneLayer]
     ) -> CompanionScenePlan {
-        let night = stage >= CompanionAssetCatalog.villageLitStageThreshold
+        let night = stage >= CompanionAssetCatalog.villageNightStageThreshold
         var fields = chimneys(over: layers, night: night)
 
         if night {
@@ -545,33 +878,6 @@ private extension CompanionScenePlan {
                     opacity: 0.13...0.26,
                     drift: .travel(dx: 0.10, dy: -0.16, sway: 0.020, swayPeriod: 7.3)
                 ),
-                // Two flocks at different heights and speeds: the map is
-                // read from above, so birds crossing it are the one moving
-                // thing an isometric town always has.
-                CompanionParticleField(
-                    key: "aoe/birds",
-                    shape: .chevron,
-                    tint: CompanionSceneTint(0.14, 0.14, 0.12),
-                    count: 4,
-                    lifetime: 24,
-                    spawnX: -0.22...(-0.04),
-                    spawnY: 0.10...0.42,
-                    size: 3.0...4.2,
-                    opacity: 0.50...0.75,
-                    drift: .travel(dx: 1.40, dy: 0.10, sway: 0.024, swayPeriod: 6.4)
-                ),
-                CompanionParticleField(
-                    key: "aoe/birds-high",
-                    shape: .chevron,
-                    tint: CompanionSceneTint(0.18, 0.18, 0.16),
-                    count: 3,
-                    lifetime: 37,
-                    spawnX: 1.06...1.22,
-                    spawnY: 0.04...0.20,
-                    size: 2.0...2.8,
-                    opacity: 0.30...0.48,
-                    drift: .travel(dx: -1.40, dy: 0.06, sway: 0.018, swayPeriod: 8.1)
-                )
             ],
             bands: [
                 // Leaning along the tile diagonal, the way anything that
@@ -589,7 +895,7 @@ private extension CompanionScenePlan {
                 )
             ],
             glows: [],
-            actors: settlement(stage: stage),
+            actors: settlement(stage: stage) + circlingHawks,
             wash: CompanionWashSpec(
                 tint: CompanionSceneTint(1.0, 0.88, 0.62),
                 opacity: 0.010,
@@ -609,6 +915,7 @@ private extension CompanionScenePlan {
             CompanionActorField(
                 key: "aoe/villagers",
                 body: .biped,
+                sprites: CompanionActorSpriteCatalog.ageVillagers,
                 count: min(6, 2 + stage / 2),
                 route: .errand(
                     home: CompanionScenePoint(0.36, 0.958),
@@ -626,6 +933,7 @@ private extension CompanionScenePlan {
             CompanionActorField(
                 key: "aoe/herd",
                 body: .quadruped,
+                sprites: [CompanionActorSpriteCatalog.ageSheep],
                 count: 3,
                 route: .wander(
                     pen: CompanionScenePoint(0.16, 0.950),
@@ -639,6 +947,49 @@ private extension CompanionScenePlan {
                 accent: CompanionSceneTint(0.36, 0.31, 0.27),
                 opacity: 0.94,
                 spread: 0.09
+            )
+        ]
+    }
+
+    /// The game's own hawk animation at two heights replaces anonymous
+    /// chevrons while retaining the slow circles of an isometric map.
+    static var circlingHawks: [CompanionActorField] {
+        [
+            CompanionActorField(
+                key: "aoe/hawks-low",
+                body: .flier,
+                sprites: [CompanionActorSpriteCatalog.ageHawk],
+                count: 4,
+                route: .wander(
+                    pen: CompanionScenePoint(0.50, 0.28),
+                    spanX: 0.58,
+                    spanY: 0.10,
+                    period: 24,
+                    linger: 0.05
+                ),
+                height: 4.6...5.8,
+                tint: CompanionSceneTint(1, 1, 1),
+                accent: CompanionSceneTint(1, 1, 1),
+                opacity: 0.74,
+                spread: 0.18
+            ),
+            CompanionActorField(
+                key: "aoe/hawks-high",
+                body: .flier,
+                sprites: [CompanionActorSpriteCatalog.ageHawk],
+                count: 3,
+                route: .wander(
+                    pen: CompanionScenePoint(0.52, 0.14),
+                    spanX: 0.56,
+                    spanY: 0.06,
+                    period: 37,
+                    linger: 0.08
+                ),
+                height: 3.2...4.0,
+                tint: CompanionSceneTint(1, 1, 1),
+                accent: CompanionSceneTint(1, 1, 1),
+                opacity: 0.50,
+                spread: 0.14
             )
         ]
     }
@@ -688,18 +1039,7 @@ enum CompanionLocationWeather: String, CaseIterable, Equatable, Sendable {
     private var fields: [CompanionParticleField] {
         switch self {
         case .openAir:
-            [CompanionParticleField(
-                key: "osrs/birds",
-                shape: .chevron,
-                tint: CompanionSceneTint(0.18, 0.18, 0.16),
-                count: 2,
-                lifetime: 24,
-                spawnX: -0.16...(-0.05),
-                spawnY: 0.08...0.30,
-                size: 2.6...3.6,
-                opacity: 0.45...0.72,
-                drift: .travel(dx: 1.32, dy: 0.06, sway: 0.015, swayPeriod: 6.1)
-            )]
+            []
         case .desert:
             [CompanionParticleField(
                 key: "osrs/sand",
@@ -897,6 +1237,7 @@ enum CompanionBiome: String, CaseIterable, Equatable, Sendable {
             [mob(
                 key: "mc/chickens",
                 body: .quadruped,
+                sprite: CompanionActorSpriteCatalog.minecraftChicken,
                 count: 3,
                 height: 4.6...5.4,
                 tint: CompanionSceneTint(0.94, 0.94, 0.92),
@@ -910,6 +1251,7 @@ enum CompanionBiome: String, CaseIterable, Equatable, Sendable {
             [mob(
                 key: "mc/pigs",
                 body: .quadruped,
+                sprite: CompanionActorSpriteCatalog.minecraftPig,
                 count: 2,
                 height: 9.0...10.5,
                 tint: CompanionSceneTint(0.93, 0.62, 0.64),
@@ -923,6 +1265,7 @@ enum CompanionBiome: String, CaseIterable, Equatable, Sendable {
             [mob(
                 key: "mc/villagers",
                 body: .biped,
+                sprite: CompanionActorSpriteCatalog.minecraftVillager,
                 count: 3,
                 height: 12.0...13.6,
                 tint: CompanionSceneTint(0.45, 0.32, 0.24),
@@ -936,6 +1279,7 @@ enum CompanionBiome: String, CaseIterable, Equatable, Sendable {
             [mob(
                 key: "mc/bats",
                 body: .flier,
+                sprite: CompanionActorSpriteCatalog.minecraftBat,
                 count: 3,
                 height: 4.0...5.0,
                 tint: CompanionSceneTint(0.28, 0.22, 0.24),
@@ -952,6 +1296,7 @@ enum CompanionBiome: String, CaseIterable, Equatable, Sendable {
             [mob(
                 key: "mc/goats",
                 body: .quadruped,
+                sprite: CompanionActorSpriteCatalog.minecraftGoat,
                 count: 1,
                 height: 9.5...11.0,
                 tint: CompanionSceneTint(0.92, 0.90, 0.86),
@@ -965,6 +1310,7 @@ enum CompanionBiome: String, CaseIterable, Equatable, Sendable {
             [mob(
                 key: "mc/piglins",
                 body: .biped,
+                sprite: CompanionActorSpriteCatalog.minecraftPiglin,
                 count: 2,
                 height: 12.0...13.6,
                 tint: CompanionSceneTint(0.55, 0.34, 0.26),
@@ -978,6 +1324,7 @@ enum CompanionBiome: String, CaseIterable, Equatable, Sendable {
             [mob(
                 key: "mc/hoglins",
                 body: .quadruped,
+                sprite: CompanionActorSpriteCatalog.minecraftHoglin,
                 count: 2,
                 height: 10.5...12.0,
                 tint: CompanionSceneTint(0.62, 0.27, 0.24),
@@ -991,6 +1338,7 @@ enum CompanionBiome: String, CaseIterable, Equatable, Sendable {
             [mob(
                 key: "mc/silverfish",
                 body: .quadruped,
+                sprite: CompanionActorSpriteCatalog.minecraftSilverfish,
                 count: 2,
                 height: 3.4...4.0,
                 tint: CompanionSceneTint(0.55, 0.57, 0.62),
@@ -1011,6 +1359,7 @@ enum CompanionBiome: String, CaseIterable, Equatable, Sendable {
     private func mob(
         key: String,
         body: CompanionActorBody,
+        sprite: CompanionActorSprite,
         count: Int,
         height: ClosedRange<Double>,
         tint: CompanionSceneTint,
@@ -1026,6 +1375,7 @@ enum CompanionBiome: String, CaseIterable, Equatable, Sendable {
         CompanionActorField(
             key: key,
             body: body,
+            sprites: [sprite],
             count: count,
             route: .wander(
                 pen: pen,
@@ -1344,6 +1694,7 @@ enum CompanionOldSchoolCrowd {
                 CompanionActorField(
                     key: "osrs/players",
                     body: .biped,
+                    sprites: CompanionActorSpriteCatalog.oldSchoolPeople,
                     count: players,
                     route: .ticked(
                         pen: CompanionScenePoint(0.52, 0.936),
@@ -1368,6 +1719,7 @@ enum CompanionOldSchoolCrowd {
                 CompanionActorField(
                     key: "osrs/chickens",
                     body: .quadruped,
+                    sprites: [CompanionActorSpriteCatalog.oldSchoolChicken],
                     count: 3,
                     route: .ticked(
                         pen: CompanionScenePoint(0.78, 0.944),
@@ -1380,6 +1732,27 @@ enum CompanionOldSchoolCrowd {
                     accent: CompanionSceneTint(0.85, 0.26, 0.20),
                     opacity: 0.95,
                     spread: 0.10
+                )
+            )
+        }
+        if CompanionLocationWeather.forOldSchool(stage: stage) == .openAir {
+            crowd.append(
+                CompanionActorField(
+                    key: "osrs/birds",
+                    body: .flier,
+                    sprites: [CompanionActorSpriteCatalog.oldSchoolSeagull],
+                    count: 2,
+                    route: .ticked(
+                        pen: CompanionScenePoint(0.52, 0.20),
+                        spanX: 0.070,
+                        spanY: 0.020,
+                        tile: 0.028
+                    ),
+                    height: 4.0...5.0,
+                    tint: CompanionSceneTint(1, 1, 1),
+                    accent: CompanionSceneTint(1, 1, 1),
+                    opacity: 0.72,
+                    spread: 0.20
                 )
             )
         }

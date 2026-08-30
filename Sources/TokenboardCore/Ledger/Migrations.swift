@@ -146,5 +146,60 @@ public enum Migrations {
         """
     )
 
-    public static let all = [v1, v2, v3, v4]
+    public static let v5 = Migration(
+        version: 5,
+        name: "preserve immutable pricing import history",
+        sql: """
+        ALTER TABLE catalog_imports RENAME TO catalog_imports_legacy;
+        CREATE TABLE catalog_imports(
+          import_id INTEGER PRIMARY KEY AUTOINCREMENT,
+          catalog_id TEXT NOT NULL,
+          schema_version INTEGER NOT NULL,
+          origin TEXT NOT NULL,
+          imported_at TEXT NOT NULL,
+          validation_summary TEXT NOT NULL,
+          canonical_json TEXT NOT NULL
+        );
+        CREATE INDEX catalog_imports_catalog_idx
+          ON catalog_imports(catalog_id, import_id);
+        INSERT INTO catalog_imports(
+          catalog_id, schema_version, origin, imported_at,
+          validation_summary, canonical_json
+        )
+        SELECT catalog_id, schema_version, origin, imported_at,
+               validation_summary, canonical_json
+        FROM catalog_imports_legacy
+        ORDER BY imported_at, rowid;
+        CREATE TABLE active_catalog_import(
+          singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+          import_id INTEGER NOT NULL UNIQUE
+            REFERENCES catalog_imports(import_id) ON DELETE RESTRICT
+        );
+        INSERT INTO active_catalog_import(singleton, import_id)
+        SELECT 1, imports.import_id
+        FROM catalog_imports AS imports
+        WHERE imports.catalog_id = (
+          SELECT catalog_id
+          FROM catalog_imports_legacy
+          WHERE applied = 1
+          ORDER BY imported_at DESC, rowid DESC
+          LIMIT 1
+        )
+        ORDER BY imports.import_id DESC
+        LIMIT 1;
+        DROP TABLE catalog_imports_legacy;
+        CREATE TRIGGER catalog_imports_immutable_update
+        BEFORE UPDATE ON catalog_imports
+        BEGIN
+          SELECT RAISE(ABORT, 'catalog import history is immutable');
+        END;
+        CREATE TRIGGER catalog_imports_immutable_delete
+        BEFORE DELETE ON catalog_imports
+        BEGIN
+          SELECT RAISE(ABORT, 'catalog import history is immutable');
+        END;
+        """
+    )
+
+    public static let all = [v1, v2, v3, v4, v5]
 }

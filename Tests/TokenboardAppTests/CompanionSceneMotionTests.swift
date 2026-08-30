@@ -102,6 +102,14 @@ final class CompanionSceneMotionTests: XCTestCase {
         XCTAssertFalse(day.effectKeys.contains("village/headlights"))
         XCTAssertFalse(day.effectKeys.contains("village/stars"))
 
+        let sunset = plan(for: .village, stage: 8)
+        XCTAssertFalse(sunset.effectKeys.contains("village/headlights"))
+        XCTAssertFalse(sunset.effectKeys.contains("village/stars"))
+
+        let firstNight = plan(for: .village, stage: 9)
+        XCTAssertTrue(firstNight.effectKeys.contains("village/headlights"))
+        XCTAssertTrue(firstNight.effectKeys.contains("village/stars"))
+
         let night = plan(for: .village, stage: 10)
         XCTAssertTrue(night.effectKeys.contains("village/headlights"))
         XCTAssertTrue(night.effectKeys.contains("village/taillights"))

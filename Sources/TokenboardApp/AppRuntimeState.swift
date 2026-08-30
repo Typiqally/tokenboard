@@ -16,27 +16,9 @@ protocol AppLedgerRuntime: Sendable {
         in interval: DateInterval?,
         calendar: Calendar
     ) async throws -> [DailyUsageRow]
-    func lifetimeAdditiveTokenTotal() async throws -> Int64
     func skippedRecordCount() async throws -> Int
     func skippedRecordCountsByProvider() async throws -> [Provider: Int]
     func shutdown() async throws
-}
-
-extension AppLedgerRuntime {
-    func shutdown() async throws {}
-
-    func skippedRecordCountsByProvider() async throws -> [Provider: Int] { [:] }
-
-    func lifetimeAdditiveTokenTotal() async throws -> Int64 {
-        var total: Int64 = 0
-        for row in try await usageRows(in: nil, calendar: .current)
-            where row.aggregation == .additive {
-            let (sum, overflow) = total.addingReportingOverflow(row.quantity)
-            guard !overflow else { throw LedgerError.quantityOverflow }
-            total = sum
-        }
-        return total
-    }
 }
 
 protocol AppUsageQuerying: Sendable {
@@ -51,6 +33,12 @@ protocol AppUsageQuerying: Sendable {
         calendar: Calendar,
         provider: Provider?
     ) async throws -> UsageHistorySnapshot
+    func history(
+        ranges: [UsageHistoryRange],
+        now: Date,
+        calendar: Calendar,
+        provider: Provider?
+    ) async throws -> [UsageHistoryRange: UsageHistorySnapshot]
 }
 
 enum AppUsageQueryError: Error {
@@ -58,6 +46,24 @@ enum AppUsageQueryError: Error {
 }
 
 extension AppUsageQuerying {
+    func history(
+        ranges: [UsageHistoryRange],
+        now: Date,
+        calendar: Calendar,
+        provider: Provider?
+    ) async throws -> [UsageHistoryRange: UsageHistorySnapshot] {
+        var snapshots: [UsageHistoryRange: UsageHistorySnapshot] = [:]
+        for range in ranges {
+            snapshots[range] = try await history(
+                range: range,
+                now: now,
+                calendar: calendar,
+                provider: provider
+            )
+        }
+        return snapshots
+    }
+
     func history(
         range: UsageHistoryRange,
         now: Date,
@@ -70,7 +76,6 @@ extension AppUsageQuerying {
 
 protocol AppIngestionCoordinating: Sendable {
     func results() async -> AsyncStream<IngestionBatchResult>
-    func start(roots: [Provider: URL]) async throws -> IngestionBatchResult
     func startMonitoring(roots: [Provider: URL]) async throws -> IngestionBatchResult
     func refreshAll() async -> IngestionBatchResult
     func replaceSource(
@@ -107,10 +112,6 @@ extension AppDatabaseRecovering {
     func retryPreservation() async throws {
         throw DatabaseRecoveryError.preservationFailed
     }
-}
-
-extension AppPricingInboxWatching {
-    func quiesce() async throws {}
 }
 
 extension SQLiteLedger: AppLedgerRuntime {}

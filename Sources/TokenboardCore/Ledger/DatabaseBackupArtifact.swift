@@ -82,7 +82,15 @@ enum DatabaseBackupArtifact {
             throw error
         }
 
-        let digest = try digest(of: descriptor)
+        let digest: String
+        do {
+            digest = try BoundedDescriptorRead.digest(
+                descriptor: descriptor,
+                exactByteCount: Int64(before.st_size)
+            )
+        } catch is BoundedDescriptorReadError {
+            throw DatabaseBackupArtifactError.unsafe
+        }
         var after = stat()
         guard fstat(descriptor, &after) == 0,
               sameMetadata(before, after),
@@ -175,23 +183,6 @@ enum DatabaseBackupArtifact {
         WHERE type = 'table' AND name = 'schema_migrations';
         """))
         return manifest.sorted()
-    }
-
-    private static func digest(of descriptor: Int32) throws -> String {
-        var hasher = SHA256()
-        var buffer = [UInt8](repeating: 0, count: 64 * 1_024)
-        var offset: off_t = 0
-        while true {
-            let count = pread(descriptor, &buffer, buffer.count, offset)
-            if count == 0 { break }
-            guard count > 0 else {
-                if errno == EINTR { continue }
-                throw DatabaseBackupArtifactError.unsafe
-            }
-            hasher.update(data: Data(buffer[0..<count]))
-            offset += off_t(count)
-        }
-        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
     private static func sameMetadata(_ lhs: stat, _ rhs: stat) -> Bool {

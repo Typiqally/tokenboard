@@ -9,6 +9,8 @@ enum CompanionTheme: String, CaseIterable, Identifiable, Sendable {
     case oldSchoolRuneScape = "old_school_runescape"
     case ageOfEmpiresII = "age_of_empires_ii"
     case minecraft
+    case banished
+    case frostpunk
 
     var id: String { rawValue }
 
@@ -21,6 +23,8 @@ enum CompanionTheme: String, CaseIterable, Identifiable, Sendable {
         case .oldSchoolRuneScape: "Old School RuneScape"
         case .ageOfEmpiresII: "Age of Empires II"
         case .minecraft: "Minecraft"
+        case .banished: "Banished"
+        case .frostpunk: "Frostpunk"
         }
     }
 
@@ -33,6 +37,8 @@ enum CompanionTheme: String, CaseIterable, Identifiable, Sendable {
         case .oldSchoolRuneScape: "An adventurer upgrading through classic gear"
         case .ageOfEmpiresII: "Town centers advancing through the ages"
         case .minecraft: "A survivor gearing up from spawn to the End"
+        case .banished: "Exiles building a settlement through the seasons"
+        case .frostpunk: "The last city growing around its generator"
         }
     }
 }
@@ -64,6 +70,10 @@ enum CompanionCatalog {
             named(["Town Center"])
         case .minecraft:
             named(["Steve"])
+        case .banished:
+            named(["Settlement"])
+        case .frostpunk:
+            named(["New London"])
         }
     }
 
@@ -173,12 +183,11 @@ struct CompanionPresentation: Equatable, Sendable {
     let stageTitle: String
     let progressFraction: Double
     let tokensUntilNextStage: Int64?
-    let showsMilestone: Bool
     let accessibilityLabel: String
 
     static func make(
         state: CompanionState,
-        dailyTokenTotal: Int64 = 0,
+        dailyTokenTotal: Int64,
         date: Date,
         calendar: Calendar
     ) -> CompanionPresentation? {
@@ -208,8 +217,24 @@ struct CompanionPresentation: Equatable, Sendable {
             stageTitle: title,
             progressFraction: CompanionJourney.fraction(for: earnedTokens),
             tokensUntilNextStage: CompanionJourney.tokensUntilNextStage(for: earnedTokens),
-            showsMilestone: false,
             accessibilityLabel: "\(state.theme.title), \(variant.title), stage \(stage + 1) of \(CompanionJourney.thresholds.count), \(title)"
+        )
+    }
+
+    static func shelfPreview(
+        from live: CompanionPresentation
+    ) -> CompanionPresentation {
+        let stage = CompanionAssetCatalog.shelfPreviewStage(for: live.theme)
+        return CompanionPresentation(
+            theme: live.theme,
+            variant: live.variant,
+            stage: stage,
+            scenery: 0,
+            seed: live.seed,
+            stageTitle: stageTitles(for: live.theme)[stage],
+            progressFraction: 0,
+            tokensUntilNextStage: nil,
+            accessibilityLabel: "\(live.theme.title) preview"
         )
     }
 
@@ -241,6 +266,16 @@ struct CompanionPresentation: Equatable, Sendable {
             ["Fresh spawn", "Into the woods", "Village life", "Lush caves",
              "Jagged peaks", "Ancient city", "Nether wastes", "Crimson forest",
              "Nether fortress", "Stronghold", "The End", "End city"]
+        case .banished:
+            ["First shelter", "Gatherer's clearing", "First harvest",
+             "Pasture raised", "Roads laid", "River crossing",
+             "Trading post", "Market town", "Stone village",
+             "First hard winter", "Winter endured", "Thriving township"]
+        case .frostpunk:
+            ["The Generator", "First tents", "Coal lifeline",
+             "Workshop district", "Beacon raised", "Steam hubs",
+             "Hothouse harvest", "Industrial city", "Automaton age",
+             "Storm watch", "The Great Storm", "New London endures"]
         }
     }
 }

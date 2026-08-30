@@ -2,16 +2,24 @@
 
 Tokenboard's main constraints are part of the product: one native macOS process, local-only operation, explicit read-only source grants, content-free persistence, and low idle resource use. A convenient implementation is not acceptable if it weakens those boundaries.
 
-## Development gate
+## Automated verification gate
 
 Use macOS 14 or newer with Apple's Swift 6 toolchain. No package install is required by the build or CI.
 
 ```zsh
 swift test
-TOKENBOARD_DISCORD_APPLICATION_ID=<public-app-id> Scripts/build-app.sh release
+Scripts/benchmark-import.sh
+Scripts/verify-asset-rights.sh development
+Scripts/test-tooling-contracts.sh
+TOKENBOARD_DISCORD_APPLICATION_ID=<public-app-id> Scripts/build-app.sh release universal
 Scripts/verify-entitlements.sh .build/release/Tokenboard.app
+Scripts/verify-runtime-resources.sh .build/release/Tokenboard.app
 git diff --check
 ```
+
+These commands are the release-quality gate and are owned by automation. The import benchmark enforces a 10-second and 512-MiB ceiling for a synthetic 5,100-file import. The runtime gate launches an isolated copy of the built app under a separate bundle identifier and enforces idle CPU, peak and growth RSS, file-descriptor, thread, child-process, network-socket, and shutdown limits. Thresholds can be tightened through the documented environment variables in each script, but a release must not weaken them to obtain a pass.
+
+Opening the app for a quick visual smoke check is useful but optional. It is never evidence for performance, resource, security, or release acceptance, and the user is not responsible for those gates.
 
 Develop behavior test-first. Parser fixtures must be synthetic and content-free: no copied prompts, responses, tool data, project names, real paths, repository URLs, branches, or real session IDs. Use obviously synthetic stable identifiers only where parser behavior requires them. Every database migration needs an upgrade test from every prior supported schema and must demonstrate that usage and price totals are preserved unless the migration documents a deliberate semantic correction.
 
@@ -19,15 +27,9 @@ Any new entitlement or privacy-boundary change requires an explicit security rev
 
 CI and tagged releases read the same public ID from the `TOKENBOARD_DISCORD_APPLICATION_ID` GitHub Actions repository variable. It is public configuration, not a secret. Keep the variable aligned with Tokenboard's shared Discord application and its `tokenboard` Rich Presence asset.
 
-## Optional benchmark
+## Public release gate
 
-The benchmark creates exactly 5,100 synthetic JSONL files in a temporary directory and imports them through the real scanner and SQLite ledger twice. Running the script is the opt-in action:
-
-```zsh
-Scripts/benchmark-import.sh
-```
-
-It reports elapsed time and maximum resident set size with `/usr/bin/time -l`. There is intentionally no hard threshold until multiple representative machines establish a baseline. The test itself skips unless `TOKENBOARD_RUN_BENCHMARK=1`.
+`Scripts/package-release.sh <version>` reruns the public asset-rights gate, builds the universal app, verifies its entitlements, and publishes a new zip plus SHA-256 sidecar without overwriting an existing artifact. Public packaging is intentionally blocked while any asset group in `Resources/Companions/rights-manifest.json` remains pending. Do not bypass the gate or mark an asset cleared without evidence.
 
 ## Manual native release acceptance
 
@@ -57,4 +59,4 @@ The script never mutates source logs or the ledger. It opens each discovered pat
 
 Parser bookkeeping lives in a private temporary directory and is removed on exit. A mismatch prints only content-safe provider/model/metric aggregates. `No differences found by the bounded live-source diagnostic` means only that this deliberately narrower comparison found no difference. It is not proof of Tokenboard equivalence: the script does not reproduce full discovery, source probing, checkpoint, replacement, deletion, or already-ingested-history semantics. Deleted or replaced logs and durable history can legitimately produce a mismatch. Never use the result as authorization to rewrite source logs or the Tokenboard ledger.
 
-Agents and automated contributors must not run this audit against real Claude Code or Codex roots, self-grant sandbox access, open the app for a user, or invent results for the manual acceptance checklist.
+Agents and automated contributors must not run this audit against real Claude Code or Codex roots, self-grant sandbox access, or open the app for a user. Automated verification must use only its checked-in synthetic fixtures and isolated app identity.

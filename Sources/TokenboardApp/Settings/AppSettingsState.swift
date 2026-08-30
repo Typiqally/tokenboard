@@ -24,13 +24,15 @@ struct PricingSettingsState: Equatable, Sendable {
     var exchangeRates: ExchangeRateSnapshot?
     var activeCatalogID: String?
     var catalogStatus: PricingCatalogStatus?
+    var coveragePeriod: CalendarPeriod?
 
     static let empty = PricingSettingsState(
         activeModels: [],
         unpricedUsage: [],
         exchangeRates: nil,
         activeCatalogID: nil,
-        catalogStatus: nil
+        catalogStatus: nil,
+        coveragePeriod: nil
     )
 }
 
@@ -54,6 +56,16 @@ struct SettingsDiagnosticsState: Equatable, Sendable {
             .codex: CodexAdapter.parserVersion
         ]
     )
+
+    static func current(health: TokenboardHealth) -> SettingsDiagnosticsState {
+        SettingsDiagnosticsState(
+            health: health,
+            parserVersions: [
+                .claudeCode: ClaudeCodeAdapter.parserVersion,
+                .codex: CodexAdapter.parserVersion
+            ]
+        )
+    }
 }
 
 enum DatabaseRecoveryDisposition: Equatable, Sendable {

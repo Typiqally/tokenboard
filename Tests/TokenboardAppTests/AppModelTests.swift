@@ -135,6 +135,22 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(setup.access.stopCount, 2)
     }
 
+    func testUnavailableDisplayCurrencyCannotBeSelectedOrPersisted() async throws {
+        let setup = try makeSetup(approved: true, grantedProviders: [.codex])
+        defer { setup.cleanup() }
+        await setup.model.start()
+
+        setup.model.select(displayCurrency: .jpy)
+
+        XCTAssertEqual(setup.model.selectedDisplayCurrency, .usd)
+        XCTAssertEqual(setup.preferences.selectedDisplayCurrency, .usd)
+
+        setup.model.select(displayCurrency: .eur)
+
+        XCTAssertEqual(setup.model.selectedDisplayCurrency, .eur)
+        XCTAssertEqual(setup.preferences.selectedDisplayCurrency, .eur)
+    }
+
     func testImportCachesEveryTrendRangeAndRangeSelectionDoesNotQuery() async throws {
         let setup = try makeSetup(approved: false, grantedProviders: Set(Provider.allCases))
         defer { setup.cleanup() }
@@ -182,6 +198,66 @@ final class AppModelTests: XCTestCase {
         XCTAssertFalse(persisted.keys.contains { $0.hasPrefix("companionEarned") })
         XCTAssertFalse(persisted.keys.contains { $0.hasPrefix("companionLastObserved") })
         XCTAssertFalse(persisted.keys.contains { $0.hasPrefix("companionProgress") })
+    }
+
+    func testCompanionPresentationUsesThePublishedStateSnapshot() async throws {
+        let setup = try makeSetup(approved: true, grantedProviders: Set(Provider.allCases))
+        defer { setup.cleanup() }
+        await setup.query.setHistoryTokenTotal(0)
+        await setup.model.start()
+        await setup.model.select(companionTheme: .forest)
+
+        let date = setup.model.now()
+        let interval = DateInterval(start: date, duration: 1)
+        var publishedState = setup.model.state
+        publishedState.historyState = .loaded([
+            .today: UsageHistorySnapshot(
+                range: .today,
+                provider: nil,
+                currentInterval: interval,
+                previousInterval: interval,
+                points: [],
+                comparison: UsageComparison(
+                    currentTokenTotal: 100_000_000,
+                    previousTokenTotal: 0,
+                    tokenDelta: 100_000_000,
+                    percentChange: nil
+                ),
+                breakdown: UsageBreakdown(
+                    tokenTotal: 100_000_000,
+                    knownAPIEquivalentUSD: 0,
+                    unpricedTokens: 0,
+                    exchangeRates: nil,
+                    providers: [],
+                    models: [],
+                    tokenTypes: []
+                )
+            ),
+        ])
+
+        let presentation = try XCTUnwrap(
+            setup.model.companionPresentation(for: publishedState, at: date)
+        )
+
+        XCTAssertEqual(setup.model.companionDailyTokenTotal(at: date), 0)
+        XCTAssertEqual(presentation.stage, 1)
+    }
+
+    func testCalendarChangeRequeriesTodayAndUpdatesCompanionProgress() async throws {
+        let setup = try makeSetup(approved: true, grantedProviders: Set(Provider.allCases))
+        defer { setup.cleanup() }
+        await setup.query.setHistoryTokenTotal(0)
+        await setup.model.start()
+        await setup.model.select(companionTheme: .forest)
+        XCTAssertEqual(setup.model.companionDailyTokenTotal(at: setup.model.now()), 0)
+
+        await setup.query.setHistoryTokenTotal(100_000_000)
+        var updatedCalendar = setup.model.calendar
+        updatedCalendar.timeZone = TimeZone(identifier: "America/New_York")!
+        await setup.model.refreshForCalendarChange(updatedCalendar)
+
+        XCTAssertEqual(setup.model.calendar.timeZone.identifier, "America/New_York")
+        XCTAssertEqual(setup.model.companionDailyTokenTotal(at: setup.model.now()), 100_000_000)
     }
 
     func testCompanionMenuBarChoicePersists() async throws {
@@ -344,7 +420,7 @@ final class AppModelTests: XCTestCase {
         var origin = try XCTUnwrap(object["origin"] as? [String: Any])
         origin["kind"] = originKind
         if originKind == "web_research" {
-            origin["url"] = "https://prices.example/catalog"
+            origin["url"] = "https://developers.openai.com/api/docs/pricing"
         }
         object["origin"] = origin
         return try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
@@ -401,7 +477,6 @@ private final class OrderedRecorder: @unchecked Sendable {
 private actor RuntimeLedger: AppLedgerRuntime {
     let recorder: OrderedRecorder
     private var appliedCatalog: Data?
-    private var lifetimeTotal: Int64 = 0
 
     init(recorder: OrderedRecorder, appliedCatalog: Data? = nil) {
         self.recorder = recorder
@@ -428,9 +503,9 @@ private actor RuntimeLedger: AppLedgerRuntime {
         PricingSnapshot(catalogIDs: [], rates: [], aliases: [])
     }
     func usageRows(in interval: DateInterval?, calendar: Calendar) -> [DailyUsageRow] { [] }
-    func lifetimeAdditiveTokenTotal() -> Int64 { lifetimeTotal }
-    func setLifetimeTotal(_ value: Int64) { lifetimeTotal = value }
     func skippedRecordCount() -> Int { 0 }
+    func skippedRecordCountsByProvider() -> [Provider: Int] { [:] }
+    func shutdown() { recorder.append("ledger.shutdown") }
 }
 
 private actor RuntimeQuery: AppUsageQuerying {
@@ -555,6 +630,7 @@ private actor RuntimePricingInbox: AppPricingInboxWatching {
     let recorder: OrderedRecorder
     init(recorder: OrderedRecorder) { self.recorder = recorder }
     func start() { recorder.append("inbox.start") }
+    func quiesce() {}
     func stop() { recorder.append("inbox.stop") }
     func status() -> PricingCatalogStatus? { nil }
     func updates() -> AsyncStream<PricingCatalogStatus> { AsyncStream { $0.finish() } }

@@ -15,6 +15,39 @@ enum DiscordPresenceSettingsPresentation {
     static let retryTitle = "Retry"
 }
 
+struct CompanionThemeOption: Equatable, Identifiable {
+    let theme: CompanionTheme
+    let isSelected: Bool
+
+    var id: CompanionTheme { theme }
+
+    var accessibilityLabel: String {
+        let variants = CompanionCatalog.variants(for: theme)
+        let description = variants.count == 1 ? variants[0].title : theme.subtitle
+        return "\(theme.title). \(description)"
+    }
+
+    var accessibilityValue: String {
+        isSelected ? "Selected" : "Not selected"
+    }
+}
+
+enum CompanionSettingsPresentation {
+    static func themeOptions(selected: CompanionTheme) -> [CompanionThemeOption] {
+        CompanionTheme.allCases.map { theme in
+            CompanionThemeOption(theme: theme, isSelected: theme == selected)
+        }
+    }
+}
+
+enum CompanionSettingsLayout {
+    static let galleryColumnCount = 3
+    static let galleryThumbnailHeight: CGFloat = 72
+    static let galleryCardMinimumHeight: CGFloat = 112
+    static let minimumPreviewWidth: CGFloat = 340
+    static let maximumSceneWidth: CGFloat = 812
+}
+
 enum SettingsSection: String, CaseIterable, Identifiable {
     case general
     case sources
@@ -156,7 +189,9 @@ struct SettingsView: View {
                 set: { model.select(displayCurrency: $0) }
             )) {
                 ForEach(UsageSelectionPresentation.currencies, id: \.rawValue) { currency in
-                    Text(currency.rawValue).tag(currency)
+                    Text(UsageSelectionPresentation.currencyTitle(currency))
+                        .tag(currency)
+                        .disabled(!model.isDisplayCurrencyAvailable(currency))
                 }
             }
             .pickerStyle(.menu)
@@ -164,16 +199,7 @@ struct SettingsView: View {
         .disabled(model.isDatabaseRecoveryActionLocked)
 
         Section("Companion") {
-            CompanionThemeShelf(model: model)
-
-            CompanionSettingsPreview(model: model)
-
-            if model.companionState.isVisible {
-                Toggle("Show companion in menu bar", isOn: Binding(
-                    get: { model.companionState.showInMenuBar },
-                    set: { model.setShowCompanionInMenuBar($0) }
-                ))
-            }
+            CompanionSettingsPanel(model: model)
 
             Text("Companion stages follow today's tokens and reset at the start of each local day. Hiding the companion does not affect today's progress.")
                 .foregroundStyle(.secondary)
@@ -289,14 +315,6 @@ struct SettingsView: View {
         }
     }
 
-    var actionState: SettingsActionState {
-        SettingsActionState(
-            controlsEnabled: !model.settingsState.isLoading
-                && !model.isDatabaseRestoreInProgress
-                && !model.isDatabaseRecoveryActionLocked
-        )
-    }
-
     private func databaseDescription(_ state: TokenboardHealth.DatabaseState) -> String {
         switch state {
         case .healthy: "Healthy"
@@ -379,75 +397,98 @@ private struct DiscordPresenceSettingsSection: View {
     }
 }
 
-private struct CompanionThemeShelf: View {
+struct CompanionSettingsPanel: View {
     @ObservedObject var model: AppModel
-    private let columns = Array(
-        repeating: GridItem(.flexible(minimum: 92), spacing: 8),
-        count: CompanionTheme.allCases.count
-    )
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
-            LazyVGrid(columns: columns, spacing: 8) {
-                ForEach(CompanionTheme.allCases) { theme in
-                    Button {
-                        Task { await model.select(companionTheme: theme) }
-                    } label: {
-                        CompanionThemeShelfLabel(
-                            theme: theme,
-                            isSelected: model.companionState.theme == theme,
-                            presentation: presentation(for: theme, date: context.date)
+            VStack(alignment: .leading, spacing: 16) {
+                CompanionThemeGallery(model: model, date: context.date)
+
+                Divider()
+
+                if let companion = model.companionPresentation(
+                    for: model.state,
+                    at: context.date
+                ) {
+                    CompanionSettingsPreview(
+                        companion: companion,
+                        showInMenuBar: Binding(
+                            get: { model.companionState.showInMenuBar },
+                            set: { model.setShowCompanionInMenuBar($0) }
                         )
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("\(theme.title). \(theme.subtitle)")
-                    .accessibilityValue(
-                        model.companionState.theme == theme ? "Selected" : "Not selected"
+                    )
+                } else {
+                    ContentUnavailableView(
+                        "No companion selected",
+                        systemImage: "rectangle.slash",
+                        description: Text("Choose a theme to begin today's journey.")
+                    )
+                    .frame(
+                        minWidth: CompanionSettingsLayout.minimumPreviewWidth,
+                        maxWidth: .infinity,
+                        minHeight: 280
                     )
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-    }
-
-    // Shelf tiles show a fixed, art-directed stage per theme so every
-    // thumbnail is immediately recognizable regardless of current progress.
-    // Pokémon still follows the day's starter family.
-    private func presentation(
-        for theme: CompanionTheme,
-        date: Date
-    ) -> CompanionPresentation? {
-        var state = model.companionState
-        state.theme = theme
-        guard let live = CompanionPresentation.make(
-            state: state,
-            dailyTokenTotal: model.companionDailyTokenTotal(at: date),
-            date: date,
-            calendar: .current
-        ) else { return nil }
-        let shelfStage = CompanionAssetCatalog.shelfPreviewStage(for: theme)
-        return CompanionPresentation(
-            theme: live.theme,
-            variant: live.variant,
-            stage: shelfStage,
-            // Scenery 0 keeps every shelf thumbnail on its vetted plate.
-            scenery: 0,
-            seed: live.seed,
-            stageTitle: live.stageTitle,
-            progressFraction: live.progressFraction,
-            tokensUntilNextStage: live.tokensUntilNextStage,
-            showsMilestone: false,
-            accessibilityLabel: "\(theme.title) preview"
-        )
     }
 }
 
-private struct CompanionThemeShelfLabel: View {
+private struct CompanionThemeGallery: View {
+    @ObservedObject var model: AppModel
+    let date: Date
+
+    var body: some View {
+        let options = CompanionSettingsPresentation.themeOptions(
+            selected: model.companionState.theme
+        )
+
+        LazyVGrid(
+            columns: Array(
+                repeating: GridItem(.flexible(minimum: 150), spacing: 12),
+                count: CompanionSettingsLayout.galleryColumnCount
+            ),
+            spacing: 12
+        ) {
+            ForEach(options) { option in
+                Button {
+                    Task { await model.select(companionTheme: option.theme) }
+                } label: {
+                    CompanionThemeGalleryLabel(
+                        theme: option.theme,
+                        isSelected: option.isSelected,
+                        presentation: presentation(for: option.theme)
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(option.accessibilityLabel)
+                .accessibilityValue(option.accessibilityValue)
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Companion theme")
+    }
+
+    // Gallery thumbnails show a fixed, art-directed stage per theme so every
+    // thumbnail is immediately recognizable regardless of current progress.
+    // Pokémon still follows the day's starter family.
+    private func presentation(for theme: CompanionTheme) -> CompanionPresentation? {
+        var state = model.state
+        state.companion.theme = theme
+        guard let live = model.companionPresentation(for: state, at: date) else { return nil }
+        return CompanionPresentation.shelfPreview(from: live)
+    }
+}
+
+private struct CompanionThemeGalleryLabel: View {
     let theme: CompanionTheme
     let isSelected: Bool
     let presentation: CompanionPresentation?
 
     var body: some View {
-        VStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: 7) {
             ZStack {
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
                     .fill(Color(nsColor: .underPageBackgroundColor))
@@ -459,110 +500,114 @@ private struct CompanionThemeShelfLabel: View {
                         .font(.system(size: 17, weight: .medium))
                         .foregroundStyle(.tertiary)
                 }
+
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 17, weight: .semibold))
+                        .symbolRenderingMode(.palette)
+                        .foregroundStyle(.white, Color.accentColor)
+                        .padding(7)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                        .accessibilityHidden(true)
+                }
             }
-            .frame(height: 48)
+            .frame(maxWidth: .infinity)
+            .frame(height: CompanionSettingsLayout.galleryThumbnailHeight)
             .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
 
             Text(theme.title)
-                .font(.system(size: 11, weight: .medium))
+                .font(.system(size: 12, weight: .medium))
                 .lineLimit(2)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: .infinity, minHeight: 28, alignment: .top)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(6)
-        .frame(maxWidth: .infinity, minHeight: 94, alignment: .top)
+        .padding(8)
+        .frame(
+            maxWidth: .infinity,
+            minHeight: CompanionSettingsLayout.galleryCardMinimumHeight,
+            alignment: .leading
+        )
         .background {
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(isSelected ? Color.accentColor.opacity(0.12) : .clear)
         }
         .overlay {
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .strokeBorder(
                     isSelected ? Color.accentColor : Color(nsColor: .separatorColor),
                     lineWidth: isSelected ? 1.5 : 1
                 )
         }
-        .overlay(alignment: .topTrailing) {
-            if isSelected {
-                Image(systemName: "checkmark.circle.fill")
-                    .symbolRenderingMode(.palette)
-                    .foregroundStyle(.white, Color.accentColor)
-                    .padding(4)
-                    .accessibilityHidden(true)
-            }
-        }
-        .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }
 
 private struct CompanionSettingsPreview: View {
-    @ObservedObject var model: AppModel
+    let companion: CompanionPresentation
+    @Binding var showInMenuBar: Bool
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 60)) { context in
-            if let companion = CompanionPresentation.make(
-                state: model.companionState,
-                dailyTokenTotal: model.companionDailyTokenTotal(at: context.date),
-                date: context.date,
-                calendar: .current
-            ) {
-                HStack(alignment: .center, spacing: 18) {
-                    // The live preview keeps the popover scene's composition
-                    // and flexes to the row width the form offers, so the
-                    // Companion section card stays as wide as every other
-                    // section instead of stretching to a fixed preview size.
-                    CompanionSceneView(
-                        presentation: companion,
-                        isAmbientMotionActive: true
-                    )
-                        .aspectRatio(
-                            TokenboardSurfaceMetrics.popoverContentWidth
-                                / TokenboardSurfaceMetrics.companionSceneHeight,
-                            contentMode: .fit
-                        )
-                        .frame(maxWidth: .infinity)
-                        .background(Color(nsColor: .underPageBackgroundColor))
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .strokeBorder(Color(nsColor: .separatorColor))
-                        }
-
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("\(companion.theme.title) · \(companion.variant.title)")
-                            .font(.system(size: 10, weight: .semibold))
-                            .tracking(0.45)
-                            .foregroundStyle(.secondary)
-                            .textCase(.uppercase)
-                        Text(companion.stageTitle)
-                            .font(.title3.weight(.semibold))
-                        Text("Stage \(companion.stage + 1) of \(CompanionJourney.thresholds.count)")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
-                        ProgressView(value: companion.progressFraction)
-                            .progressViewStyle(.linear)
-                            .accessibilityLabel("Progress to next stage")
-                        if let remaining = companion.tokensUntilNextStage {
-                            Text("\(remaining.formatted()) tokens to the next scene")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        } else {
-                            Text("Journey complete")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .frame(width: 230, alignment: .leading)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+        VStack(alignment: .leading, spacing: 12) {
+            CompanionSceneView(
+                presentation: companion,
+                isAmbientMotionActive: true
+            )
+            .aspectRatio(
+                TokenboardSurfaceMetrics.popoverContentWidth
+                    / TokenboardSurfaceMetrics.companionSceneHeight,
+                contentMode: .fit
+            )
+            .frame(maxWidth: CompanionSettingsLayout.maximumSceneWidth)
+            .background(Color(nsColor: .underPageBackgroundColor))
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Color(nsColor: .separatorColor))
             }
-        }
-    }
-}
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-struct SettingsActionState: Equatable {
-    let controlsEnabled: Bool
+            HStack(alignment: .top, spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("\(companion.theme.title) · \(companion.variant.title)")
+                        .font(.system(size: 10, weight: .semibold))
+                        .tracking(0.45)
+                        .foregroundStyle(.secondary)
+                        .textCase(.uppercase)
+                    Text(companion.stageTitle)
+                        .font(.title3.weight(.semibold))
+                    Text("Stage \(companion.stage + 1) of \(CompanionJourney.thresholds.count)")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+
+                Spacer(minLength: 8)
+
+                if let remaining = companion.tokensUntilNextStage {
+                    Text("\(remaining.formatted()) tokens\nto the next scene")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.trailing)
+                } else {
+                    Text("Journey complete")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            ProgressView(value: companion.progressFraction)
+                .progressViewStyle(.linear)
+                .accessibilityLabel("Progress to next stage")
+
+            Divider()
+
+            Toggle("Show companion in menu bar", isOn: $showInMenuBar)
+        }
+        .frame(
+            minWidth: CompanionSettingsLayout.minimumPreviewWidth,
+            maxWidth: .infinity,
+            alignment: .leading
+        )
+    }
 }
 
 @MainActor

@@ -395,6 +395,7 @@ extension AppModel {
            period == state.selectedPeriod,
            case let .success(summary) = summaryResult {
             lastSummary = summary
+            normalizeDisplayCurrency(in: &next, for: summary)
             next.health = next.health.replacing(unpricedTokens: summary.unpricedTokens)
             next.presentation = makePresentation(summary: summary, state: next)
         } else if let lastSummary {
@@ -617,6 +618,7 @@ extension AppModel {
                   state.selectedPeriod == period else { return }
             lastSummary = summary
             var next = state
+            normalizeDisplayCurrency(in: &next, for: summary)
             next.health = next.health.replacing(unpricedTokens: summary.unpricedTokens)
             next.presentation = makePresentation(summary: summary, state: next)
             commitState(next)
@@ -650,16 +652,12 @@ extension AppModel {
         let calendar = self.calendar
         let task = Task<Result<[UsageHistoryRange: UsageHistorySnapshot], Error>, Never> {
             do {
-                var snapshots: [UsageHistoryRange: UsageHistorySnapshot] = [:]
-                for range in UsageHistoryRange.allCases {
-                    snapshots[range] = try await queryService.history(
-                        range: range,
-                        now: requestedAt,
-                        calendar: calendar,
-                        provider: nil
-                    )
-                }
-                return .success(snapshots)
+                return .success(try await queryService.history(
+                    ranges: UsageHistoryRange.allCases,
+                    now: requestedAt,
+                    calendar: calendar,
+                    provider: nil
+                ))
             } catch {
                 return .failure(error)
             }

@@ -176,6 +176,7 @@ enum CompanionAssetCatalog {
     /// Windows light up from the sunset stage onward. The scene's motion
     /// reads the same threshold so lit artwork and lit windows never disagree.
     static let villageLitStageThreshold = 8
+    static let villageNightStageThreshold = 9
 
     // MARK: Old School RuneScape
 
@@ -217,6 +218,20 @@ enum CompanionAssetCatalog {
         "04-feudal-age", "05-feudal-village", "06-feudal-town",
         "07-castle-age", "08-castle-village", "09-castle-town",
         "10-imperial-age", "11-imperial-city", "12-imperial-capital"
+    ]
+
+    private static let banishedSceneNames = [
+        "01-first-shelter", "02-gatherers-clearing", "03-first-harvest",
+        "04-pasture-raised", "05-roads-laid", "06-river-crossing",
+        "07-trading-post", "08-market-town", "09-stone-village",
+        "10-first-hard-winter", "11-winter-endured", "12-thriving-township"
+    ]
+
+    private static let frostpunkSceneNames = [
+        "01-the-generator", "02-first-tents", "03-coal-lifeline",
+        "04-workshop-district", "05-beacon-raised", "06-steam-hubs",
+        "07-hothouse-harvest", "08-industrial-city", "09-automaton-age",
+        "10-storm-watch", "11-the-great-storm", "12-new-london-endures"
     ]
 
     // MARK: Minecraft
@@ -330,6 +345,18 @@ enum CompanionAssetCatalog {
                     )
                 ]
             )
+        case .banished:
+            return CompanionSceneAsset(
+                backgroundResource: "Banished/scenes/\(banishedSceneNames[stage])-\(suffix).jpg",
+                layers: [],
+                backgroundZoom: 1 + 0.035 * fraction
+            )
+        case .frostpunk:
+            return CompanionSceneAsset(
+                backgroundResource: "Frostpunk/scenes/\(frostpunkSceneNames[stage])-\(suffix).jpg",
+                layers: [],
+                backgroundZoom: 1 + 0.025 * fraction
+            )
         }
     }
 
@@ -348,6 +375,8 @@ enum CompanionAssetCatalog {
         case .oldSchoolRuneScape: 2
         case .ageOfEmpiresII: 8
         case .minecraft: 2
+        case .banished: 8
+        case .frostpunk: 8
         }
     }
 
@@ -361,7 +390,7 @@ enum CompanionAssetCatalog {
     ) -> String? {
         let stage = clamped(stage)
         switch theme {
-        case .none, .ageOfEmpiresII:
+        case .none, .ageOfEmpiresII, .banished, .frostpunk:
             return nil
         case .pokemon:
             guard let line = pokemonLine(for: variant) else { return nil }

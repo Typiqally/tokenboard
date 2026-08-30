@@ -43,6 +43,7 @@ public actor IncrementalScanner {
             return attention(.unsafeSource, offset: 0)
         }
         try sourceOperation(.didOpenSource)
+        try Task.checkCancellation()
         let stableSourceID: String
         do {
             stableSourceID = try sourceProbe.stableID(in: source, provider: provider)
@@ -80,6 +81,7 @@ public actor IncrementalScanner {
         var reachedEndOfFile = false
 
         while !reachedEndOfFile {
+            try Task.checkCancellation()
             let result = try reader.batch(
                 from: source,
                 startingAt: checkpoint.byteOffset,
@@ -104,6 +106,7 @@ public actor IncrementalScanner {
             skippedBatch.reserveCapacity(result.lines.count)
 
             for line in result.lines {
+                try Task.checkCancellation()
                 let lineHash = try await hash(line.data)
                 let adapterResult: AdapterResult = line.data.isEmpty
                     ? .ignored
@@ -153,6 +156,7 @@ public actor IncrementalScanner {
             checkpoint.modificationTime = metadata.modificationTime
             checkpoint.adapterState = try await storageSafeAdapterState(adapter.checkpointState)
             try await ledger.commit(usageBatch, skipped: skippedBatch, checkpoint: checkpoint, calendar: calendar)
+            try Task.checkCancellation()
             usageCount += usageBatch.count
             skippedCount += skippedBatch.count
             if result.oversizedRecordOffset != nil {

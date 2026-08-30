@@ -166,12 +166,6 @@ final class SourceGrantStore {
         )
     }
 
-    func commit(_ prepared: PreparedSourceGrant, for provider: Provider) -> ActiveSourceGrant {
-        let grant = activate(prepared, for: provider)
-        commitBookmark(prepared, for: provider)
-        return grant
-    }
-
     func activate(_ prepared: PreparedSourceGrant, for provider: Provider) -> ActiveSourceGrant {
         precondition(prepared.provider == provider, "prepared grant provider mismatch")
         return prepared.takeActiveGrant()

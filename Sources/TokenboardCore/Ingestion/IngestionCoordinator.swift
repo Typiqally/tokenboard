@@ -176,8 +176,6 @@ public actor IngestionCoordinator {
         var continuations: [CheckedContinuation<IngestionBatchResult, Never>]
     }
 
-    public nonisolated let usesPeriodicRefresh = false
-
     private let scanner: any IngestionScanning
     private let watcher: any SourceEventWatching
     private let clock: any IngestionClock

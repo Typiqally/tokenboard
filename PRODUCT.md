@@ -52,17 +52,16 @@ Simple, clean, mean. Quietly confident and direct, with precise language and no 
 
 ## Companion Journey
 
-- Offer `None`, Pokémon, Forest, Village, Old School RuneScape, Age of Empires II, and Minecraft as built-in choices. Do not expose file imports, asset folders, configuration files, or runtime downloads.
-- Establish a zero baseline from the authoritative lifetime additive-token total when the first non-`None` theme is selected. Only future positive deltas advance the journey.
-- Share one permanent journey across themes. Hiding with `None` preserves and continues initialized progress; there is no restart control.
-- Use twelve stages spread linearly at 0, then 90M steps to 900M, and a 1B summit of earned tokens. Completion stops at stage twelve without prestige loops.
-- Pick one deterministic Pokémon starter family per local calendar day; every starter family appears once per cycle before the order repeats. Forest and Village grow one coherent place continuously — more trees and buildings keep arriving and maturing between milestones, laid out deterministically from the local seed — Old School RuneScape upgrades one adventurer through canonical gear tiers and locations, and Age of Empires II grows one West European settlement through its four ages.
+- Offer `None`, Pokémon, Forest, Village, Old School RuneScape, Age of Empires II, Minecraft, and Banished as built-in choices. Do not expose file imports, asset folders, configuration files, or runtime downloads.
+- Derive progress directly from the existing `Today` usage snapshot. A new local day starts again at stage one, and no separate companion token counter or baseline is persisted.
+- Share the same daily progress across themes. Hiding with `None` changes only presentation; selecting a theme again reflects the current day's total.
+- Use twelve stages spread linearly at 0, then 90M steps to 900M, and a 1B daily summit. Completion stops at stage twelve without prestige loops.
+- Pick one deterministic Pokémon starter family per local calendar day; every starter family appears once per cycle before the order repeats. Forest and Village grow one coherent place continuously — more trees and buildings keep arriving and maturing between milestones, laid out deterministically from the local seed — Old School RuneScape upgrades one adventurer through canonical gear tiers and locations, Age of Empires II grows one West European settlement through its four ages, and Banished takes a few exiles from first shelter through harvest, trade, hard winter, and a thriving township.
 - Use authentic source artwork or original generated artwork, baked and bundled at build time, with every stage visually distinct without text. The popover scene carries no text — only a slim progress line along its bottom edge showing progress toward the next stage; journey labels and details remain in Settings.
 - Bundle three scenery plates per stage — the same place from a different vantage or on a different day — and rotate them deterministically per local calendar day, independent of the starter-family rotation, so the scene never repeats two days running while every plate still reads unmistakably as its stage.
 - Keep the menu-bar silhouette off by default. Loading and failure symbols always take precedence.
-- Reveal a newly reached milestone once on the next popover open with a quiet crossfade; respect Reduced Motion.
-- Make the selected scene a place that is genuinely living while it is on screen, art-directed per world rather than one idle applied six times. The life belongs inside the scene — a partner breathing and hopping, a gust crossing a canopy and shaking leaves loose, a town's windows switching on and off room by room while smoke leaves its chimneys and traffic runs its street, an adventurer moving only on the game's own tick under the weather of the place they are standing in, an isometric map under travelling cloud shadows and circling birds, and the particle each Minecraft biome actually emits.
-- Populate every world with inhabitants who are busy with something that world would actually have them doing: villagers gathering and carrying it home while a herd grazes, townsfolk and a stray working the street by day and a few late walkers after dark, birds landing in crowns and on roofs the scene actually built, deer browsing a wood that has closed over, other players standing around on the tick with Lumbridge's chickens beside them, and the mob each Minecraft biome spawns. Leave the places whose character is emptiness — an ancient city, a fortress corridor, the End — deliberately unpopulated.
+- Make the selected scene a place that is genuinely living while it is on screen, art-directed per world rather than one idle applied everywhere. The life belongs inside the scene — a partner breathing and hopping, a gust crossing a canopy and shaking leaves loose, a town's windows switching on and off room by room while smoke leaves its chimneys and traffic runs its street, an adventurer moving only on the game's own tick under the weather of the place they are standing in, an isometric map under travelling cloud shadows and circling birds, the particle each Minecraft biome actually emits, and a Banished settlement turning from work and autumn leaves into snow and chimney smoke.
+- Populate every world with inhabitants who are busy with something that world would actually have them doing: villagers gathering and carrying it home while a herd grazes, Banished citizens working stage-specific fields, plazas, docks, bridges, and roads, townsfolk and a stray working the street by day and a few late walkers after dark, birds landing in crowns and on roofs the scene actually built, deer browsing a wood that has closed over, other players standing around on the tick with Lumbridge's chickens beside them, and the mob each Minecraft biome spawns. Branded worlds use recognizable bundled source sprites from their own games; Forest and Village retain original Tokenboard-drawn inhabitants. Leave the places whose character is emptiness — an ancient city, a fortress corridor, the End — deliberately unpopulated.
 - Let the foreground notice what walks past it: the partner stands up for a visitor at its feet, the adventurer turns on the tick, the survivor turns in whole steps, a building does nothing at all.
 - Vary the life by stage where the journey genuinely changes place: fireflies only once a forest is old, a desert's blowing sand, a dungeon's torchlight, a snowfield's snow, embers in the Nether, motes in the End.
 - Animate only while the popover or the Settings preview is really on screen — a covered, miniaturized, or hidden window animates nothing — and never open a network connection, download, or configuration surface to do it.
@@ -87,6 +86,8 @@ Simple, clean, mean. Quietly confident and direct, with precise language and no 
 - When ECB data is quoted against EUR, derive all USD cross-rates from one same-dated ECB snapshot. Never combine rates from different dates.
 - Catalog schema version 2 carries FX data. Version 1 catalogs remain valid and provide USD-only display.
 - Applying a candidate updates model pricing and FX data together. Any invalid model rate or FX field rejects the complete candidate and leaves active data unchanged.
+- Retain every approved candidate as an immutable import record. Build the current pricing and FX view as a normalized projection; never rewrite the provenance payload that was approved.
+- Treat an explicit zero model rate as known-free coverage that contributes $0. Treat only a missing applicable rate as unpriced.
 
 ### Pricing Tab
 
@@ -99,7 +100,7 @@ Simple, clean, mean. Quietly confident and direct, with precise language and no 
 
 ### Storage and Formatting
 
-- Add FX storage through a forward-only SQLite migration. Retain prior approved snapshots for auditability, while display conversion uses the latest approved snapshot.
+- Add FX storage through a forward-only SQLite migration. Retain prior approved snapshots and complete approved import payloads for auditability, while display conversion uses the latest approved normalized snapshot.
 - Use Decimal for model pricing, FX rates, and conversion. Do not use binary floating point for monetary calculations.
 - Format USD, EUR, GBP, and CNY with two fractional digits and JPY with none.
 - Preserve the approximation marker for every API-equivalent value in any currency.

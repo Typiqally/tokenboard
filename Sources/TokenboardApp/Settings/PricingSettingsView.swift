@@ -102,9 +102,9 @@ struct PricingSettingsView: View {
                 set: { model.select(displayCurrency: $0) }
             )) {
                 ForEach(DisplayCurrency.allCases, id: \.rawValue) { currency in
-                    Text(Self.currencyName(currency))
+                    Text(UsageSelectionPresentation.currencyTitle(currency))
                         .tag(currency)
-                        .disabled(currency != .usd && pricing.exchangeRates?.rates[currency] == nil)
+                        .disabled(!model.isDisplayCurrencyAvailable(currency))
                 }
             }
             .pickerStyle(.menu)
@@ -120,7 +120,10 @@ struct PricingSettingsView: View {
 
             Text(PricingOverviewCopy.unpricedUsage)
                 .font(.headline)
-            if pricing.unpricedUsage.isEmpty {
+            if pricing.coveragePeriod != model.selectedPeriod {
+                Text("Refreshing pricing coverage…")
+                    .foregroundStyle(.secondary)
+            } else if pricing.unpricedUsage.isEmpty {
                 Text("All observed usage in this period has pricing.")
                     .foregroundStyle(.secondary)
             } else {
@@ -129,11 +132,11 @@ struct PricingSettingsView: View {
                         LabeledContent(usage.observedModelID) {
                             Text("\(ValueFormatter.exactTokens(usage.tokenCount)) tokens")
                         }
-                        Text("\(Self.providerName(usage.provider)) · \(Self.unpricedReason(usage))")
+                        Text("\(usage.provider.displayName) · \(Self.unpricedReason(usage))")
                             .foregroundStyle(.secondary)
                     }
                 }
-                Text("For \(Self.periodName(model.selectedPeriod).lowercased()).")
+                Text("For \(UsageSelectionPresentation.periodTitle(model.selectedPeriod).lowercased()).")
                     .foregroundStyle(.secondary)
             }
 
@@ -171,7 +174,7 @@ struct PricingSettingsView: View {
                 VStack(alignment: .leading, spacing: 7) {
                     ForEach(PricingSettingsPresentation.exchangeRateRows(for: exchangeRates)) { row in
                         HStack(alignment: .firstTextBaseline) {
-                            Text(Self.currencyDisplayName(row.currency))
+                            Text(UsageSelectionPresentation.currencyDisplayName(row.currency))
                             Spacer()
                             Text(row.formattedRate)
                                 .monospacedDigit()
@@ -207,23 +210,6 @@ struct PricingSettingsView: View {
         }
     }
 
-    private static func currencyName(_ currency: DisplayCurrency) -> String {
-        switch currency {
-        case .usd: "USD · US Dollar"
-        case .eur: "EUR · Euro"
-        case .jpy: "JPY · Japanese Yen"
-        case .gbp: "GBP · British Pound"
-        case .cny: "CNY · Chinese Yuan"
-        }
-    }
-
-    private static func providerName(_ provider: Provider) -> String {
-        switch provider {
-        case .claudeCode: "Claude Code"
-        case .codex: "Codex"
-        }
-    }
-
     private static func unpricedReason(_ usage: UnpricedUsageGroup) -> String {
         switch usage.reason {
         case .opaqueModel: "Unknown model identifier"
@@ -233,25 +219,6 @@ struct PricingSettingsView: View {
         }
     }
 
-    private static func periodName(_ period: CalendarPeriod) -> String {
-        switch period {
-        case .today: "Today"
-        case .thisWeek: "This week"
-        case .thisMonth: "This month"
-        case .thisYear: "This year"
-        case .allTime: "All time"
-        }
-    }
-
-    private static func currencyDisplayName(_ currency: DisplayCurrency) -> String {
-        switch currency {
-        case .usd: "US Dollar"
-        case .eur: "Euro"
-        case .jpy: "Japanese Yen"
-        case .gbp: "British Pound"
-        case .cny: "Chinese Yuan"
-        }
-    }
 }
 
 private struct PricingProviderLedger: View {
@@ -345,10 +312,7 @@ private struct PricingProviderLedger: View {
     }
 
     private var providerName: String {
-        switch group.provider {
-        case .claudeCode: "Claude Code"
-        case .codex: "Codex"
-        }
+        group.provider.displayName
     }
 
     private var modelCount: String {

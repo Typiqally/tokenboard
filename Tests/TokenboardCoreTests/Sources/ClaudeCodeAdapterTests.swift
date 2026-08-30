@@ -38,6 +38,20 @@ final class ClaudeCodeAdapterTests: XCTestCase {
         XCTAssertEqual(parsed.usage.metrics[.inputCacheWrite], 12)
     }
 
+    func testFallsBackToAggregateCacheWriteWhenDurationDetailsDisagree() throws {
+        let value = #"{"type":"assistant","timestamp":"2026-08-05T10:00:00Z","sessionId":"session-a","message":{"id":"message-b","model":"claude-test","usage":{"input_tokens":1,"cache_creation_input_tokens":30,"cache_read_input_tokens":0,"output_tokens":2,"cache_creation":{"ephemeral_5m_input_tokens":7,"ephemeral_1h_input_tokens":11}}}}"#
+        var adapter = ClaudeCodeAdapter()
+
+        guard case let .usage(parsed) = adapter.consume(line: Data(value.utf8)) else {
+            return XCTFail("expected usage")
+        }
+
+        XCTAssertEqual(parsed.usage.metrics[.inputCacheWrite], 30)
+        XCTAssertNil(parsed.usage.metrics[.inputCacheWrite5m])
+        XCTAssertNil(parsed.usage.metrics[.inputCacheWrite1h])
+        XCTAssertEqual(parsed.usage.tokenTotal, 33)
+    }
+
     func testUnknownRecordIsIgnoredAndMalformedUsageIsSkipped() {
         var adapter = ClaudeCodeAdapter()
         XCTAssertEqual(adapter.consume(line: Data(#"{"type":"user"}"#.utf8)), .ignored)

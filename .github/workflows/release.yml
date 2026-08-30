@@ -6,36 +6,63 @@ on:
       - "v[0-9]*"
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
   TOKENBOARD_DISCORD_APPLICATION_ID: ${{ vars.TOKENBOARD_DISCORD_APPLICATION_ID }}
 
 jobs:
-  release:
+  verify:
     runs-on: macos-15
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
       - name: Run tests
         run: swift test
+      - name: Run import resource benchmark
+        run: Scripts/benchmark-import.sh
+      - name: Verify public asset clearance
+        run: Scripts/verify-asset-rights.sh release
       - name: Package universal app
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: Scripts/package-release.sh "${RELEASE_TAG#v}" .build/artifacts
+      - name: Verify idle runtime resources
+        run: Scripts/verify-runtime-resources.sh .build/release/Tokenboard.app
+      - name: Retain verified artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tokenboard-release
+          path: |
+            .build/artifacts/Tokenboard-*.zip
+            .build/artifacts/Tokenboard-*.zip.sha256
+          if-no-files-found: error
+
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download verified artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: tokenboard-release
+          path: artifacts
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           version=${RELEASE_TAG#v}
-          archive=".build/artifacts/Tokenboard-$version.zip"
+          archive="artifacts/Tokenboard-$version.zip"
+          checksum="$archive.sha256"
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release upload "$RELEASE_TAG" "$archive" --clobber
-          else
-            gh release create "$RELEASE_TAG" "$archive" \
-              --title "Tokenboard $version" \
-              --generate-notes \
-              --verify-tag
+            echo "release $RELEASE_TAG already exists; refusing to mutate it" >&2
+            exit 73
           fi
+          gh release create "$RELEASE_TAG" "$archive" "$checksum" \
+            --title "Tokenboard $version" \
+            --generate-notes \
+            --verify-tag

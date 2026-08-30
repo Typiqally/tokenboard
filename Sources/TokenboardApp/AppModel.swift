@@ -20,12 +20,14 @@ final class AppModel: ObservableObject {
     var selectedPeriod: CalendarPeriod { state.selectedPeriod }
     var selectedDisplayMetric: DisplayMetric { state.selectedDisplayMetric }
     var selectedDisplayCurrency: DisplayCurrency { state.selectedDisplayCurrency }
+    func isDisplayCurrencyAvailable(_ currency: DisplayCurrency) -> Bool {
+        currency == .usd
+            || lastSummary?.exchangeRates?.rates[currency] != nil
+            || settingsState.pricing.exchangeRates?.rates[currency] != nil
+    }
     var companionState: CompanionState { state.companion }
     var selectedHistoryRange: UsageHistoryRange { state.selectedHistoryRange }
     var historyState: UsageHistoryLoadState { state.historyState }
-    var selectedHistorySnapshot: UsageHistorySnapshot? {
-        state.historyState.snapshots?[state.selectedHistoryRange]
-    }
     var lastUpdated: Date? { state.lastUpdated }
     var canStartHistoricalImport: Bool { state.canStartHistoricalImport }
     var isSourceMutationInProgress: Bool { sourceMutation != nil }
@@ -58,7 +60,7 @@ final class AppModel: ObservableObject {
     let bundledCatalogData: Data
     let applicationPaths: ApplicationPaths
     let now: @Sendable () -> Date
-    let calendar: Calendar
+    private(set) var calendar: Calendar
     let discovery: any LogDiscovering
     let pasteboard: any AppPlainTextCopying
     let localDataRevealer: any AppLocalDataRevealing
@@ -215,11 +217,15 @@ final class AppModel: ObservableObject {
               !isDatabaseRecoveryActionLocked,
               state.lifecycle != .stopped,
               state.lifecycle != .shuttingDown else { return }
+        let refreshesPricingCoverage = settingsState.pricing.coveragePeriod != nil
         preferences.selectedPeriod = period
         var next = state
         next.selectedPeriod = period
         state = next
         await requeryWithoutScanning()
+        if refreshesPricingCoverage {
+            await refreshSettings()
+        }
     }
 
     func select(displayMetric: DisplayMetric) async {
@@ -241,7 +247,8 @@ final class AppModel: ObservableObject {
         guard !isDatabaseRestoreInProgress,
               !isDatabaseRecoveryActionLocked,
               state.lifecycle != .stopped,
-              state.lifecycle != .shuttingDown else { return }
+              state.lifecycle != .shuttingDown,
+              isDisplayCurrencyAvailable(displayCurrency) else { return }
         preferences.selectedDisplayCurrency = displayCurrency
         var next = state
         next.selectedDisplayCurrency = displayCurrency
@@ -249,6 +256,17 @@ final class AppModel: ObservableObject {
             next.presentation = makePresentation(summary: lastSummary, state: next)
         }
         state = next
+    }
+
+    func normalizeDisplayCurrency(
+        in state: inout AppPublishedState,
+        for summary: UsageSummary
+    ) {
+        let currency = state.selectedDisplayCurrency
+        guard currency != .usd,
+              summary.exchangeRates?.rates[currency] == nil else { return }
+        preferences.selectedDisplayCurrency = .usd
+        state.selectedDisplayCurrency = .usd
     }
 
     func select(companionTheme: CompanionTheme) async {
@@ -306,6 +324,36 @@ final class AppModel: ObservableObject {
     }
 
     func companionDailyTokenTotal(at date: Date) -> Int64 {
+        companionDailyTokenTotal(for: state, at: date)
+    }
+
+    func refreshForCalendarChange(_ updatedCalendar: Calendar) async {
+        guard !isDatabaseRestoreInProgress,
+              !isDatabaseRecoveryActionLocked,
+              state.lifecycle == .ready else { return }
+        calendar = updatedCalendar
+        await queryUsagePresentations()
+        if settingsState.pricing.coveragePeriod != nil {
+            await refreshSettings()
+        }
+    }
+
+    func companionPresentation(
+        for state: AppPublishedState,
+        at date: Date
+    ) -> CompanionPresentation? {
+        CompanionPresentation.make(
+            state: state.companion,
+            dailyTokenTotal: companionDailyTokenTotal(for: state, at: date),
+            date: date,
+            calendar: calendar
+        )
+    }
+
+    private func companionDailyTokenTotal(
+        for state: AppPublishedState,
+        at date: Date
+    ) -> Int64 {
         CompanionDailyTokenSource.total(
             from: state.historyState.snapshots?[.today],
             at: date,

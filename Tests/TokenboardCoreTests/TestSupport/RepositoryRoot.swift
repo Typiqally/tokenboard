@@ -7,3 +7,8 @@ enum TestRepository {
         return url
     }
 }
+
+let canonicalTestTemporaryDirectory = TestRepository.root.appending(
+    path: ".build/test-scratch",
+    directoryHint: .isDirectory
+)

@@ -15,12 +15,14 @@ struct CapturedScannerCommit: Equatable, Sendable {
 actor ScannerTestLedger: LedgerStore {
     private let hasher = PrivacyHasher(salt: Data(repeating: 0xA7, count: 32))
     private var remainingCommitFailures: Int
+    private let cancelAfterCommit: Bool
     private var storedCheckpoint: SourceCheckpoint?
     private var attempts: [CapturedScannerCommit] = []
     private var successfulCommits: [CapturedScannerCommit] = []
 
-    init(failFirstCommit: Bool = false) {
+    init(failFirstCommit: Bool = false, cancelAfterCommit: Bool = false) {
         remainingCommitFailures = failFirstCommit ? 1 : 0
+        self.cancelAfterCommit = cancelAfterCommit
     }
 
     func migrate() {}
@@ -39,6 +41,9 @@ actor ScannerTestLedger: LedgerStore {
         }
         successfulCommits.append(captured)
         storedCheckpoint = checkpoint
+        if cancelAfterCommit {
+            withUnsafeCurrentTask { $0?.cancel() }
+        }
     }
 
     func usageRows(in interval: DateInterval?, calendar: Calendar) -> [DailyUsageRow] { [] }

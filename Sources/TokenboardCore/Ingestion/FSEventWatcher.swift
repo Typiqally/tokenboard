@@ -273,51 +273,25 @@ public enum FSEventWatcherError: Error, Equatable, Sendable {
 public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
     static let maximumChangedPaths = 64
 
-    private struct PolledFileState: Equatable, Sendable {
-        let size: Int
-        let modificationDate: Date?
-    }
-
-    private final class PollingSnapshot: @unchecked Sendable {
-        var files: [URL: PolledFileState]
-
-        init(files: [URL: PolledFileState]) {
-            self.files = files
-        }
-    }
-
     private struct StreamState {
         let handle: FSEventStreamHandle
         let continuation: AsyncStream<SourceEventBatch>.Continuation
-        let pollingSource: (any DispatchSourceTimer)?
     }
 
     private let lock = NSLock()
     private let queue = DispatchQueue(label: "com.tokenboard.source-events")
     private let driver: any FSEventStreamDriving
-    private let pollingInterval: DispatchTimeInterval?
     private var state: StreamState?
     private var baselineEventID: UInt64?
     private var lastAcknowledgedEventID: UInt64?
     private var checkpointResetPending = false
 
     public convenience init() {
-        self.init(
-            driver: NativeFSEventStreamDriver(),
-            pollingInterval: .seconds(2)
-        )
+        self.init(driver: NativeFSEventStreamDriver())
     }
 
-    convenience init(driver: any FSEventStreamDriving) {
-        self.init(driver: driver, pollingInterval: nil)
-    }
-
-    init(
-        driver: any FSEventStreamDriving,
-        pollingInterval: DispatchTimeInterval?
-    ) {
+    init(driver: any FSEventStreamDriving) {
         self.driver = driver
-        self.pollingInterval = pollingInterval
     }
 
     deinit {
@@ -356,9 +330,6 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
             latency: 0.5,
             flags: createFlags
         )
-        let pollingSnapshot = pollingInterval.map { _ in
-            PollingSnapshot(files: Self.polledFiles(under: resolvedRoots))
-        }
         guard let handle = driver.create(configuration: configuration, callback: { [weak self] batch in
             guard let self else { return }
             let eventIDsWrapped = batch.events.contains { event in
@@ -401,39 +372,16 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
             throw FSEventWatcherError.couldNotCreateStream
         }
 
-        let pollingSource = pollingInterval.flatMap { interval in
-            pollingSnapshot.map { snapshot in
-                let source = DispatchSource.makeTimerSource(queue: queue)
-                source.schedule(
-                    deadline: .now() + interval,
-                    repeating: interval,
-                    leeway: .milliseconds(100)
-                )
-                source.setEventHandler { [weak self] in
-                    self?.pollForChanges(
-                        roots: resolvedRoots,
-                        snapshot: snapshot,
-                        handle: handle,
-                        continuation: continuation
-                    )
-                }
-                return source
-            }
-        }
-
         let started = lock.withLock {
             driver.schedule(handle, on: queue)
             guard driver.start(handle) else { return false }
             state = StreamState(
                 handle: handle,
-                continuation: continuation,
-                pollingSource: pollingSource
+                continuation: continuation
             )
-            pollingSource?.activate()
             return true
         }
         guard started else {
-            pollingSource?.cancel()
             driver.invalidate(handle)
             driver.release(handle)
             handle.releaseCallbackContext()
@@ -469,91 +417,12 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
             return state
         }
         guard let priorState else { return }
-        priorState.pollingSource?.cancel()
         driver.flushSync(priorState.handle)
         driver.stop(priorState.handle)
         driver.invalidate(priorState.handle)
         driver.release(priorState.handle)
         priorState.handle.releaseCallbackContext()
         priorState.continuation.finish()
-    }
-
-    private func pollForChanges(
-        roots: [URL],
-        snapshot: PollingSnapshot,
-        handle: FSEventStreamHandle,
-        continuation: AsyncStream<SourceEventBatch>.Continuation
-    ) {
-        guard lock.withLock({ state?.handle === handle }) else { return }
-        let nextFiles = Self.polledFiles(under: roots)
-        guard lock.withLock({ state?.handle === handle }) else { return }
-        let changed = Self.changedPolledURLs(
-            from: snapshot.files,
-            to: nextFiles,
-            roots: roots
-        )
-        snapshot.files = nextFiles
-        guard !changed.isEmpty else { return }
-        if case .dropped = continuation.yield(SourceEventBatch(
-            paths: changed,
-            checkpoint: nil
-        )) {
-            continuation.yield(SourceEventBatch(
-                paths: Set(roots),
-                checkpoint: nil
-            ))
-        }
-    }
-
-    private static func polledFiles(under roots: [URL]) -> [URL: PolledFileState] {
-        let resourceKeys: Set<URLResourceKey> = [
-            .contentModificationDateKey,
-            .fileSizeKey,
-            .isRegularFileKey,
-            .isSymbolicLinkKey
-        ]
-        var files: [URL: PolledFileState] = [:]
-        for root in roots {
-            guard let enumerator = FileManager.default.enumerator(
-                at: root,
-                includingPropertiesForKeys: Array(resourceKeys),
-                options: [],
-                errorHandler: { _, _ in true }
-            ) else {
-                continue
-            }
-            while let url = enumerator.nextObject() as? URL {
-                guard url.pathExtension.lowercased() == "jsonl",
-                      let values = try? url.resourceValues(forKeys: resourceKeys),
-                      values.isSymbolicLink != true,
-                      values.isRegularFile == true else {
-                    continue
-                }
-                files[url.standardizedFileURL] = PolledFileState(
-                    size: values.fileSize ?? 0,
-                    modificationDate: values.contentModificationDate
-                )
-            }
-        }
-        return files
-    }
-
-    private static func changedPolledURLs(
-        from previous: [URL: PolledFileState],
-        to current: [URL: PolledFileState],
-        roots: [URL]
-    ) -> Set<URL> {
-        if previous.keys.contains(where: { current[$0] == nil }) {
-            return Set(roots)
-        }
-        var changed: Set<URL> = []
-        for (url, state) in current where previous[url] != state {
-            changed.insert(url)
-            if changed.count > maximumChangedPaths {
-                return Set(roots)
-            }
-        }
-        return changed
     }
 
     private func checkpoint(

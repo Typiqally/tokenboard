@@ -360,9 +360,10 @@ public actor SQLiteLedger: LedgerStore {
         let statement = try prepare(
             """
             SELECT canonical_json
-            FROM catalog_imports
-            WHERE applied = 1
-            ORDER BY imported_at DESC, rowid DESC
+            FROM catalog_imports AS imports
+            JOIN active_catalog_import AS active
+              ON active.import_id = imports.import_id
+            WHERE active.singleton = 1
             LIMIT 1;
             """,
             using: connection
@@ -400,7 +401,6 @@ public actor SQLiteLedger: LedgerStore {
             DELETE FROM fx_rates;
             DELETE FROM model_aliases;
             DELETE FROM price_rates;
-            DELETE FROM catalog_imports;
             """)
             for model in catalog.models {
                 for alias in model.aliases {
@@ -426,13 +426,14 @@ public actor SQLiteLedger: LedgerStore {
                     using: connection
                 )
             }
-            try insertCatalogImport(
+            let importID = try insertCatalogImport(
                 catalog,
                 canonicalJSON: canonicalString,
                 origin: origin,
                 validationSummary: validationSummary,
                 using: connection
             )
+            try selectActiveCatalogImport(importID, using: connection)
             try connection.commitTransaction()
         } catch {
             try? connection.rollbackTransaction()
@@ -453,7 +454,15 @@ public actor SQLiteLedger: LedgerStore {
     }
 
     private func readCatalogIDs(using connection: SQLiteConnection) throws -> [String] {
-        let statement = try prepare("SELECT catalog_id FROM catalog_imports WHERE applied = 1 ORDER BY catalog_id;", using: connection)
+        let statement = try prepare(
+            """
+            SELECT imports.catalog_id
+            FROM active_catalog_import AS active
+            JOIN catalog_imports AS imports ON imports.import_id = active.import_id
+            WHERE active.singleton = 1;
+            """,
+            using: connection
+        )
         defer { sqlite3_finalize(statement) }
         var values: [String] = []
         while true {
@@ -495,10 +504,7 @@ public actor SQLiteLedger: LedgerStore {
                       decimal >= 0,
                       decimal <= 100_000,
                       DecimalString(decimal: decimal).rawValue == storedPrice,
-                      let provenanceComponents = URLComponents(string: storedProvenance),
-                      provenanceComponents.scheme?.lowercased() == "https",
-                      provenanceComponents.host != nil,
-                      let provenanceURL = provenanceComponents.url else {
+                      let provenanceURL = SecureHTTPSURL.parse(storedProvenance) else {
                     throw LedgerError.corruptData("stored pricing rate is invalid")
                 }
                 values.append(StoredPriceRate(
@@ -559,9 +565,7 @@ public actor SQLiteLedger: LedgerStore {
             SELECT fx.catalog_id, fx.currency_code, fx.units_per_usd, fx.effective_date,
                    fx.provenance_url, fx.verified_at
             FROM fx_rates AS fx
-            JOIN catalog_imports AS imports ON imports.catalog_id = fx.catalog_id
-            WHERE imports.applied = 1
-            ORDER BY imports.imported_at, imports.rowid, fx.currency_code;
+            ORDER BY fx.catalog_id, fx.currency_code;
             """,
             using: connection
         )
@@ -586,11 +590,8 @@ public actor SQLiteLedger: LedgerStore {
                 let effectiveDate = try requiredText(statement, at: 3)
                 let rawProvenance = try requiredText(statement, at: 4)
                 let verifiedAt = try requiredText(statement, at: 5)
-                guard Self.isGregorianDay(effectiveDate), Self.isGregorianDay(verifiedAt),
-                      let components = URLComponents(string: rawProvenance),
-                      components.scheme?.lowercased() == "https",
-                      components.host != nil,
-                      let provenanceURL = components.url else {
+                guard GregorianDay.isValid(effectiveDate), GregorianDay.isValid(verifiedAt),
+                      let provenanceURL = SecureHTTPSURL.parse(rawProvenance) else {
                     throw LedgerError.corruptData("stored exchange-rate metadata is invalid")
                 }
                 if records[catalogID] == nil {
@@ -787,12 +788,12 @@ public actor SQLiteLedger: LedgerStore {
         origin: String,
         validationSummary: String,
         using connection: SQLiteConnection
-    ) throws {
+    ) throws -> Int64 {
         let statement = try prepare(
             """
             INSERT INTO catalog_imports(
-              catalog_id, schema_version, origin, imported_at, applied, validation_summary, canonical_json
-            ) VALUES(?, ?, ?, ?, 1, ?, ?);
+              catalog_id, schema_version, origin, imported_at, validation_summary, canonical_json
+            ) VALUES(?, ?, ?, ?, ?, ?);
             """,
             using: connection
         )
@@ -804,36 +805,30 @@ public actor SQLiteLedger: LedgerStore {
         try bind(validationSummary, to: statement, at: 5, using: connection)
         try bind(canonicalJSON, to: statement, at: 6, using: connection)
         try stepDone(statement, using: connection)
+        return sqlite3_last_insert_rowid(connection.handle)
+    }
+
+    private func selectActiveCatalogImport(
+        _ importID: Int64,
+        using connection: SQLiteConnection
+    ) throws {
+        let statement = try prepare(
+            """
+            INSERT INTO active_catalog_import(singleton, import_id)
+            VALUES(1, ?)
+            ON CONFLICT(singleton) DO UPDATE SET import_id = excluded.import_id;
+            """,
+            using: connection
+        )
+        defer { sqlite3_finalize(statement) }
+        try bind(importID, to: statement, at: 1, using: connection)
+        try stepDone(statement, using: connection)
     }
 
     private func importTimestamp() -> String {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter.string(from: Date())
-    }
-
-    private static func isGregorianDay(_ value: String) -> Bool {
-        let bytes = Array(value.utf8)
-        guard bytes.count == 10,
-              bytes[4] == 0x2D,
-              bytes[7] == 0x2D,
-              bytes.enumerated().allSatisfy({ index, byte in
-                  index == 4 || index == 7 || (0x30...0x39).contains(byte)
-              }) else { return false }
-        let year = bytes[0...3].reduce(0) { $0 * 10 + Int($1 - 0x30) }
-        let month = bytes[5...6].reduce(0) { $0 * 10 + Int($1 - 0x30) }
-        let day = bytes[8...9].reduce(0) { $0 * 10 + Int($1 - 0x30) }
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
-        guard let date = calendar.date(from: DateComponents(
-            calendar: calendar,
-            timeZone: calendar.timeZone,
-            year: year,
-            month: month,
-            day: day
-        )) else { return false }
-        let roundTrip = calendar.dateComponents([.year, .month, .day], from: date)
-        return roundTrip.year == year && roundTrip.month == month && roundTrip.day == day
     }
 
     private func loadOrCreatePrivacyHasher(using connection: SQLiteConnection) throws -> PrivacyHasher {

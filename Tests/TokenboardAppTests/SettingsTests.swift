@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import SwiftUI
 import XCTest
 @testable import TokenboardApp
 import TokenboardCore
@@ -55,6 +56,53 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(DiscordPresenceStatus.failed.title, "Couldn't connect")
         XCTAssertTrue(DiscordPresencePresentation.disclosure.contains("profile"))
         XCTAssertTrue(DiscordPresencePresentation.disclosure.contains("local Discord"))
+    }
+
+    func testCompanionGalleryPresentsEveryThemeInOneStableGrid() {
+        let options = CompanionSettingsPresentation.themeOptions(selected: .frostpunk)
+
+        XCTAssertEqual(options.map(\.theme), CompanionTheme.allCases)
+        XCTAssertEqual(options.count, 9)
+        XCTAssertEqual(options.filter(\.isSelected).map(\.theme), [.frostpunk])
+        XCTAssertEqual(options.last?.accessibilityLabel, "Frostpunk. New London")
+        XCTAssertEqual(options.last?.accessibilityValue, "Selected")
+    }
+
+    func testCompanionGalleryUsesABalancedThreeByThreeLayout() {
+        XCTAssertEqual(CompanionSettingsLayout.galleryColumnCount, 3)
+        XCTAssertEqual(CompanionSettingsLayout.galleryThumbnailHeight, 72)
+        XCTAssertGreaterThanOrEqual(CompanionSettingsLayout.galleryCardMinimumHeight, 112)
+        XCTAssertGreaterThan(
+            CompanionSettingsLayout.minimumPreviewWidth,
+            CompanionSettingsLayout.galleryThumbnailHeight
+        )
+    }
+
+    func testApprovedCompanionGalleryRendersAsGridWithLivePreview() async throws {
+        let setup = try makeSetup()
+        defer { setup.cleanup() }
+        await setup.model.start()
+        await setup.model.select(companionTheme: .frostpunk)
+
+        let renderer = ImageRenderer(
+            content: CompanionSettingsPanel(model: setup.model)
+            .frame(width: 780, height: 760, alignment: .topLeading)
+            .padding(16)
+            .background(Color(nsColor: .windowBackgroundColor))
+            .environment(\.colorScheme, .dark)
+        )
+        renderer.scale = 2
+        let image = try XCTUnwrap(renderer.nsImage)
+        XCTAssertEqual(image.size, NSSize(width: 812, height: 792))
+
+        if let path = ProcessInfo.processInfo.environment[
+            "TOKENBOARD_SETTINGS_SNAPSHOT_PATH"
+        ] {
+            let representation = try XCTUnwrap(image.tiffRepresentation)
+            let bitmap = try XCTUnwrap(NSBitmapImageRep(data: representation))
+            let png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+            try png.write(to: URL(fileURLWithPath: path))
+        }
     }
 
     func testDiagnosticsCollectsCurrentSourceIssuesBehindTechnicalDetails() {
@@ -235,6 +283,11 @@ final class SettingsTests: XCTestCase {
                 lastObservedDay: "2026-08-05"
             )
         ])
+        XCTAssertEqual(setup.model.settingsState.pricing.coveragePeriod, .today)
+
+        await setup.model.select(period: .thisYear)
+
+        XCTAssertEqual(setup.model.settingsState.pricing.coveragePeriod, .thisYear)
     }
 
     func testRecoveryLoadsBackupWithoutRestoringUntilExplicitActionAndUsesShutdownBarrier() async throws {
@@ -284,7 +337,7 @@ final class SettingsTests: XCTestCase {
         await setup.model.refreshSettings()
 
         let termination = Task { await setup.model.shutdown() }
-        await shutdownGate.waitUntilEntered()
+        try await shutdownGate.waitUntilEntered()
         let restoreDuringTermination = Task {
             await setup.model.restoreBackup(recoveryFiles.backup)
         }
@@ -350,30 +403,16 @@ final class SettingsTests: XCTestCase {
         defer { setup.cleanup() }
         publishRecoveryRequired(in: setup.model)
         await setup.model.refreshSettings()
-        let menu = MenuController(model: setup.model, statusItem: TestStatusItemHost())
-        let login = LaunchAtLoginController(service: SettingsLoginService())
         var openedPricing = false
         setup.model.onOpenPricing = { openedPricing = true }
 
         let restore = Task { await setup.model.restoreBackup(recoveryFiles.backup) }
-        await gate.waitUntilEntered()
+        try await gate.waitUntilEntered()
 
-        XCTAssertFalse(SettingsView(model: setup.model, launchAtLogin: login).actionState.controlsEnabled)
         XCTAssertEqual(
             DatabaseRecoveryView(model: setup.model).actionState,
             DatabaseRecoveryActionState(canReveal: false, canRestore: false, canQuit: false)
         )
-        let actionable = menu.renderedMenu?.items.filter { $0.action != nil } ?? []
-        XCTAssertFalse(menu.renderedMenu?.autoenablesItems ?? true)
-        XCTAssertFalse(actionable.isEmpty)
-        XCTAssertTrue(actionable.allSatisfy { !$0.isEnabled })
-        XCTAssertTrue(menu.renderedMenu?.items
-            .flatMap { $0.submenu?.items ?? [] }
-            .filter { $0.action != nil }
-            .allSatisfy { !$0.isEnabled } == true)
-        XCTAssertTrue(menu.renderedMenu?.items
-            .compactMap(\.submenu)
-            .allSatisfy { !$0.autoenablesItems } == true)
         setup.model.revealLocalData()
         setup.model.openPricing()
         XCTAssertEqual(setup.revealer.selections, [])
@@ -418,14 +457,6 @@ final class SettingsTests: XCTestCase {
         )
         setup.model.revealLocalData()
         XCTAssertEqual(setup.revealer.selections, [[setup.paths.root]])
-        let built = NativeMenuBuilder.makeMenu(
-            state: setup.model.state,
-            startupError: nil,
-            target: nil,
-            isRestoringDatabase: setup.model.settingsState.isRestoringDatabase,
-            requiresRelaunch: setup.model.requiresDatabaseRecoveryRelaunch
-        )
-        XCTAssertTrue(built.menu.items.first { $0.title == "Quit Tokenboard" }?.isEnabled == true)
     }
 
     func testCompletedRestoreRequiresRelaunchAndKeepsSettingsReachable() async throws {
@@ -449,17 +480,6 @@ final class SettingsTests: XCTestCase {
             canRestore: false,
             canQuit: true
         ) else { throw SettingsError.injected }
-        let built = NativeMenuBuilder.makeMenu(
-            state: setup.model.state,
-            startupError: nil,
-            target: nil,
-            isRestoringDatabase: false,
-            requiresRelaunch: setup.model.requiresDatabaseRecoveryRelaunch
-        )
-        let enabledActions = built.menu.items.filter { $0.action != nil && $0.isEnabled }
-        guard enabledActions.map(\.title) == ["Settings", "Quit Tokenboard"] else {
-            throw SettingsError.injected
-        }
         setup.model.openPricing()
         setup.model.openSettings()
         await setup.model.restoreBackup(recoveryFiles.backup)
@@ -532,14 +552,7 @@ final class SettingsTests: XCTestCase {
             throw SettingsError.injected
         }
         setup.model.openSettings()
-        let built = NativeMenuBuilder.makeMenu(
-            state: setup.model.state,
-            startupError: nil,
-            target: nil,
-            preservationFailed: true
-        )
-        let enabled = built.menu.items.filter { $0.action != nil && $0.isEnabled }.map(\.title)
-        guard enabled == ["Settings", "Quit Tokenboard"], settingsOpenCount == 1 else {
+        guard settingsOpenCount == 1 else {
             throw SettingsError.injected
         }
         guard await setup.model.shutdown() else { throw SettingsError.injected }
@@ -565,7 +578,7 @@ final class SettingsTests: XCTestCase {
         guard await delegate.shutdownForTermination() == false else { throw SettingsError.injected }
 
         let retry = Task { await setup.model.retryDatabasePreservation() }
-        await retryGate.waitUntilEntered()
+        try await retryGate.waitUntilEntered()
         let shutdownCompleted = SettingsCompletionFlag()
         let shutdown = Task {
             let result = await setup.model.shutdown()
@@ -584,7 +597,7 @@ final class SettingsTests: XCTestCase {
         }
     }
 
-    func testRetryablePreservationKeepsSettingsMenuReachableAfterWindowClose() async throws {
+    func testRetryablePreservationKeepsSettingsReachableAfterWindowClose() async throws {
         let recoveryFiles = try await makeRecoveryBackup()
         defer { try? FileManager.default.removeItem(at: recoveryFiles.root) }
         let recovery = SettingsRecovery(
@@ -601,14 +614,7 @@ final class SettingsTests: XCTestCase {
 
         setup.model.openSettings()
         setup.model.openSettings()
-        let built = NativeMenuBuilder.makeMenu(
-            state: setup.model.state,
-            startupError: nil,
-            target: nil,
-            preservationRetryRequired: true
-        )
-        let enabled = built.menu.items.filter { $0.action != nil && $0.isEnabled }.map(\.title)
-        guard settingsOpenCount == 2, enabled == ["Settings"] else {
+        guard settingsOpenCount == 2 else {
             throw SettingsError.injected
         }
     }
@@ -690,6 +696,27 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(setup.model.state.lifecycle, .shuttingDown)
     }
 
+    func testRestoreFailureAfterShutdownRequiresRelaunch() async throws {
+        let recoveryFiles = try await makeRecoveryBackup()
+        defer { try? FileManager.default.removeItem(at: recoveryFiles.root) }
+        let recovery = SettingsRecovery(
+            backup: recoveryFiles.backup,
+            restoreError: .backupChanged
+        )
+        let setup = try makeSetup(databaseRecovery: recovery)
+        defer { setup.cleanup() }
+        publishRecoveryRequired(in: setup.model)
+        await setup.model.refreshSettings()
+
+        await setup.model.restoreLatestBackup()
+
+        let didAwaitShutdown = await recovery.didAwaitShutdown()
+        XCTAssertTrue(didAwaitShutdown)
+        XCTAssertEqual(setup.model.state.lifecycle, .stopped)
+        XCTAssertTrue(setup.model.requiresDatabaseRecoveryRelaunch)
+        XCTAssertTrue(setup.model.settingsState.statusMessage?.contains("Quit and reopen") == true)
+    }
+
     func testTerminationRefusesStrictCloseFailureAndCanRetryWithoutRestartingWriters() async throws {
         let setup = try makeSetup(
             ledgerShutdownError: SettingsError.injected
@@ -726,7 +753,7 @@ final class SettingsTests: XCTestCase {
             await setup.model.refreshSettings()
 
             let restore = Task { await setup.model.restoreLatestBackup() }
-            await gate.waitUntilEntered()
+            try await gate.waitUntilEntered()
             let completion = SettingsCompletionFlag()
             let shutdown = Task {
                 await setup.model.shutdown()
@@ -874,7 +901,12 @@ final class SettingsTests: XCTestCase {
 
     func testChangeThenRevokeSharesOneMutationAndKeepsReplacementGrantAtomic() async throws {
         let gate = SettingsMutationGate()
-        let replacement = URL(fileURLWithPath: "/private/tmp/change-wins", isDirectory: true)
+        let replacement = FileManager.default.temporaryDirectory.appending(
+            path: "SettingsTests-change-wins-\(UUID().uuidString)",
+            directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(at: replacement, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: replacement) }
         let setup = try makeSetup(
             grantedProviders: Set(Provider.allCases),
             approved: true,
@@ -886,7 +918,7 @@ final class SettingsTests: XCTestCase {
         await setup.coordinator.resetEvidence()
 
         let change = Task { await setup.model.changeSource(.claudeCode) }
-        await gate.waitUntilEntered()
+        try await gate.waitUntilEntered()
         XCTAssertTrue(setup.model.settingsState.isSourceMutationInProgress)
         let revoke = Task { await setup.model.revokeSource(.claudeCode) }
         await Task.yield()
@@ -919,7 +951,7 @@ final class SettingsTests: XCTestCase {
         await setup.coordinator.resetEvidence()
 
         let revoke = Task { await setup.model.revokeSource(.claudeCode) }
-        await gate.waitUntilEntered()
+        try await gate.waitUntilEntered()
         let change = Task { await setup.model.changeSource(.claudeCode) }
         await Task.yield()
         await gate.release()
@@ -946,7 +978,7 @@ final class SettingsTests: XCTestCase {
         await setup.coordinator.resetEvidence()
 
         let first = Task { await setup.model.revokeSource(.claudeCode) }
-        await gate.waitUntilEntered()
+        try await gate.waitUntilEntered()
         let second = Task { await setup.model.revokeSource(.claudeCode) }
         await Task.yield()
         await gate.release()
@@ -1170,7 +1202,10 @@ private struct SettingsSetup {
     let cleanup: () -> Void
 }
 
-private enum SettingsError: Error { case injected }
+private enum SettingsError: Error {
+    case injected
+    case gateTimeout
+}
 
 private actor SettingsRecovery: AppDatabaseRecovering {
     private let backup: DatabaseBackup
@@ -1279,6 +1314,7 @@ private actor SettingsLedger: AppLedgerRuntime {
     func pricingSnapshot() -> PricingSnapshot { pricing }
     func usageRows(in interval: DateInterval?, calendar: Calendar) -> [DailyUsageRow] { rows }
     func skippedRecordCount() -> Int { currentSkippedRecordCount }
+    func skippedRecordCountsByProvider() -> [Provider: Int] { [:] }
     func setSkippedRecordCount(_ count: Int) { currentSkippedRecordCount = count }
     func shutdown() async throws {
         shutdowns += 1
@@ -1390,20 +1426,20 @@ private actor SettingsMutationGate {
     private var entered = false
     private var released = false
     private var waiters: [CheckedContinuation<Void, Never>] = []
-    private var enteredWaiters: [CheckedContinuation<Void, Never>] = []
 
     func suspend() async {
         entered = true
-        let observers = enteredWaiters
-        enteredWaiters.removeAll()
-        observers.forEach { $0.resume() }
         guard !released else { return }
         await withCheckedContinuation { waiters.append($0) }
     }
 
-    func waitUntilEntered() async {
-        guard !entered else { return }
-        await withCheckedContinuation { enteredWaiters.append($0) }
+    func waitUntilEntered() async throws {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while !entered {
+            guard clock.now < deadline else { throw SettingsError.gateTimeout }
+            try await Task.sleep(for: .milliseconds(10))
+        }
     }
 
     func release() {

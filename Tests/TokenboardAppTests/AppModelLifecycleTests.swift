@@ -1545,6 +1545,7 @@ private actor LifecycleInbox: AppPricingInboxWatching {
             throw LifecycleFailure.injected
         }
     }
+    func quiesce() {}
     func stop() { stops += 1 }
     func status() -> PricingCatalogStatus? { nil }
     func updates() -> AsyncStream<PricingCatalogStatus> { AsyncStream { $0.finish() } }

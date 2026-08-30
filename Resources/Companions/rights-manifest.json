@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "assetGroups": [
+    {
+      "id": "forest",
+      "bundlePath": "Forest",
+      "redistributionStatus": "cleared",
+      "evidence": ["Scripts/generate-companion-artwork.swift"]
+    },
+    {
+      "id": "village",
+      "bundlePath": "Village",
+      "redistributionStatus": "cleared",
+      "evidence": ["Scripts/generate-companion-artwork.swift"]
+    },
+    {
+      "id": "pokemon",
+      "bundlePath": "Pokemon",
+      "redistributionStatus": "pending",
+      "evidence": []
+    },
+    {
+      "id": "old-school-runescape",
+      "bundlePath": "OldSchoolRuneScape",
+      "redistributionStatus": "pending",
+      "evidence": []
+    },
+    {
+      "id": "age-of-empires-ii",
+      "bundlePath": "AgeOfEmpiresII",
+      "redistributionStatus": "pending",
+      "evidence": []
+    },
+    {
+      "id": "minecraft",
+      "bundlePath": "Minecraft",
+      "redistributionStatus": "pending",
+      "evidence": []
+    },
+    {
+      "id": "banished",
+      "bundlePath": "Banished",
+      "redistributionStatus": "pending",
+      "evidence": []
+    },
+    {
+      "id": "frostpunk",
+      "bundlePath": "Frostpunk",
+      "redistributionStatus": "pending",
+      "evidence": []
+    }
+  ]
+}

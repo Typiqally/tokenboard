@@ -166,6 +166,25 @@ final class DatabaseRecoveryServiceTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: invalidCanonical), invalidBytes)
     }
 
+    func testAvailableBackupsRejectsAnUnboundedCandidateInventory() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let database = directory.appending(path: "ledger.sqlite")
+        let backups = directory.appending(path: "Backups", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: backups, withIntermediateDirectories: true)
+        try Data("database".utf8).write(to: database)
+        for index in 0...DatabaseRecoveryService.maximumBackupCandidates {
+            try Data().write(to: backups.appending(path: "ledger-v1-\(index).sqlite"))
+        }
+        let service = DatabaseRecoveryService(databaseURL: database, backupDirectory: backups)
+
+        await assertRecoveryError(.backupInventoryTooLarge(
+            maximumCandidates: DatabaseRecoveryService.maximumBackupCandidates
+        )) {
+            _ = try await service.availableBackups()
+        }
+    }
+
     func testRestoreWaitsForShutdownThenRestoresLatestValidRows() async throws {
         let setup = try await makePopulatedLedger(quantity: 41)
         defer { try? FileManager.default.removeItem(at: setup.directory) }
@@ -1086,6 +1105,42 @@ final class DatabaseRecoveryServiceTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: backup), backupBytes)
     }
 
+    func testBackupGrowthDuringRestoreIsRejectedWithoutCopyingPastConfirmedSize() async throws {
+        let setup = try await makePopulatedLedger(quantity: 122)
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        try await setup.ledger.shutdown()
+        let original = try Data(contentsOf: setup.database)
+        let backups = setup.directory.appending(path: "Backups", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: backups, withIntermediateDirectories: true)
+        let backup = backups.appending(path: "ledger-v2-100.sqlite")
+        try original.write(to: backup)
+        let recorder = RecoveryOperationRecorder()
+        let grower = RecoveryBackupGrower()
+        let service = DatabaseRecoveryService(
+            databaseURL: setup.database,
+            backupDirectory: backups,
+            stageHandler: { _ in },
+            fileOperationHandler: { operation in
+                guard operation == .restoreCopyChunk else { return }
+                recorder.recordChunk()
+                try grower.appendOnce(
+                    to: backup,
+                    bytes: 3 * 64 * 1_024
+                )
+            }
+        )
+        let available = try await service.availableBackups()
+        let confirmed = try XCTUnwrap(available.first)
+        let confirmedChunkCount = (original.count + 64 * 1_024 - 1) / (64 * 1_024)
+
+        await assertRecoveryError(.backupChanged) {
+            _ = try await service.restore(confirmed) {}
+        }
+
+        XCTAssertLessThanOrEqual(recorder.chunkCount, confirmedChunkCount)
+        XCTAssertEqual(try Data(contentsOf: setup.database), original)
+    }
+
     func testOversizedBackupSurfacesTheSupportedRestoreLimitWithoutMutation() async throws {
         let setup = try await makePopulatedLedger(quantity: 123)
         defer { try? FileManager.default.removeItem(at: setup.directory) }
@@ -1613,7 +1668,7 @@ final class DatabaseRecoveryServiceTests: XCTestCase {
     }
 
     private func makeDirectory() throws -> URL {
-        let directory = FileManager.default.temporaryDirectory
+        let directory = canonicalTestTemporaryDirectory
             .resolvingSymlinksInPath()
             .appending(path: UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -1704,6 +1759,23 @@ private final class RecoveryOperationRecorder: @unchecked Sendable {
     private var chunks = 0
     var chunkCount: Int { lock.withLock { chunks } }
     func recordChunk() { lock.withLock { chunks += 1 } }
+}
+
+private final class RecoveryBackupGrower: @unchecked Sendable {
+    private let lock = NSLock()
+    private var didAppend = false
+
+    func appendOnce(to url: URL, bytes: Int) throws {
+        try lock.withLock {
+            guard !didAppend else { return }
+            didAppend = true
+            let handle = try FileHandle(forWritingTo: url)
+            defer { try? handle.close() }
+            try handle.seekToEnd()
+            try handle.write(contentsOf: Data(repeating: 0x5a, count: bytes))
+            try handle.synchronize()
+        }
+    }
 }
 
 private final class RecoveryCollisionInstaller: @unchecked Sendable {

@@ -13,8 +13,11 @@ enum CompanionMenuIconRenderer {
         stage: Int
     ) -> NSImage {
         let stage = min(max(stage, 0), CompanionJourney.thresholds.count - 1)
-        if theme == .ageOfEmpiresII {
+        if theme == .ageOfEmpiresII || theme == .banished {
             return settlementGlyph(stage: stage)
+        }
+        if theme == .frostpunk {
+            return generatorGlyph(stage: stage)
         }
         if let resource = CompanionAssetCatalog.menuIconResource(
             theme: theme,
@@ -32,6 +35,8 @@ enum CompanionMenuIconRenderer {
         case .oldSchoolRuneScape: "figure.walk"
         case .ageOfEmpiresII: "building.columns.fill"
         case .minecraft: "cube.fill"
+        case .banished: "house.and.flag.fill"
+        case .frostpunk: "snowflake"
         }
         let symbol = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)
             ?? NSImage(size: iconSize)
@@ -190,5 +195,39 @@ enum CompanionMenuIconRenderer {
             crenellatedTower(centerX: 15, width: 4, height: 9.6)
         }
         return path
+    }
+
+    /// Frostpunk's Generator grows from a bare furnace into the many-ringed
+    /// heart of New London, keeping the menu silhouette stage-readable.
+    private static func generatorGlyph(stage: Int) -> NSImage {
+        let image = NSImage(size: iconSize, flipped: false) { _ in
+            let path = NSBezierPath()
+            let tier = min(max(stage, 0), CompanionJourney.thresholds.count - 1)
+            let coreHeight = CGFloat(7.0 + Double(tier) * 0.22)
+            path.appendRect(NSRect(x: 6.25, y: 2.1, width: 5.5, height: coreHeight))
+            path.appendRect(NSRect(x: 5.2, y: 2.0, width: 7.6, height: 1.5))
+            path.appendRect(NSRect(x: 7.2, y: 2.0 + coreHeight, width: 3.6, height: 2.0))
+
+            let rings = min(4, 1 + tier / 3)
+            for index in 0..<rings {
+                let y = CGFloat(4.0 + Double(index) * 2.25)
+                path.appendRect(NSRect(x: 4.9, y: y, width: 8.2, height: 0.9))
+            }
+            if tier >= 4 {
+                path.appendRect(NSRect(x: 3.4, y: 3.0, width: 1.6, height: 5.4))
+            }
+            if tier >= 7 {
+                path.appendRect(NSRect(x: 13.0, y: 3.0, width: 1.6, height: 6.8))
+            }
+            if tier >= 10 {
+                path.appendRect(NSRect(x: 2.0, y: 2.0, width: 1.4, height: 3.6))
+                path.appendRect(NSRect(x: 14.6, y: 2.0, width: 1.4, height: 4.6))
+            }
+            NSColor.black.setFill()
+            path.fill()
+            return true
+        }
+        image.isTemplate = true
+        return image
     }
 }

@@ -27,6 +27,46 @@ final class PricingLedgerTests: XCTestCase {
         XCTAssertEqual(latest, replacement.canonicalJSON)
     }
 
+    func testCatalogReplacementPreservesImmutableImportHistoryAndOneActiveImport() async throws {
+        let setup = try makeLedgerWithDatabase()
+        try await setup.ledger.migrate()
+        let first = try catalog(id: "catalog-history-a", models: [model(inputPrice: 5)])
+        let second = try catalog(id: "catalog-history-b", models: [model(inputPrice: 7)])
+
+        try await apply(first, to: setup.ledger)
+        try await apply(second, to: setup.ledger)
+
+        let database = try SQLiteConnection(url: setup.databaseURL)
+        defer { try? database.close() }
+        XCTAssertEqual(
+            try database.queryStrings(
+                "SELECT catalog_id FROM catalog_imports ORDER BY import_id;"
+            ),
+            ["catalog-history-a", "catalog-history-b"]
+        )
+        XCTAssertEqual(
+            try database.queryStrings("""
+            SELECT imports.catalog_id
+            FROM active_catalog_import AS active
+            JOIN catalog_imports AS imports ON imports.import_id = active.import_id
+            WHERE active.singleton = 1;
+            """),
+            ["catalog-history-b"]
+        )
+        XCTAssertEqual(
+            try database.queryStrings(
+                "SELECT canonical_json FROM catalog_imports ORDER BY import_id;"
+            ),
+            [
+                String(decoding: first.canonicalJSON, as: UTF8.self),
+                String(decoding: second.canonicalJSON, as: UTF8.self)
+            ]
+        )
+        XCTAssertThrowsError(
+            try database.execute("UPDATE catalog_imports SET canonical_json = '{}';")
+        )
+    }
+
     func testSchemaV2ReplacementKeepsOnlyTheAuthoritativeExchangeSnapshot() async throws {
         let ledger = try makeLedger()
         try await ledger.migrate()
@@ -272,7 +312,7 @@ final class PricingLedgerTests: XCTestCase {
     }
 
     private func makeLedgerWithDatabase() throws -> (ledger: SQLiteLedger, databaseURL: URL) {
-        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let directory = canonicalTestTemporaryDirectory.appending(path: UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let databaseURL = directory.appending(path: "ledger.sqlite")
         let ledger = try SQLiteLedger(
@@ -323,10 +363,14 @@ final class PricingLedgerTests: XCTestCase {
         ORDER BY provider, canonical_model_id, metric, effective_from;
         """) + database.queryStrings("""
         SELECT 'import|' || quote(catalog_id) || '|' || quote(schema_version) || '|'
-               || quote(origin) || '|' || quote(imported_at) || '|' || quote(applied) || '|'
+               || quote(origin) || '|' || quote(imported_at) || '|'
                || quote(validation_summary) || '|' || hex(canonical_json)
         FROM catalog_imports
-        ORDER BY catalog_id;
+        ORDER BY import_id;
+        """) + database.queryStrings("""
+        SELECT 'active|' || quote(import_id)
+        FROM active_catalog_import
+        ORDER BY singleton;
         """)
         return Data(rows.joined(separator: "\n").utf8)
     }

@@ -38,7 +38,7 @@ private struct BenchmarkImportEnvironment {
     let calendar: Calendar
 
     static func make(claudeLogCount: Int, codexLogCount: Int) async throws -> Self {
-        let root = FileManager.default.temporaryDirectory
+        let root = canonicalTestTemporaryDirectory
             .appending(path: "tokenboard-import-benchmark-\(UUID().uuidString)")
         var completed = false
         defer {
@@ -99,18 +99,26 @@ private struct BenchmarkImportEnvironment {
     func importAll() async throws -> Int {
         var committed = 0
         for log in claudeLogs {
-            committed += try await scanner.scan(
+            let outcome = try await scanner.scan(
                 file: log,
                 provider: .claudeCode,
                 calendar: calendar
-            ).committedUsageRecords
+            )
+            if let attention = outcome.attention {
+                throw BenchmarkImportError.sourceAttention(.claudeCode, attention, log.path)
+            }
+            committed += outcome.committedUsageRecords
         }
         for log in codexLogs {
-            committed += try await scanner.scan(
+            let outcome = try await scanner.scan(
                 file: log,
                 provider: .codex,
                 calendar: calendar
-            ).committedUsageRecords
+            )
+            if let attention = outcome.attention {
+                throw BenchmarkImportError.sourceAttention(.codex, attention, log.path)
+            }
+            committed += outcome.committedUsageRecords
         }
         return committed
     }
@@ -118,4 +126,8 @@ private struct BenchmarkImportEnvironment {
     func removeTemporaryFiles() {
         try? FileManager.default.removeItem(at: root)
     }
+}
+
+private enum BenchmarkImportError: Error {
+    case sourceAttention(Provider, ScanOutcome.Attention, String)
 }

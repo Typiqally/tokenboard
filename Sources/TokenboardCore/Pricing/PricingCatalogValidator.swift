@@ -9,6 +9,8 @@ public enum PricingCatalogValidationError: Error, Equatable, Sendable {
     case invalidInterval(String)
     case invalidURL(String)
     case invalidOrigin
+    case invalidProvenance(provider: Provider)
+    case invalidExchangeRateProvenance
     case invalidExchangeRateSnapshot(String)
     case duplicateModel(String)
     case duplicateEffectiveStart(String)
@@ -25,7 +27,7 @@ public struct PricingCatalogValidator: Sendable {
         guard catalog.schemaVersion == 1 || catalog.schemaVersion == 2 else {
             throw PricingCatalogValidationError.unsupportedSchemaVersion(catalog.schemaVersion)
         }
-        try validateIdentifier(catalog.catalogID, label: "catalog ID")
+        try validateCatalogIdentifier(catalog.catalogID)
         guard Self.isISO8601Timestamp(catalog.generatedAt) else {
             throw PricingCatalogValidationError.invalidGeneratedAt
         }
@@ -61,7 +63,10 @@ public struct PricingCatalogValidator: Sendable {
         var validatedModels: [ValidatedCatalogModel] = []
 
         for model in catalog.models {
-            try validateIdentifier(model.canonicalModelID, label: "canonical model ID")
+            try validateModelIdentifier(model.canonicalModelID, label: "canonical model ID")
+            guard !ModelIdentifierPolicy.isOpaqueUnknown(model.canonicalModelID) else {
+                throw PricingCatalogValidationError.invalidIdentifier("canonical model ID")
+            }
             let modelKey = ModelKey(provider: model.provider, canonicalModelID: model.canonicalModelID)
             guard modelKeys.insert(modelKey).inserted else {
                 throw PricingCatalogValidationError.duplicateModel(model.canonicalModelID)
@@ -69,7 +74,7 @@ public struct PricingCatalogValidator: Sendable {
 
             var aliases: [CatalogAlias] = []
             for alias in model.aliases {
-                try validateIdentifier(alias.observedModelID, label: "observed model ID")
+                try validateModelIdentifier(alias.observedModelID, label: "observed model ID")
                 guard !ModelIdentifierPolicy.isOpaqueUnknown(alias.observedModelID) else {
                     throw PricingCatalogValidationError.opaqueObservedModelID(alias.observedModelID)
                 }
@@ -86,6 +91,13 @@ public struct PricingCatalogValidator: Sendable {
                 try validateInterval(from: rate.effectiveFrom, to: rate.effectiveTo)
                 try validateDate(rate.verifiedAt)
                 let provenanceURL = try validatedURL(rate.provenanceURL)
+                guard Self.allowedHosts(for: model.provider).contains(
+                    provenanceURL.host?.lowercased() ?? ""
+                ) else {
+                    throw PricingCatalogValidationError.invalidProvenance(
+                        provider: model.provider
+                    )
+                }
 
                 var prices: [UsageMetric: Decimal] = [:]
                 for (rawMetric, price) in rate.prices {
@@ -165,6 +177,9 @@ public struct PricingCatalogValidator: Sendable {
         try validateDate(snapshot.effectiveDate)
         try validateDate(snapshot.verifiedAt)
         let provenanceURL = try validatedURL(snapshot.provenanceURL)
+        guard provenanceURL.absoluteString == Self.ecbProvenanceURL else {
+            throw PricingCatalogValidationError.invalidExchangeRateProvenance
+        }
 
         let expectedCodes = Set(DisplayCurrency.allCases.map(\.rawValue))
         guard Set(snapshot.rates.keys) == expectedCodes else {
@@ -201,9 +216,16 @@ public struct PricingCatalogValidator: Sendable {
         )
     }
 
-    private func validateIdentifier(_ value: String, label: String) throws {
+    private func validateCatalogIdentifier(_ value: String) throws {
         guard (1...256).contains(value.utf8.count),
               value.utf8.allSatisfy(Self.allowedIdentifierBytes.contains) else {
+            throw PricingCatalogValidationError.invalidIdentifier("catalog ID")
+        }
+    }
+
+    private func validateModelIdentifier(_ value: String, label: String) throws {
+        guard value != "<synthetic>",
+              ModelIdentifierPolicy.isContentSafe(value) else {
             throw PricingCatalogValidationError.invalidIdentifier(label)
         }
     }
@@ -218,7 +240,9 @@ public struct PricingCatalogValidator: Sendable {
             }
             try validateRepositoryPath(components.percentEncodedPath)
         case .officialResearch, .webResearch:
-            break
+            guard Self.allOfficialHosts.contains(host) else {
+                throw PricingCatalogValidationError.invalidOrigin
+            }
         }
     }
 
@@ -231,13 +255,7 @@ public struct PricingCatalogValidator: Sendable {
     }
 
     private func validatedURLComponents(_ value: String) throws -> URLComponents {
-        guard let components = URLComponents(string: value),
-              components.scheme?.lowercased() == "https",
-              components.host != nil,
-              components.user == nil,
-              components.password == nil,
-              components.port == nil,
-              components.url != nil else {
+        guard let components = SecureHTTPSURL.components(value) else {
             throw PricingCatalogValidationError.invalidURL(value)
         }
         return components
@@ -279,24 +297,7 @@ public struct PricingCatalogValidator: Sendable {
     }
 
     private func validateDate(_ value: String) throws {
-        guard Self.datePattern.firstMatch(
-            in: value,
-            range: NSRange(value.startIndex..<value.endIndex, in: value)
-        )?.range == NSRange(value.startIndex..<value.endIndex, in: value) else {
-            throw PricingCatalogValidationError.invalidDate(value)
-        }
-        let parts = value.split(separator: "-")
-        guard parts.count == 3,
-              let year = Int(parts[0]),
-              let month = Int(parts[1]),
-              let day = Int(parts[2]),
-              let date = Self.gregorianCalendar.date(
-                from: DateComponents(calendar: Self.gregorianCalendar, year: year, month: month, day: day)
-              ) else {
-            throw PricingCatalogValidationError.invalidDate(value)
-        }
-        let components = Self.gregorianCalendar.dateComponents([.year, .month, .day], from: date)
-        guard components.year == year, components.month == month, components.day == day else {
+        guard GregorianDay.isValid(value) else {
             throw PricingCatalogValidationError.invalidDate(value)
         }
     }
@@ -403,6 +404,13 @@ public struct PricingCatalogValidator: Sendable {
             < (rhs.effectiveFrom, rhs.effectiveTo ?? "", rhs.provenanceURL.absoluteString, rhs.verifiedAt)
     }
 
+    private static func allowedHosts(for provider: Provider) -> Set<String> {
+        switch provider {
+        case .claudeCode: anthropicHosts
+        case .codex: openAIHosts
+        }
+    }
+
     private static func aliasKeyOrder(_ lhs: AliasKey, _ rhs: AliasKey) -> Bool {
         (lhs.provider.rawValue, lhs.observedModelID) < (rhs.provider.rawValue, rhs.observedModelID)
     }
@@ -420,18 +428,24 @@ public struct PricingCatalogValidator: Sendable {
         .inputCacheWrite1h,
         .output
     ]
+    private static let anthropicHosts: Set<String> = [
+        "anthropic.com", "www.anthropic.com", "platform.claude.com",
+        "docs.anthropic.com", "www-cdn.anthropic.com",
+    ]
+    private static let openAIHosts: Set<String> = [
+        "openai.com", "www.openai.com", "platform.openai.com",
+        "help.openai.com", "developers.openai.com",
+    ]
+    private static let ecbHosts: Set<String> = ["www.ecb.europa.eu"]
+    private static let allOfficialHosts = anthropicHosts.union(openAIHosts).union(ecbHosts)
+    private static let ecbProvenanceURL =
+        "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml"
     private static let allowedIdentifierBytes = Set(
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._:-".utf8
     )
-    private static let datePattern = try! NSRegularExpression(pattern: #"^[0-9]{4}-[0-9]{2}-[0-9]{2}$"#)
     private static let timestampPattern = try! NSRegularExpression(
         pattern: #"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$"#
     )
-    private static let gregorianCalendar: Calendar = {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
-        return calendar
-    }()
 }
 
 private struct ModelKey: Hashable {

@@ -11,7 +11,7 @@ final class IncrementalScannerTests: XCTestCase {
     }
 
     func testRepeatedAndRecreatedClaudeRecordsAreIdempotent() async throws {
-        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let directory = canonicalTestTemporaryDirectory.appending(path: UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let file = directory.appending(path: "source.jsonl")
@@ -76,6 +76,42 @@ final class IncrementalScannerTests: XCTestCase {
         XCTAssertEqual(partial.committedUsageRecords, 0)
         XCTAssertEqual(completed.committedUsageRecords, 1)
     }
+
+    func testCancellationAfterACommittedBatchStopsBeforeScanningAnotherBatch() async throws {
+        let directory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appending(path: ".build/test-scratch/\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: "source.jsonl")
+        let records = (0..<501).map { index in
+            claudeLine(requestID: "request-\(index)", messageID: "message-\(index)")
+        }
+        try Data((records.joined(separator: "\n") + "\n").utf8).write(to: file)
+        let ledger = ScannerTestLedger(cancelAfterCommit: true)
+        let scanner = IncrementalScanner(ledger: ledger)
+        let scanCalendar = calendar
+
+        let result = await Task {
+            do {
+                let outcome = try await scanner.scan(
+                    file: file,
+                    provider: .claudeCode,
+                    calendar: scanCalendar
+                )
+                return "success:\(outcome)"
+            } catch is CancellationError {
+                return "cancelled"
+            } catch {
+                return String(describing: error)
+            }
+        }.value
+        let commits = await ledger.capturedSuccessfulCommits()
+
+        XCTAssertEqual(result, "cancelled")
+        XCTAssertEqual(commits.count, 1)
+        XCTAssertEqual(commits.first?.usage.count, 500)
+    }
+
 
     func testCodexRecordsWithoutStableUsageIdentityRemainCountable() async throws {
         let setup = try await makeSetup()
@@ -180,7 +216,7 @@ final class IncrementalScannerTests: XCTestCase {
     }
 
     func testSourceProbeAcceptsProviderIdentityFallbacks() throws {
-        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let directory = canonicalTestTemporaryDirectory.appending(path: UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let claude = directory.appending(path: "claude.jsonl")
@@ -218,7 +254,7 @@ final class IncrementalScannerTests: XCTestCase {
     }
 
     func testSkippedRecordStoresDiagnosticKindAndOpaqueHashes() async throws {
-        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let directory = canonicalTestTemporaryDirectory.appending(path: UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let file = directory.appending(path: "source.jsonl")
@@ -247,7 +283,7 @@ final class IncrementalScannerTests: XCTestCase {
     }
 
     func testSQLiteStorageContainsNoRawSourceUsageLineDiagnosticOrUnsafeModelMarkers() async throws {
-        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let directory = canonicalTestTemporaryDirectory.appending(path: UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let file = directory.appending(path: "source.jsonl")
@@ -291,7 +327,7 @@ final class IncrementalScannerTests: XCTestCase {
     }
 
     func testFailedCommitRetriesFromPersistedCheckpointWithoutLossOrDuplication() async throws {
-        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let directory = canonicalTestTemporaryDirectory.appending(path: UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let file = directory.appending(path: "source.jsonl")
@@ -359,7 +395,7 @@ final class IncrementalScannerTests: XCTestCase {
     }
 
     func testMixedSourceOutcomesCommitInFiveHundredLineBatches() async throws {
-        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let directory = canonicalTestTemporaryDirectory.appending(path: UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let file = directory.appending(path: "source.jsonl")
@@ -414,7 +450,7 @@ final class IncrementalScannerTests: XCTestCase {
     }
 
     func testOversizedRecordCommitsPriorLinesThenPinsCheckpointAcrossRestart() async throws {
-        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let directory = canonicalTestTemporaryDirectory.appending(path: UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let file = directory.appending(path: "source.jsonl")
@@ -450,7 +486,7 @@ final class IncrementalScannerTests: XCTestCase {
 
     func testSpecialSourceLeavesAreRejectedPromptlyWithoutFollowing() async throws {
         for kind in ["symlink", "hardlink", "fifo"] {
-            let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+            let directory = canonicalTestTemporaryDirectory.appending(path: UUID().uuidString)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             defer { try? FileManager.default.removeItem(at: directory) }
             let outside = directory.appending(path: "outside.jsonl")
@@ -476,8 +512,31 @@ final class IncrementalScannerTests: XCTestCase {
         }
     }
 
+    func testRetainedSourceRejectsAnIntermediateDirectorySymlink() throws {
+        let root = canonicalTestTemporaryDirectory.appending(path: UUID().uuidString)
+        let granted = root.appending(path: "granted", directoryHint: .isDirectory)
+        let outside = root.appending(path: "outside", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: granted, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let outsideFile = outside.appending(path: "source.jsonl")
+        try Data("{}\n".utf8).write(to: outsideFile)
+        try FileManager.default.createSymbolicLink(
+            at: granted.appending(path: "nested"),
+            withDestinationURL: outside
+        )
+
+        XCTAssertThrowsError(
+            try RetainedSourceFile(
+                url: granted.appending(path: "nested/source.jsonl")
+            )
+        ) { error in
+            XCTAssertEqual(error as? RetainedSourceFileError, .unsafeSource)
+        }
+    }
+
     func testPathSwapAndAppendAfterOpenCannotRedirectOrExtendScan() async throws {
-        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let directory = canonicalTestTemporaryDirectory.appending(path: UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let source = directory.appending(path: "source.jsonl")
@@ -546,7 +605,7 @@ final class IncrementalScannerTests: XCTestCase {
         ledger: SQLiteLedger,
         scanner: IncrementalScanner
     ) {
-        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let directory = canonicalTestTemporaryDirectory.appending(path: UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let ledger = try SQLiteLedger(
             databaseURL: directory.appending(path: "ledger.sqlite"),

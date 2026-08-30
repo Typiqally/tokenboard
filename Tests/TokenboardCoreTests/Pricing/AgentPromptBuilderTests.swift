@@ -12,11 +12,15 @@ final class AgentPromptBuilderTests: XCTestCase {
         )
     )
 
-    func testPromptUsesBroaderWebSourcesAndReplacesTheActiveCatalog() {
+    func testPromptUsesOnlyOfficialSourcesAndReplacesTheActiveCatalog() {
         let prompt = AgentPromptBuilder().build(paths: paths)
 
-        XCTAssertTrue(prompt.contains("reputable secondary sources"))
-        XCTAssertTrue(prompt.contains("web archives"))
+        XCTAssertTrue(prompt.contains("developers.openai.com"))
+        XCTAssertTrue(prompt.contains("platform.claude.com"))
+        XCTAssertTrue(prompt.contains("www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml"))
+        XCTAssertTrue(prompt.contains("origin kind official_research"))
+        XCTAssertTrue(prompt.contains("Do not use mirrors"))
+        XCTAssertFalse(prompt.contains("You may use public web sources"))
         XCTAssertTrue(prompt.contains("atomically replace the active catalog"))
         XCTAssertTrue(prompt.contains("validating the file locally"))
         XCTAssertTrue(prompt.contains("applies valid changes automatically"))
@@ -41,7 +45,7 @@ final class AgentPromptBuilderTests: XCTestCase {
         XCTAssertTrue(prompt.contains("schemaVersion 2"))
         XCTAssertTrue(prompt.contains("complete model-pricing ledger"))
         XCTAssertTrue(prompt.contains("USD, EUR, JPY, GBP, and CNY"))
-        XCTAssertTrue(prompt.contains("origin kind web_research"))
+        XCTAssertTrue(prompt.contains("origin kind official_research"))
         XCTAssertTrue(prompt.contains("Do not include transcript content"))
         XCTAssertTrue(prompt.contains("report every source consulted"))
     }
