@@ -163,82 +163,14 @@ struct CompanionParticleField: Equatable, Sendable {
     }
 
     /// The field's particles at a moment, in scene-normalized coordinates.
+    /// Convenience over the resolver for tests and one-off reads; the render
+    /// path resolves once and reuses `CompanionResolvedParticleField`.
     func particles(at elapsed: Double, seed: UInt64) -> [CompanionParticle] {
-        guard count > 0 else { return [] }
-        return (0..<count).map { index in
-            var rng = SplitMix64(
-                state: seed
-                    ^ CompanionHash.fnv1a(key)
-                    &+ UInt64(index) &* 0x9E37_79B9_7F4A_7C15
-            )
-            let phase = rng.unit()
-            let originX = rng.range(spawnX.lowerBound, spawnX.upperBound)
-            let originY = rng.range(spawnY.lowerBound, spawnY.upperBound)
-            let baseSize = rng.range(size.lowerBound, size.upperBound)
-            let baseOpacity = rng.range(opacity.lowerBound, opacity.upperBound)
-            let swayPhase = rng.unit()
-            let spin = rng.range(-1, 1)
-
-            let life = CompanionMath.fraction(elapsed / lifetime + phase)
-            var x = originX
-            var y = originY
-            if case let .travel(dx, dy, sway, swayPeriod) = drift {
-                x += dx * life
-                y += dy * life
-                if sway != 0 {
-                    x += sway * sin(
-                        2 * .pi * CompanionMath.fraction(elapsed / swayPeriod + swayPhase)
-                    )
-                }
-            }
-
-            var alpha: Double
-            switch fade {
-            case .inOut:
-                // Flat through the middle of the path and steep at its ends,
-                // so a particle is fully present for most of its life and
-                // genuinely invisible where its path loops.
-                alpha = baseOpacity * pow(sin(.pi * life), 1.6)
-            case .rise:
-                // Squared ramp-in: an ember or a wisp of smoke is born
-                // invisibly at its source rather than popping into view.
-                let born = pow(min(1, life / 0.15), 2)
-                alpha = baseOpacity * born * pow(1 - life, 1.3)
-            case let .twinkle(period):
-                let pulse = 0.5 + 0.5 * sin(
-                    2 * .pi * CompanionMath.fraction(elapsed / period + swayPhase)
-                )
-                // A twinkle that stays put pulses forever. One that travels
-                // still has to fade in and out at the ends of its path, or it
-                // would jump back to its start in full view.
-                let travelling = drift != .fixed
-                alpha = baseOpacity
-                    * (0.25 + 0.75 * pulse)
-                    * (travelling ? sin(.pi * life) : 1)
-            }
-
-            if coupling == .gust {
-                // Barely a trickle in still air, a shower where the gust is.
-                alpha *= 0.10 + 0.90 * CompanionSceneMotion.gustStrength(
-                    at: x,
-                    elapsed: elapsed
-                )
-            }
-
-            return CompanionParticle(
-                x: x,
-                y: y,
-                // A wingbeat runs on its own clock, not the particle's path,
-                // so a bird crossing the sky still beats its wings.
-                phase: CompanionMath.fraction(elapsed / 0.62 + swayPhase),
-                size: baseSize * (1 + (growth - 1) * life),
-                opacity: max(0, alpha),
-                rotation: shape == .leaf ? spin * 55 + life * 220 * spin : 0,
-                shape: shape,
-                tint: tint,
-                snapsToPixelGrid: snapsToPixelGrid
-            )
-        }
+        var particles: [CompanionParticle] = []
+        particles.reserveCapacity(count)
+        CompanionResolvedParticleField(field: self, seed: seed)
+            .append(at: elapsed, into: &particles)
+        return particles
     }
 }
 
@@ -272,25 +204,11 @@ struct CompanionShadowBandField: Equatable, Sendable {
     let bottom: Double
 
     func bands(at elapsed: Double, seed: UInt64) -> [CompanionShadowBand] {
-        guard count > 0 else { return [] }
-        return (0..<count).map { index in
-            var rng = SplitMix64(
-                state: seed
-                    ^ CompanionHash.fnv1a(key)
-                    &+ UInt64(index) &* 0xBF58_476D_1CE4_E5B9
-            )
-            let phase = rng.unit()
-            let travel = CompanionMath.fraction(elapsed / period + phase)
-            return CompanionShadowBand(
-                centerX: -0.5 - width / 2 + (2 + width) * travel,
-                width: width * rng.range(0.85, 1.2),
-                skew: skew,
-                opacity: opacity * rng.range(0.75, 1.15),
-                top: top,
-                bottom: bottom,
-                tint: tint
-            )
-        }
+        var bands: [CompanionShadowBand] = []
+        bands.reserveCapacity(count)
+        CompanionResolvedBandField(field: self, seed: seed)
+            .append(at: elapsed, into: &bands)
+        return bands
     }
 }
 
@@ -318,19 +236,7 @@ struct CompanionGlowSpec: Equatable, Sendable {
     let flickerPeriod: Double
 
     func glow(at elapsed: Double, seed: UInt64) -> CompanionGlow {
-        var rng = SplitMix64(state: seed ^ CompanionHash.fnv1a(key))
-        let phase = rng.unit()
-        // Two incommensurate waves so a flame never reads as a loop.
-        let slow = sin(2 * .pi * CompanionMath.fraction(elapsed / flickerPeriod + phase))
-        let fast = sin(2 * .pi * CompanionMath.fraction(elapsed / (flickerPeriod * 0.37) + phase))
-        let flicker = 0.65 * slow + 0.35 * fast
-        return CompanionGlow(
-            x: x,
-            y: y,
-            radius: radius * (1 + 0.08 * flicker),
-            tint: tint,
-            opacity: max(0, opacity * (1 + flickerDepth * flicker))
-        )
+        CompanionResolvedGlow(spec: self, seed: seed).glow(at: elapsed)
     }
 }
 
@@ -451,27 +357,11 @@ struct CompanionScenePlan: Equatable, Sendable {
         wash: nil
     )
 
-    /// Resolves the plan at a moment. `isMoving == false` produces the scene's
-    /// deliberate still: the atmosphere and its inhabitants are composed and
-    /// drawn, nothing runs.
+    /// Resolves the plan at a moment. Convenience over the resolver for tests
+    /// and one-off reads; the render path builds one CompanionResolvedScenePlan
+    /// per composition and advances only time.
     func frame(at elapsed: Double, isMoving: Bool) -> CompanionSceneFrame {
-        let time = isMoving ? elapsed : CompanionSceneMotion.stillElapsed(for: signature)
-        let inhabitants = actors.flatMap { $0.actors(at: time, seed: seed) }
-        return CompanionSceneFrame(
-            particles: fields.flatMap { $0.particles(at: time, seed: seed) },
-            bands: bands.flatMap { $0.bands(at: time, seed: seed) },
-            glows: glows.map { $0.glow(at: time, seed: seed) },
-            actors: inhabitants,
-            attention: CompanionAttention(
-                positions: inhabitants.filter(\.drawsAttention).map(\.x)
-            ),
-            wash: isMoving
-                ? (wash?.wash(at: time) ?? .none)
-                : (wash?.resting ?? .none),
-            background: isMoving
-                ? CompanionSceneMotion.background(drift: backgroundDrift, elapsed: time)
-                : .still
-        )
+        CompanionResolvedScenePlan(plan: self).frame(at: elapsed, isMoving: isMoving)
     }
 }
 
@@ -548,7 +438,6 @@ enum CompanionSceneMotion {
         index: Int,
         horizontalPosition: Double,
         relativeHeight: Double,
-        stage: Int,
         seed: UInt64,
         elapsed: Double,
         isMoving: Bool,
@@ -607,6 +496,13 @@ enum CompanionSceneMotion {
         return max(0, 1 - abs(watched - origin) / radius)
     }
 
+    // MARK: Subject stream keys
+
+    /// Constant subject keys, hashed once instead of per subject per frame.
+    private static let pokemonIdleHash = CompanionHash.fnv1a("pokemon/idle")
+    private static let forestSwayHash = CompanionHash.fnv1a("forest/sway")
+    private static let osrsTickHash = CompanionHash.fnv1a("osrs/tick")
+
     // MARK: Pokémon — breathe, then hop
 
     private static let breathPeriod = 3.4
@@ -620,7 +516,7 @@ enum CompanionSceneMotion {
         notice: Double
     ) -> CompanionSubjectMotion {
         var rng = SplitMix64(
-            state: seed ^ CompanionHash.fnv1a("pokemon/idle") &+ UInt64(index) &* 977
+            state: seed ^ pokemonIdleHash &+ UInt64(index) &* 977
         )
         let breathPhase = rng.unit()
         let hopPhase = rng.unit()
@@ -667,17 +563,9 @@ enum CompanionSceneMotion {
 
     // MARK: Forest — a gust crosses the canopy
 
-    /// Two gust fronts on incommensurate periods, so the wind arrives at
-    /// irregular intervals and the canopy is genuinely still in between.
+    /// Forwards to CompanionWind, where the gust model lives.
     static func gustStrength(at x: Double, elapsed: Double) -> Double {
-        func front(period: Double, offset: Double, spread: Double) -> Double {
-            let travel = CompanionMath.fraction(elapsed / period + offset)
-            let position = -0.45 + 1.9 * travel
-            let distance = (x - position) / spread
-            return exp(-distance * distance)
-        }
-        return min(1, front(period: 9.6, offset: 0, spread: 0.30)
-            + 0.75 * front(period: 14.3, offset: 0.37, spread: 0.22))
+        CompanionWind.gustStrength(at: x, elapsed: elapsed)
     }
 
     /// Tallest sprite height a growing pixel scene ever places, used to scale
@@ -692,13 +580,13 @@ enum CompanionSceneMotion {
         elapsed: Double
     ) -> CompanionSubjectMotion {
         var rng = SplitMix64(
-            state: seed ^ CompanionHash.fnv1a("forest/sway") &+ UInt64(index) &* 6151
+            state: seed ^ forestSwayHash &+ UInt64(index) &* 6151
         )
         let rustlePhase = rng.unit()
         let stiffness = rng.range(0.82, 1.18)
 
         let reach = min(1, relativeHeight / canopyReferenceHeight)
-        let gust = gustStrength(at: horizontalPosition, elapsed: elapsed)
+        let gust = CompanionWind.gustStrength(at: horizontalPosition, elapsed: elapsed)
         // Saplings barely notice the wind; a full-grown pine leans into it.
         let bend = gust * (0.30 + 0.70 * reach) * 4.2 * stiffness
         let rustle = (0.18 + 0.45 * reach)
@@ -726,7 +614,7 @@ enum CompanionSceneMotion {
         let beat = tick / 4
         let step = tick % 4
         var rng = SplitMix64(
-            state: seed ^ CompanionHash.fnv1a("osrs/tick") &+ UInt64(beat) &* 0x9E37_79B9_7F4A_7C15
+            state: seed ^ osrsTickHash &+ UInt64(beat) &* 0x9E37_79B9_7F4A_7C15
         )
         let action = rng.unit()
         let direction: CGFloat = rng.unit() < 0.5 ? -1 : 1
@@ -800,6 +688,32 @@ enum CompanionWindowLighting {
     /// stays the one that was drawn and the changes read as rooms, not noise.
     static let animatedShare = 0.32
 
+    /// One window's whole evening, resolved once. The composition builds a
+    /// schedule per window so drawing never re-seeds a generator per frame.
+    enum Schedule: Equatable, Sendable {
+        /// Keeps exactly the light the artwork baked, forever.
+        case baked
+        case animated(period: Double, duty: Double, phase: Double)
+
+        func isLit(bakedLit: Bool, at elapsed: Double) -> Bool {
+            switch self {
+            case .baked:
+                return bakedLit
+            case let .animated(period, duty, phase):
+                return CompanionMath.fraction(elapsed / period + phase) < duty
+            }
+        }
+    }
+
+    static func schedule(index: Int, layerID: String, seed: UInt64) -> Schedule {
+        var rng = generator(index: index, layerID: layerID, seed: seed)
+        guard rng.unit() < animatedShare else { return .baked }
+        let period = rng.range(16, 44)
+        let duty = rng.range(0.30, 0.70)
+        let phase = rng.unit()
+        return .animated(period: period, duty: duty, phase: phase)
+    }
+
     static func isLit(
         cell: CompanionWindowCell,
         index: Int,
@@ -807,19 +721,14 @@ enum CompanionWindowLighting {
         seed: UInt64,
         elapsed: Double
     ) -> Bool {
-        var rng = generator(index: index, layerID: layerID, seed: seed)
-        guard rng.unit() < animatedShare else { return cell.bakedLit }
-        let period = rng.range(16, 44)
-        let duty = rng.range(0.30, 0.70)
-        let phase = rng.unit()
-        return CompanionMath.fraction(elapsed / period + phase) < duty
+        schedule(index: index, layerID: layerID, seed: seed)
+            .isLit(bakedLit: cell.bakedLit, at: elapsed)
     }
 
     /// True when a window ever changes. Windows that never change are left to
     /// the baked artwork and are never redrawn.
     static func animates(index: Int, layerID: String, seed: UInt64) -> Bool {
-        var rng = generator(index: index, layerID: layerID, seed: seed)
-        return rng.unit() < animatedShare
+        schedule(index: index, layerID: layerID, seed: seed) != .baked
     }
 
     private static func generator(
@@ -838,30 +747,4 @@ enum CompanionWindowLighting {
     /// switched window is indistinguishable from a painted one.
     static let litTint = CompanionSceneTint(1.0, 217.0 / 255.0, 138.0 / 255.0)
     static let darkTint = CompanionSceneTint(46.0 / 255.0, 58.0 / 255.0, 84.0 / 255.0)
-}
-
-// MARK: - Shared math
-
-enum CompanionMath {
-    /// Fractional part in 0..<1 for any sign of input.
-    static func fraction(_ value: Double) -> Double {
-        let remainder = value.truncatingRemainder(dividingBy: 1)
-        return remainder < 0 ? remainder + 1 : remainder
-    }
-
-    static func positiveModulo(_ value: Int, _ modulus: Int) -> Int {
-        guard modulus > 0 else { return 0 }
-        let remainder = value % modulus
-        return remainder >= 0 ? remainder : remainder + modulus
-    }
-}
-
-/// One FNV-1a implementation for every deterministic companion rotation, so
-/// seeds derived from a key never drift apart between call sites.
-enum CompanionHash {
-    static func fnv1a(_ string: String) -> UInt64 {
-        string.utf8.reduce(14_695_981_039_346_656_037) { value, byte in
-            (value ^ UInt64(byte)) &* 1_099_511_628_211
-        }
-    }
 }

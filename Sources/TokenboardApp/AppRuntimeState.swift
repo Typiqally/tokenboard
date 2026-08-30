@@ -21,6 +21,12 @@ protocol AppLedgerRuntime: Sendable {
     func shutdown() async throws
 }
 
+extension AppLedgerRuntime {
+    func shutdown() async throws {}
+
+    func skippedRecordCountsByProvider() async throws -> [Provider: Int] { [:] }
+}
+
 protocol AppUsageQuerying: Sendable {
     func summary(
         period: CalendarPeriod,

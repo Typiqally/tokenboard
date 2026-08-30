@@ -29,6 +29,10 @@ final class AppPreferencesTests: XCTestCase {
         preferences.companionSeed = 42
         preferences.discordPresenceEnabled = true
         preferences.discordPresenceConsentVersion = 1
+        preferences.companionAcknowledgedMilestone = CompanionMilestoneAcknowledgement(
+            day: "2026-08-28",
+            stage: 4
+        )
 
         let persisted = defaults.persistentDomain(forName: suiteName) ?? [:]
         XCTAssertEqual(
@@ -37,7 +41,8 @@ final class AppPreferencesTests: XCTestCase {
                 "selectedPeriod", "selectedDisplayMetric", "selectedDisplayCurrency",
                 "historicalImportApproved", "selectedCompanionTheme",
                 "showCompanionInMenuBar", "companionSeed",
-                "discordPresenceEnabled", "discordPresenceConsentVersion"
+                "discordPresenceEnabled", "discordPresenceConsentVersion",
+                "companionAcknowledgedMilestone"
             ]
         )
         XCTAssertEqual(persisted["selectedPeriod"] as? String, "this_year")
@@ -49,9 +54,47 @@ final class AppPreferencesTests: XCTestCase {
         XCTAssertEqual(persisted["companionSeed"] as? String, "42")
         XCTAssertEqual(persisted["discordPresenceEnabled"] as? Bool, true)
         XCTAssertEqual(persisted["discordPresenceConsentVersion"] as? Int, 1)
+        XCTAssertEqual(persisted["companionAcknowledgedMilestone"] as? String, "2026-08-28:4")
         XCTAssertFalse(persisted.values.compactMap { $0 as? String }.contains { value in
             value.contains("/Users/") || value.contains("warning") || value.contains("project")
         })
+    }
+
+    func testMilestoneAcknowledgmentRoundTripsAndMalformedReadsAsNothing() {
+        let suiteName = "AppPreferencesTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let preferences = AppPreferences(defaults: defaults)
+
+        XCTAssertNil(preferences.companionAcknowledgedMilestone)
+        let acknowledged = CompanionMilestoneAcknowledgement(day: "2026-08-28", stage: 3)
+        preferences.companionAcknowledgedMilestone = acknowledged
+        XCTAssertEqual(preferences.companionAcknowledgedMilestone, acknowledged)
+
+        defaults.set("not a milestone", forKey: "companionAcknowledgedMilestone")
+        XCTAssertNil(preferences.companionAcknowledgedMilestone)
+
+        preferences.companionAcknowledgedMilestone = nil
+        let persisted = defaults.persistentDomain(forName: suiteName) ?? [:]
+        XCTAssertNil(persisted["companionAcknowledgedMilestone"])
+    }
+
+    func testLegacyPurgeSparesTheMilestoneAcknowledgment() {
+        let suiteName = "AppPreferencesTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        // The retired lifetime-journey key names are close neighbours of the
+        // daily milestone key; only they may be purged.
+        defaults.set(7, forKey: "companionLastAcknowledgedStage")
+        defaults.set("2026-08-28:4", forKey: "companionAcknowledgedMilestone")
+
+        let preferences = AppPreferences(defaults: defaults)
+
+        XCTAssertNil(defaults.object(forKey: "companionLastAcknowledgedStage"))
+        XCTAssertEqual(
+            preferences.companionAcknowledgedMilestone,
+            CompanionMilestoneAcknowledgement(day: "2026-08-28", stage: 4)
+        )
     }
 
     func testUnknownPersistedCurrencyFallsBackToUSD() {

@@ -361,6 +361,27 @@ final class AppModel: ObservableObject {
         )
     }
 
+    /// The one entry every surface renders the companion from, on the model's
+    /// injected calendar — never `Calendar.current`, so the daily rotation
+    /// and the daily token source always agree about when a local day ends.
+    /// `overridingTheme` serves the settings shelf, which previews themes
+    /// that are not selected.
+    func companionPresentation(
+        at date: Date,
+        overridingTheme theme: CompanionTheme? = nil
+    ) -> CompanionPresentation? {
+        var companion = companionState
+        if let theme {
+            companion.theme = theme
+        }
+        return CompanionPresentation.make(
+            state: companion,
+            dailyTokenTotal: companionDailyTokenTotal(at: date),
+            date: date,
+            calendar: calendar
+        )
+    }
+
     func select(historyRange: UsageHistoryRange) {
         guard !isDatabaseRestoreInProgress,
               !isDatabaseRecoveryActionLocked,

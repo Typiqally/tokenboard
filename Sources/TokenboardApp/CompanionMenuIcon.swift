@@ -12,7 +12,7 @@ enum CompanionMenuIconRenderer {
         variant: CompanionVariant,
         stage: Int
     ) -> NSImage {
-        let stage = min(max(stage, 0), CompanionJourney.thresholds.count - 1)
+        let stage = CompanionJourney.clamped(stage: stage)
         if theme == .ageOfEmpiresII || theme == .banished {
             return settlementGlyph(stage: stage)
         }

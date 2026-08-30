@@ -84,7 +84,6 @@ public protocol LedgerStore: Sendable {
         calendar: Calendar
     ) async throws
     func usageRows(in interval: DateInterval?, calendar: Calendar) async throws -> [DailyUsageRow]
-    func lifetimeAdditiveTokenTotal() async throws -> Int64
     func hourlyUsageRows(
         in interval: DateInterval?,
         calendar: Calendar
@@ -104,17 +103,6 @@ public protocol LedgerStore: Sendable {
 }
 
 public extension LedgerStore {
-    func lifetimeAdditiveTokenTotal() async throws -> Int64 {
-        var total: Int64 = 0
-        for row in try await usageRows(in: nil, calendar: .current)
-            where row.aggregation == .additive {
-            let (sum, overflow) = total.addingReportingOverflow(row.quantity)
-            guard !overflow else { throw LedgerError.quantityOverflow }
-            total = sum
-        }
-        return total
-    }
-
     func hourlyUsageRows(
         in interval: DateInterval?,
         calendar: Calendar

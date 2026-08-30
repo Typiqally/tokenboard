@@ -103,6 +103,7 @@ struct SettingsView: View {
     @ObservedObject var model: AppModel
     @ObservedObject var launchAtLogin: LaunchAtLoginController
     @ObservedObject var navigation: SettingsNavigationModel
+    @ObservedObject private var companionDiagnostics = CompanionDiagnostics.shared
     @State private var technicalDetailsExpanded = false
 
     init(
@@ -309,6 +310,9 @@ struct SettingsView: View {
                             Text("v\(model.settingsState.diagnostics.parserVersions[provider, default: 0])")
                         }
                     }
+                    LabeledContent("Companion artwork") {
+                        Text(companionDiagnostics.summary)
+                    }
                 }
                 .padding(.top, 6)
             }
@@ -407,10 +411,7 @@ struct CompanionSettingsPanel: View {
 
                 Divider()
 
-                if let companion = model.companionPresentation(
-                    for: model.state,
-                    at: context.date
-                ) {
+                if let companion = model.companionPresentation(at: context.date) {
                     CompanionSettingsPreview(
                         companion: companion,
                         showInMenuBar: Binding(
@@ -475,10 +476,16 @@ private struct CompanionThemeGallery: View {
     // thumbnail is immediately recognizable regardless of current progress.
     // Pokémon still follows the day's starter family.
     private func presentation(for theme: CompanionTheme) -> CompanionPresentation? {
-        var state = model.state
-        state.companion.theme = theme
-        guard let live = model.companionPresentation(for: state, at: date) else { return nil }
-        return CompanionPresentation.shelfPreview(from: live)
+        guard let live = model.companionPresentation(
+            at: date,
+            overridingTheme: theme
+        ) else { return nil }
+        return live.preview(
+            stage: CompanionAssetCatalog.shelfPreviewStage(for: theme),
+            progressFraction: live.progressFraction,
+            tokensUntilNextStage: live.tokensUntilNextStage,
+            accessibilityLabel: "\(theme.title) preview"
+        )
     }
 }
 

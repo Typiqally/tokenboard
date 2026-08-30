@@ -13,6 +13,7 @@ final class AppPreferences {
         static let companionSeed = "companionSeed"
         static let discordPresenceEnabled = "discordPresenceEnabled"
         static let discordPresenceConsentVersion = "discordPresenceConsentVersion"
+        static let companionAcknowledgedMilestone = "companionAcknowledgedMilestone"
         static let legacyCompanionProgress = [
             "companionProgressInitialized",
             "companionEarnedTokens",
@@ -93,6 +94,26 @@ final class AppPreferences {
     var discordPresenceConsentVersion: Int {
         get { defaults.integer(forKey: Key.discordPresenceConsentVersion) }
         set { defaults.set(newValue, forKey: Key.discordPresenceConsentVersion) }
+    }
+
+    /// The highest companion stage already revealed today, as "day:stage".
+    /// Malformed or absent reads as nothing acknowledged. Distinct from the
+    /// purged legacy "companionLastAcknowledgedStage" key on purpose.
+    var companionAcknowledgedMilestone: CompanionMilestoneAcknowledgement? {
+        get {
+            defaults.string(forKey: Key.companionAcknowledgedMilestone)
+                .flatMap(CompanionMilestoneAcknowledgement.init(storageValue:))
+        }
+        set {
+            if let newValue {
+                defaults.set(
+                    newValue.storageValue,
+                    forKey: Key.companionAcknowledgedMilestone
+                )
+            } else {
+                defaults.removeObject(forKey: Key.companionAcknowledgedMilestone)
+            }
+        }
     }
 
 }

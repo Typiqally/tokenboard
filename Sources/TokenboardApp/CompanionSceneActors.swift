@@ -227,90 +227,15 @@ struct CompanionActorField: Equatable, Sendable {
         self.drawsAttention = drawsAttention
     }
 
+    /// The field's inhabitants at a moment. Convenience over the resolver for
+    /// tests and one-off reads; the render path resolves once and reuses
+    /// `CompanionResolvedActorField`.
     func actors(at elapsed: Double, seed: UInt64) -> [CompanionActor] {
-        guard count > 0 else { return [] }
-        return (0..<count).map { index in
-            var rng = SplitMix64(
-                state: seed
-                    ^ CompanionHash.fnv1a(key)
-                    &+ UInt64(index) &* 0x9E37_79B9_7F4A_7C15
-            )
-            let phase = rng.unit()
-            let tempo = rng.range(0.84, 1.24)
-            let height = rng.range(self.height.lowerBound, self.height.upperBound)
-            let anchorJitter = CompanionScenePoint(
-                rng.range(-spread, spread),
-                rng.range(-spread * 0.12, spread * 0.12)
-            )
-            let targetJitter = CompanionScenePoint(
-                rng.range(-spread, spread),
-                rng.range(-spread * 0.12, spread * 0.12)
-            )
-            let shade = rng.range(1 - variation, 1 + variation)
-            // Half a population walks the other way, so a street or a tile
-            // diagonal carries traffic in both directions.
-            let reversed = index % 2 == 1
-
-            let now = CompanionActorRouting.place(
-                route: route,
-                elapsed: elapsed,
-                phase: phase,
-                tempo: tempo,
-                anchorJitter: anchorJitter,
-                targetJitter: targetJitter,
-                reversed: reversed
-            )
-            let next = CompanionActorRouting.place(
-                route: route,
-                elapsed: elapsed + CompanionSceneMotion.frameInterval,
-                phase: phase,
-                tempo: tempo,
-                anchorJitter: anchorJitter,
-                targetJitter: targetJitter,
-                reversed: reversed
-            )
-            let travel = CompanionScenePoint(
-                next.point.x - now.point.x,
-                next.point.y - now.point.y
-            )
-            let speed = now.speed ?? min(
-                1,
-                (travel.x * travel.x + travel.y * travel.y).squareRoot()
-                    / CompanionSceneMotion.frameInterval
-                    / CompanionActorRouting.referenceSpeed
-            )
-            let facing = now.facing ?? (travel.x < -1e-9 ? -1 : 1)
-            let sprite = sprites.isEmpty
-                ? nil
-                : sprites[Int(rng.next() % UInt64(sprites.count))]
-            let spriteFrame = sprite.map { sprite in
-                guard sprite.frameCount > 1, sprite.framesPerSecond > 0 else { return 0 }
-                let cycle = CompanionMath.fraction(
-                    elapsed * sprite.framesPerSecond / Double(sprite.frameCount) + phase
-                )
-                return min(sprite.frameCount - 1, Int(cycle * Double(sprite.frameCount)))
-            }
-
-            return CompanionActor(
-                x: now.point.x,
-                y: now.point.y,
-                height: height,
-                facing: facing,
-                stride: now.stride
-                    ?? CompanionMath.fraction(elapsed * body.cadence * tempo + phase),
-                speed: speed,
-                lift: now.lift,
-                pose: now.pose,
-                body: body,
-                sprite: sprite,
-                spriteFrame: spriteFrame,
-                tint: tint.shaded(by: shade),
-                accent: accent.shaded(by: shade),
-                opacity: opacity,
-                snapsToPixelGrid: snapsToPixelGrid,
-                drawsAttention: drawsAttention
-            )
-        }
+        var actors: [CompanionActor] = []
+        actors.reserveCapacity(count)
+        CompanionResolvedActorField(field: self, seed: seed)
+            .append(at: elapsed, into: &actors)
+        return actors
     }
 }
 

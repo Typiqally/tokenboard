@@ -27,7 +27,7 @@ struct RichUsagePopoverView: View {
                 isRefreshPending: isRefreshPending,
                 isImporting: model.state.isImporting
             )
-            let companion = model.companionPresentation(for: model.state, at: context.date)
+            let companion = model.companionPresentation(at: context.date)
             VStack(spacing: 0) {
                 VStack(
                     alignment: .leading,

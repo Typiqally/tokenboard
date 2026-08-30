@@ -15,13 +15,27 @@ enum CompanionWindowMapStore {
     /// One art pixel is eight image pixels in the baked village sprites.
     static let artPixelSize = 8
 
-    private static var maps: [String: [CompanionWindowCell]] = [:]
+    /// The village ships 24 sprite variants; 64 entries is room for every
+    /// one of them plus growth without ever thrashing.
+    static let cache = CompanionBoundedCache<[CompanionWindowCell]>(countLimit: 64)
 
-    static func windows(resource: String) -> [CompanionWindowCell] {
-        if let cached = maps[resource] { return cached }
-        let cells = CompanionAssetImageStore.image(resource: resource)
-            .flatMap { detect(in: $0) } ?? []
-        maps[resource] = cells
+    static func windows(
+        resource: String,
+        diagnostics: CompanionDiagnostics = .shared
+    ) -> [CompanionWindowCell] {
+        if let cached = cache.value(forKey: resource) { return cached }
+        var cells: [CompanionWindowCell] = []
+        if let image = CompanionAssetImageStore.image(
+            resource: resource,
+            diagnostics: diagnostics
+        ) {
+            if let detected = detect(in: image) {
+                cells = detected
+            } else {
+                diagnostics.record(.unreadableWindowMap(resource: resource))
+            }
+        }
+        cache.setValue(cells, forKey: resource, cost: cells.count)
         return cells
     }
 
@@ -39,8 +53,11 @@ enum CompanionWindowMapStore {
         return nil
     }
 
-    private static func detect(in image: NSImage) -> [CompanionWindowCell] {
-        guard let representation = bitmap(for: image) else { return [] }
+    /// nil when the sprite's bitmap cannot be read at all; an empty array
+    /// when it can and simply holds no windows. Internal so tests can pin
+    /// that distinction.
+    static func detect(in image: NSImage) -> [CompanionWindowCell]? {
+        guard let representation = bitmap(for: image) else { return nil }
         let pixelWidth = representation.pixelsWide
         let pixelHeight = representation.pixelsHigh
         let columns = pixelWidth / artPixelSize
