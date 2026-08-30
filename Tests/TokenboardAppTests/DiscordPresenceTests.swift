@@ -18,8 +18,9 @@ final class DiscordPresenceTests: XCTestCase {
         XCTAssertEqual(activity.largeImageText, "Tokenboard")
         XCTAssertEqual(
             DiscordPresencePresentation.accessibilityPreview(activity),
-            "Playing Tokenboard. Today's AI coding usage. 12.3M tokens, activity in 4 hours."
+            "Playing Tokenboard. Today's AI coding usage. 12.3M tokens, activity in 4 hours. Action: View on GitHub."
         )
+        XCTAssertTrue(DiscordPresencePresentation.disclosure.contains("public GitHub repository"))
     }
 
     func testDailySummaryHandlesSingularMissingPatternsAndZeroUsage() {
@@ -62,13 +63,18 @@ final class DiscordPresenceTests: XCTestCase {
         let args = try XCTUnwrap(root["args"] as? [String: Any])
         let payload = try XCTUnwrap(args["activity"] as? [String: Any])
         let assets = try XCTUnwrap(payload["assets"] as? [String: Any])
+        let buttons = try XCTUnwrap(payload["buttons"] as? [[String: Any]])
 
         XCTAssertEqual(Set(root.keys), ["cmd", "args", "nonce"])
         XCTAssertEqual(root["cmd"] as? String, "SET_ACTIVITY")
         XCTAssertEqual(args["pid"] as? Int, 321)
-        XCTAssertEqual(Set(payload.keys), ["type", "details", "state", "assets"])
+        XCTAssertEqual(Set(payload.keys), ["type", "details", "state", "assets", "buttons"])
         XCTAssertEqual(payload["type"] as? Int, 0)
         XCTAssertEqual(Set(assets.keys), ["large_image", "large_text"])
+        XCTAssertEqual(buttons.count, 1)
+        XCTAssertEqual(Set(buttons[0].keys), ["label", "url"])
+        XCTAssertEqual(buttons[0]["label"] as? String, "View on GitHub")
+        XCTAssertEqual(buttons[0]["url"] as? String, "https://github.com/Typiqally/tokenboard")
         XCTAssertFalse(encoded.containsSensitiveDiscordPresenceKey)
 
         let cleared = try DiscordRPCMessage.activity(
