@@ -445,7 +445,7 @@ private extension Data {
         let text = String(decoding: self, as: UTF8.self)
         return [
             "provider", "model", "project", "path", "conversation", "cost",
-            "timestamp", "button", "party", "secret", "url",
+            "timestamp", "party", "secret",
         ].contains { text.localizedCaseInsensitiveContains($0) }
     }
 }

@@ -2,16 +2,22 @@ import Combine
 import Foundation
 import TokenboardCore
 
+struct DiscordPresenceButton: Equatable, Sendable {
+    let label: String
+    let url: String
+}
+
 struct DiscordPresenceActivity: Equatable, Sendable {
     let details: String
     let state: String
     let largeImageKey: String
     let largeImageText: String
+    let buttons: [DiscordPresenceButton]
 }
 
 enum DiscordPresencePresentation {
     static let consentVersion = 1
-    static let disclosure = "Discord may show this activity on your profile, in friend lists, and in server member lists. Tokenboard publishes only this preview through the local Discord desktop client."
+    static let disclosure = "Discord may show this activity on your profile, in friend lists, and in server member lists. Tokenboard publishes only this preview and a static link to its public GitHub repository through the local Discord desktop client."
 
     static func activity(
         tokenTotal: Int64,
@@ -30,13 +36,20 @@ enum DiscordPresencePresentation {
             details: "Today's AI coding usage",
             state: state,
             largeImageKey: "tokenboard",
-            largeImageText: "Tokenboard"
+            largeImageText: "Tokenboard",
+            buttons: [
+                DiscordPresenceButton(
+                    label: "View on GitHub",
+                    url: "https://github.com/Typiqally/tokenboard"
+                )
+            ]
         )
     }
 
     static func accessibilityPreview(_ activity: DiscordPresenceActivity) -> String {
         let spokenState = activity.state.replacingOccurrences(of: " · ", with: ", ")
-        return "Playing Tokenboard. \(activity.details). \(spokenState)."
+        let action = activity.buttons.first.map { " Action: \($0.label)." } ?? ""
+        return "Playing Tokenboard. \(activity.details). \(spokenState).\(action)"
     }
 }
 
@@ -310,6 +323,9 @@ enum DiscordRPCMessage {
                     "large_image": activity.largeImageKey,
                     "large_text": activity.largeImageText,
                 ],
+                "buttons": activity.buttons.map { button in
+                    ["label": button.label, "url": button.url]
+                },
             ] as [String: Any]
         } else {
             activityValue = NSNull()
