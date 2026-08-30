@@ -1,16 +1,82 @@
-# Tokenboard
+<p align="center">
+  <img src="Resources/AppIcon.png" width="104" height="104" alt="Tokenboard app icon">
+</p>
 
-A fully native macOS menu-bar app that turns supported local Claude Code and Codex usage records into durable token totals, hourly and daily trends, private work-pattern insights, and transparent API-equivalent estimates.
+<h1 align="center">Tokenboard</h1>
 
-![Tokenboard's compact native macOS menu-bar popover and matching History window, with Today, 7D, 30D, and 90D trends shown using sample local usage data.](docs/design/rich-popover-family.svg)
+<p align="center"><strong>Native, local-only token usage for Claude Code and Codex.</strong></p>
 
-*The current native popover and History surfaces, shown with sample data.*
+<p align="center">
+  See exact totals, recent trends, API-equivalent estimates, provider shares, and private work patterns from the macOS menu bar.
+</p>
+
+<p align="center">
+  <a href="https://github.com/Typiqally/tokenboard/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/Typiqally/tokenboard?display_name=tag&sort=semver"></a>
+  <a href="https://github.com/Typiqally/tokenboard/actions/workflows/ci.yml"><img alt="CI status" src="https://github.com/Typiqally/tokenboard/actions/workflows/ci.yml/badge.svg"></a>
+  <img alt="macOS 14 or newer" src="https://img.shields.io/badge/macOS-14%2B-black?logo=apple">
+  <img alt="Swift 6" src="https://img.shields.io/badge/Swift-6-F05138?logo=swift&logoColor=white">
+  <img alt="Local-only data" src="https://img.shields.io/badge/data-local_only-2F855A">
+</p>
+
+<p align="center">
+  <a href="#install">Install</a> ·
+  <a href="#what-you-get">Features</a> ·
+  <a href="PRIVACY.md">Privacy</a> ·
+  <a href="CONTRIBUTING.md">Contributing</a> ·
+  <a href="https://github.com/Typiqally/tokenboard/issues">Issues</a>
+</p>
+
+![Tokenboard's current native macOS experience, with sample local usage data.](.github/assets/tokenboard-hero.svg)
+
+<p align="center"><em>One glance in the menu bar, one click for the complete local picture.</em></p>
+
+## Why Tokenboard
+
+Claude Code and Codex record token usage locally, but neither gives you one durable, shared view of that activity. Tokenboard reads only the folders you choose, reduces supported records to content-safe aggregates, and keeps the result available after old source logs disappear.
+
+There is no account, cloud service, telemetry endpoint, or background helper. The app is one native macOS process, refreshes from filesystem events, and sits at effectively zero CPU while nothing changes.
+
+## What you get
+
+| Surface | What it answers |
+| --- | --- |
+| **Menu bar** | How many tokens, or how much API-equivalent value, have I used in the selected period? |
+| **Popover** | What is the exact total, how is it trending, when am I active, and how is usage split between Claude Code and Codex? |
+| **History** | Which providers, models, and token categories produced the total? What are my recurring work patterns? |
+| **Companions** | Can today's progress inhabit a quiet visual world without turning usage into a streak or score? |
+| **Discord Activity** | Can I optionally share today's compact total and active-hour count with friends? |
+
+Highlights:
+
+- Exact totals for Today, This Week, This Month, This Year, and All Time.
+- Independent `TODAY`, `7D`, `30D`, and `90D` charts with hover, scrub, and click-to-pin values.
+- Effective-dated API-equivalent estimates that leave unknown prices visibly unpriced instead of guessing.
+- Provider, model, Input, Cache, and Output breakdowns without double-counting reasoning output.
+- Local Work Patterns: active-hour averages, peak and recurring hours or weekdays, first/last activity, consistency, and busiest-day context.
+- Event-driven updates with an explicit full Refresh action when you want one immediately.
+- Optional companion panoramas for Pokémon, Forest, Village, Old School RuneScape, Age of Empires II, Minecraft, Banished, and Frostpunk.
+- Optional Discord Rich Presence with a static **View on GitHub** action.
 
 ## Install
 
-### Ask your agent
+### Homebrew
 
-Copy this prompt into Claude Code, Codex, or another coding agent on your Mac:
+Tokenboard requires macOS 14 Sonoma or newer. It is not Apple-notarized yet; Homebrew verifies the downloaded release, and the second command removes quarantine only from the installed Tokenboard app.
+
+```zsh
+brew install --cask typiqally/tokenboard/tokenboard
+xattr -dr com.apple.quarantine /Applications/Tokenboard.app
+open /Applications/Tokenboard.app
+```
+
+Upgrade later with `brew upgrade --cask tokenboard`. Uninstall with `brew uninstall --cask tokenboard`.
+
+You can also download the universal app archive and published SHA-256 sidecar from the [latest GitHub release](https://github.com/Typiqally/tokenboard/releases/latest).
+
+### Ask a coding agent to install it
+
+<details>
+<summary>Copy the installation prompt</summary>
 
 ```text
 Install the latest public release of Tokenboard from
@@ -18,127 +84,148 @@ https://github.com/Typiqally/tokenboard.
 
 Prefer the official Homebrew cask typiqally/tokenboard/tokenboard. If Homebrew
 is unavailable, download the single app archive from the latest GitHub release,
-verify its SHA-256 against GitHub's published asset digest, and place
-Tokenboard.app in /Applications. Do not build from source. If Tokenboard is
-already installed through Homebrew, upgrade it instead of deleting it manually.
+verify its SHA-256 against GitHub's published sidecar, and place Tokenboard.app
+in /Applications. Do not build from source. If Tokenboard is already installed
+through Homebrew, upgrade it instead of deleting it manually.
 
 Tokenboard is not Apple-notarized. Remove the quarantine attribute only from
 the exact installed path /Applications/Tokenboard.app, then open the app and
 confirm the installed version. Do not grant access to any folders for me.
 
 When it opens, tell me to choose my Claude Code and Codex source folders in the
-native onboarding screen. Also explain that API-equivalent values stay enabled,
-but any missing or outdated model prices remain unpriced until I open
-Settings > Pricing, click Copy Pricing Update Prompt, and paste that prompt back
-into an agent. Never invent or guess model prices.
+native onboarding screen. Explain that unknown or outdated model prices stay
+unpriced until I use Settings > Pricing > Copy Pricing Update Prompt and give
+that prompt to an agent. Never invent or guess model prices.
 ```
 
-### Install manually
+</details>
 
-Install Tokenboard with Homebrew. Tokenboard is not Apple-notarized; Homebrew downloads and verifies the release. The second command explicitly removes macOS's quarantine attribute from the installed app. It does not change filesystem permissions: Tokenboard asks you to choose its source folders on first launch and its code reads only those selected roots.
+## The native experience
 
-```zsh
-brew install --cask typiqally/tokenboard/tokenboard
-xattr -dr com.apple.quarantine /Applications/Tokenboard.app
-```
+![Tokenboard's current companion popover beside its native History window, showing sample local usage data.](docs/design/rich-popover-family.svg)
 
-Upgrade with `brew upgrade --cask tokenboard`. Uninstall with `brew uninstall --cask tokenboard`.
+### Popover
 
-## At a glance
+The menu-bar value stays deliberately small. Opening it reveals the exact total, API-equivalent estimate, update recency, trend, comparison, Work Patterns preview, and Claude Code/Codex shares.
 
-- **A useful menu-bar value.** Show compact tokens or API-equivalent value for Today, This Week, This Month, This Year, or All Time. The selected period, metric, and display currency persist across launches.
-- **A focused native popover.** See the exact total, API-equivalent estimate, update recency, comparison, chart, work-pattern preview, and Claude Code/Codex shares without opening a dashboard. Hover or scrub a chart bar for its exact value, then click to pin it. The popover dismisses on an outside click or Escape.
-- **Today through 90 days.** `TODAY` shows hourly progression. `7D`, `30D`, and `90D` show daily trends. These trend ranges are independent from the headline summary period.
-- **Drill-down History.** Open the resizable History window for the whole range or a provider, select a chart bar, and expand provider, model, and Input/Cache/Output totals. Reasoning output is explained and never counted twice. Switch to Work Patterns for active-hour averages, peak and recurring hours or weekdays, a selectable volume/consistency heatmap, typical first and last activity, and busiest-day context.
-- **Automatic local updates.** Native filesystem events refresh changed usage without periodic polling, and the recency label doubles as an explicit full Refresh action.
-- **Honest estimates.** Effective-dated public list prices and locally approved exchange rates power API-equivalent values. Unknown models and uncovered dates remain counted but visibly unpriced; the estimate is never presented as a bill.
-- **Optional Discord activity.** After an exact first-use preview and confirmation, Tokenboard can publish only today's compact token total and number of active-hour buckets to the local Discord desktop client. It is off by default, can be disabled in Settings, and clears when Tokenboard quits.
-- **Optional local companions.** Choose Pokémon, Forest, Village, Old School RuneScape, Age of Empires II, Minecraft, Banished, or Frostpunk from the visual shelf in General Settings. Every theme is a coherent, art-directed twelve-stage journey built from authentic source artwork or original generated scenes, all bundled at build time, while the popover stays visual-only. The journey follows the existing `TODAY` token source and resets at the start of each local day; `None` keeps the original compact interface.
-- **Worlds that are actually inhabited.** Each companion scene is art-directed on its own terms rather than one idle applied six times. Age of Empires II villagers walk out to the trees, chop, and carry the load home while a herd grazes and the settlement gets busier with every age. A village's windows switch on and off room by room while townsfolk and a stray work the street by day and traffic has the road after dark. Old School RuneScape moves everything — the adventurer and the other players around them — on the 0.6-second game tick, one whole tile at a time, and the Grand Exchange is as crowded as it should be. A forest sheds leaves only where the gust actually is, and birds land in the crowns the scene really grew. Minecraft spawns the mob each biome has, and leaves the ancient city and the End silent on purpose.
+The standard popover is `350 × 560`. Enabling a companion keeps the complete surface at `350 × 656` and turns the top `350 × 224` into a full-bleed panorama. The native period, refresh, quit, total, and API-value label sit over a dark-to-clear scrim; the chart and breakdown remain on the solid data surface below. Selecting `None` restores the original compact layout exactly.
 
-## Native surfaces
+- The header period controls the headline total.
+- The segmented range controls the chart, comparison, Work Patterns preview, and provider shares.
+- Hovering or scrubbing shows an exact hour or day; clicking pins the callout.
+- Provider rows open History with that provider and range already selected.
+- History and Settings remain one click away in the footer.
 
-The menu-bar item stays compact: it shows the selected token or API-value metric and uses an activity symbol while the first local records are being imported.
+### History and Work Patterns
 
-The default `350 × 560` popover separates two scopes on purpose. Enabling a companion turns the top `350 × 236` into a full-bleed panorama, overlays the native header and headline for one cohesive glance, and keeps a slim journey-progress line along the scene's bottom edge; the complete companion popover is `350 × 656`. Selecting `None` returns to the exact compact layout.
+History uses the same typography, chart language, range control, and provider identity at working-window scale. Expand providers, models, and token categories, or switch to Work Patterns for hourly and weekday structure.
 
-A companion scene moves only while it is genuinely visible: the popover must be presented and its window unoccluded, un-miniaturized, and not hidden with the app, and a still scene runs no timeline at all. The Settings shelf thumbnails stay still because they are a picker, not a scene. Under Reduced Motion, and whenever a scene is paused, each world composes a deliberate still at its own resting moment — leaves mid-fall, a cloud shadow part-way across, torches lit, people mid-errand — instead of freezing a frame or emptying the plate. Everything a scene does is a pure function of the theme, the stage, and one local seed, so two installs grow different towns and one install looks the same on every launch.
+An active hour is one local clock-hour bucket containing additive usage. It is an activity estimate, not continuous time tracking. Earlier daily-only totals remain available even when precise hourly coverage does not.
 
-- The header menu controls the headline period: Today, This Week, This Month, This Year, or All Time.
-- The segmented control controls the trend, comparison, work-pattern preview, and provider shares: Today, 7D, 30D, or 90D.
-- Hovering or scrubbing the chart shows the selected hour or day, exact tokens, and API-equivalent value without changing the range-level headline or shares; clicking pins the callout.
-- The three-value Work Patterns strip follows the trend range and opens the matching Work Patterns view in History.
-- Provider rows open History already filtered to that provider and preserve the selected trend range.
-- History and Settings remain one click away in the footer; Quit and Refresh stay in the header.
-- The optional menu-bar companion icon is off by default. When enabled, its silhouette follows the current stage; Pokémon also follows the deterministic starter family selected for that calendar day.
+### Companion journeys
 
-History uses the same typography, chart, range control, dividers, and provider identity at working-window scale. Its Usage and Work Patterns views share the selected range and optional provider filter. An active hour means one local clock-hour bucket containing additive usage; it is an activity estimate, not continuous time tracking. Settings keeps durable controls out of the popover and groups them into General, Sources, Pricing, and Diagnostics.
+Companions are optional and visual-only. Each theme is a twelve-stage day driven by the existing `TODAY` total, resets at local midnight, and uses a deterministic local seed so one installation remains coherent across launches. No art or journey state is downloaded at runtime.
+
+Scenes animate only while genuinely visible. Settings thumbnails stay still, and Reduced Motion uses a deliberately composed resting frame rather than freezing an arbitrary animation instant. `None` keeps the original undecorated tool.
 
 ## Private by construction
 
-- One unsandboxed native process with no privilege entitlements, remote network requests, helper, daemon, or XPC service. The unsandboxed boundary is required for Discord's local Unix socket.
-- Explicit folders selected through the native macOS picker; Tokenboard's source layer enforces read-only access within those roots and never guesses a source location.
-- No telemetry, remote analytics, helper, daemon, or XPC service. Work Patterns are calculated locally from the same content-safe hourly aggregates.
-- Automatic monitoring uses native filesystem events and never edits source logs.
-- Content-safe daily and hourly aggregates and bookkeeping after ingestion—not prompts, responses, tool content, project metadata, paths below the granted roots, raw session IDs, or per-session totals.
-- Companion art is bundled with the app. Only the selected track, menu-bar visibility, and random seed are stored as companion preferences; stages derive directly from the existing local `TODAY` aggregate. No companion data is fetched or uploaded.
-- Discord activity is off by default. When enabled, Tokenboard sends its exact Settings preview and one static `View on GitHub` action over a same-user local IPC socket; it sends no provider, model, project, path, conversation, cost, timestamps, party data, or secrets.
+```text
+Folders you choose
+      ↓ read-only
+Local parsers
+      ↓ content-safe daily and hourly aggregates
+Local SQLite ledger
+      ↓
+Menu bar · Popover · History
+```
 
-See [PRIVACY.md](PRIVACY.md) for the exact local-data and retention boundary.
+Tokenboard stores token aggregates, exact content-safe model IDs, price history, opaque salted bookkeeping hashes, the two selected-root bookmarks, and explicit preferences. It does **not** store prompts, responses, tool content, project metadata, paths beneath the granted roots, raw session IDs, or per-session totals.
 
-## How it works
+- No telemetry, analytics, remote API, web view, helper, daemon, or XPC service.
+- No source-log edits or deletions.
+- Native filesystem events instead of periodic polling.
+- One unsandboxed process with no privilege entitlements. The unsandboxed boundary exists for Discord's same-user local Unix socket.
+- Companions are bundled and stay offline.
+- Discord Activity is off by default and requires an exact first-use preview and confirmation.
 
-1. Choose the Claude Code and Codex roots through the native folder picker.
-2. Start the one-time historical import for the logs currently available.
-3. Tokenboard imports supported records, keeps watching both roots, and refreshes the visible summary and cached trends as those JSONL files change.
-4. Read a compact status in the menu bar, open the popover for exact totals and interactive recent trends, and use History for the full Usage or Work Patterns view.
+Read the full [privacy and retention model](PRIVACY.md), including source revocation, local-data deletion, recovery backups, and Discord's narrow payload.
 
-Committed daily and hourly aggregates survive later source-log deletion, and recreating an already imported log does not add it again. Tokenboard cannot recover logs that were unavailable or deleted before the first successful import.
+## API-equivalent value
 
-## Understanding API-equivalent value
+API-equivalent value estimates what recorded token categories would cost at standard public API list prices. It is not a bill and cannot reproduce subscription spend, discounts, credits, batch pricing, or provider-side classification.
 
-API-equivalent value estimates what the recorded token categories would cost at standard public API list prices. It is not a bill or a report of Claude or ChatGPT subscription spend. It cannot reproduce provider discounts, credits, batch pricing, negotiated terms, or billing-side classification.
+Rates are effective-dated, so old usage keeps the price that covered its day. Exact zero means known-free; missing coverage stays unpriced. USD is canonical, while optional display currencies use the latest locally approved conversion snapshot.
 
-Pricing is effective-dated: Tokenboard applies the rate covering each local usage day instead of repricing old usage at today's rate. An exact zero rate is known-free coverage and contributes $0; a missing rate remains unpriced. Tokens from an unknown model or uncovered date still count but remain visibly unpriced rather than guessed. USD is the canonical pricing currency; other display currencies use the latest locally approved conversion snapshot.
+Tokenboard never fetches pricing itself. Settings can copy a constrained pricing-update prompt for Claude Code or Codex; the external agent researches approved first-party sources and writes a local candidate. Tokenboard validates and applies that candidate atomically, retaining an auditable price history.
 
-## Updating pricing through your agent
+## Discord Activity
 
-Tokenboard never fetches pricing. In Settings, copy the pricing-update prompt and paste it into Claude Code or Codex. The external agent requests its own network or filesystem access, researches the allowed public sources, reports what it used, and writes a complete local candidate.
+Discord sharing is deliberately narrow and disabled by default. When enabled, Tokenboard sends only:
 
-Tokenboard validates that candidate locally and applies it atomically. An invalid update leaves the last valid catalog active. Every approved import remains in an immutable audit history while a normalized active projection drives estimates. Valid updates can append effective-dated history, correct the active projection, or remove an unsupported active entry; uncertain coverage remains unpriced.
+- `Playing Tokenboard`
+- today's compact token total
+- today's active-hour bucket count
+- a static **View on GitHub** action
+
+It does not send provider, model, project, path, conversation, cost, timestamps, party data, or secrets. Communication goes only to the running Discord desktop client's same-user local IPC socket. Discord hides Rich Presence buttons from the account publishing the activity, so the GitHub action is visible to other users rather than in your own Current Activity card.
 
 ## Build from source
 
 Requirements:
 
 - macOS 14 Sonoma or newer
-- Apple's Swift 6 toolchain and macOS SDK
+- Apple Swift 6 toolchain and macOS SDK
 - No third-party runtime dependencies
+
+```zsh
+git clone https://github.com/Typiqally/tokenboard.git
+cd tokenboard
+swift test
+TOKENBOARD_DISCORD_APPLICATION_ID=1543692689571192862 \
+  Scripts/build-app.sh release universal
+open .build/release/Tokenboard.app
+```
+
+For the complete release-quality gate:
 
 ```zsh
 swift test
 Scripts/benchmark-import.sh
 Scripts/verify-asset-rights.sh development
 Scripts/test-tooling-contracts.sh
-TOKENBOARD_DISCORD_APPLICATION_ID=<public-app-id> Scripts/build-app.sh release universal
+TOKENBOARD_DISCORD_APPLICATION_ID=1543692689571192862 Scripts/build-app.sh release universal
 Scripts/verify-entitlements.sh .build/release/Tokenboard.app
 Scripts/verify-runtime-resources.sh .build/release/Tokenboard.app
+git diff --check
 ```
 
-These automated commands own functional, import-performance, idle-resource, entitlement, tooling-safety, and development asset-inventory acceptance. Opening the app afterward is an optional visual smoke check, not a performance or release gate.
+The shared public Discord application ID is required only for release builds. The Discord application should have a Rich Presence image asset with the exact key `tokenboard`.
 
-`build-app.sh` creates a native `Tokenboard.app`. Release builds require Tokenboard's shared 17–20 digit public Discord application ID in `TOKENBOARD_DISCORD_APPLICATION_ID`; CI and tagged releases read it from the GitHub Actions repository variable with the same name. Debug builds may omit it, in which case Discord Activity is visibly unavailable. The Discord application should have a Rich Presence asset named `tokenboard`. Local builds are ad-hoc signed unless `TOKENBOARD_SIGN_IDENTITY` names a signing identity. Version tags can publish an ad-hoc-signed universal app for the Homebrew Cask only after every bundled asset group has machine-verifiable redistribution clearance; Developer ID signing and notarization can be added later without changing the install command.
+## Repository map
+
+| Path | Purpose |
+| --- | --- |
+| [`Sources/TokenboardCore`](Sources/TokenboardCore) | Parsing, aggregation, pricing, local SQLite ledger, and filesystem monitoring |
+| [`Sources/TokenboardApp`](Sources/TokenboardApp) | Native AppKit/SwiftUI application and presentation logic |
+| [`Resources`](Resources) | App metadata, pricing catalog, icon, and bundled companion artwork |
+| [`Tests`](Tests) | Core, lifecycle, UI-presentation, migration, privacy, and release-contract coverage |
+| [`Scripts`](Scripts) | Building, packaging, asset verification, benchmarks, and runtime gates |
+| [`docs/design`](docs/design) | Product visualization used by this README |
+
+## Contributing
+
+Contributions are welcome when they preserve Tokenboard's core boundaries: native macOS behavior, explicit read-only grants, content-free persistence, honest estimates, and low idle resource use.
+
+Start with [CONTRIBUTING.md](CONTRIBUTING.md). It documents the automated gate, synthetic-fixture rules, security constraints, companion asset clearance, and release acceptance process. For product and interface decisions, see [PRODUCT.md](PRODUCT.md) and [DESIGN.md](DESIGN.md).
+
+Found a bug or have a focused proposal? [Open an issue](https://github.com/Typiqally/tokenboard/issues).
 
 ## Known limits
 
-- Totals depend on usage records present in supported local Claude Code and Codex JSONL formats.
-- Logs deleted before the first import are unavailable.
+- Totals depend on supported Claude Code and Codex local JSONL formats.
+- Logs deleted before the first successful import cannot be recovered.
 - Unknown formats are skipped and reported; unknown models remain counted but unpriced.
-- API-equivalent estimates use standard public API list prices, with the limitations described above.
-- Refresh remains available for an immediate full local rescan if an event is missed.
-- Calendar buckets reflect the Mac's local timezone at ingestion; changing timezones later does not rewrite historical buckets.
-- Active-hour insights begin where reliable hourly coverage begins. Earlier daily-only totals remain available in Usage and are never presented as precise work time.
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development, verification, and release checks.
-
-The optional contributor audit is only a bounded comparison of currently discoverable live-source aggregates with the checkpointed main ledger file. It is not proof that Tokenboard's full history is equivalent to the files still on disk, and it cannot account for deleted, replaced, or previously ingested history.
+- Calendar buckets use the Mac's local timezone at ingestion and are not rewritten after a timezone change.
+- Refresh remains available for an immediate full rescan if a filesystem event is missed.
+- Tokenboard is currently ad-hoc signed and not Apple-notarized.

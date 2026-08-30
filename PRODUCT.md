@@ -37,7 +37,7 @@ Simple, clean, mean. Quietly confident and direct, with precise language and no 
 
 ## Primary Surfaces
 
-- Use the `350 × 560` transient rich popover for the one-click summary, interactive recent trend, work-pattern preview, provider shares, and primary navigation. A selected companion turns the top `350 × 236` into an inhabited panorama with the header and headline overlaid, and expands the complete surface to `350 × 656`; `None` remains the default.
+- Use the `350 × 560` transient rich popover for the one-click summary, interactive recent trend, work-pattern preview, provider shares, and primary navigation. A selected companion turns the top `350 × 224` into an inhabited panorama with the header and headline overlaid, and expands the complete surface to `350 × 656`; `None` remains the default.
 - Use a standard resizable History window with Usage and Work Patterns views for selectable usage details, provider/model/token-type disclosures, active-hour summaries, and recurring local-time patterns.
 - Keep durable display preferences in General Settings; the popover owns only the summary period and session-only trend range.
 - Share one visual grammar across popover and History. The detailed contract lives in [DESIGN.md](DESIGN.md).
