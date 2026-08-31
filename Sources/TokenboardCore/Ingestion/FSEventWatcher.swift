@@ -272,6 +272,7 @@ public enum FSEventWatcherError: Error, Equatable, Sendable {
 
 public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
     static let maximumChangedPaths = 64
+    private static let productionReconciliationInterval = DispatchTimeInterval.seconds(5)
 
     private struct ReconciledFileState: Equatable, Sendable {
         let size: Int
@@ -304,7 +305,7 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
     public convenience init() {
         self.init(
             driver: NativeFSEventStreamDriver(),
-            reconciliationInterval: .seconds(2)
+            reconciliationInterval: Self.productionReconciliationInterval
         )
     }
 
