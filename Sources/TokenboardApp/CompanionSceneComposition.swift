@@ -5,14 +5,20 @@ enum CompanionSceneLayout: Equatable, Sendable {
     case strip
     case panorama
 
-    func subjectHeightBasis(for size: CGSize) -> CGFloat {
+    func subjectHeightBasis(for size: CGSize, theme: CompanionTheme) -> CGFloat {
         switch self {
         case .strip:
-            size.height
+            return size.height
         case .panorama:
+            if theme == .forest || theme == .village {
+                // These generated sprites share the plate's compact 84-point
+                // art direction. Give their inhabited band a deliberate 2x
+                // panorama treatment instead of the hero-sized default.
+                return TokenboardSurfaceMetrics.companionSceneHeight * 2
+            }
             // Keeps foreground heroes within the approved 74–84 point range
             // while the panorama gains room for the world around them.
-            112
+            return 112
         }
     }
 
@@ -109,7 +115,10 @@ struct CompanionSceneComposition {
         )
         let lightsOn = presentation.theme == .village
             && presentation.stage >= CompanionAssetCatalog.villageLitStageThreshold
-        let subjectHeightBasis = layout.subjectHeightBasis(for: size)
+        let subjectHeightBasis = layout.subjectHeightBasis(
+            for: size,
+            theme: presentation.theme
+        )
         let placements = asset.layers.enumerated().map { index, layer in
             let height = subjectHeightBasis * layer.relativeHeight
             let width = height * CompanionAssetImageStore.aspectRatio(resource: layer.resource)

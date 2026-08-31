@@ -343,6 +343,11 @@ final class CompanionJourneyTests: XCTestCase {
                 224 * 0.65,
                 "\(theme.title) should visibly occupy more than the panorama's bottom strip"
             )
+            XCTAssertGreaterThanOrEqual(
+                panoramaTop,
+                224 * 0.5,
+                "\(theme.title) should preserve the panorama's top HUD safe zone"
+            )
         }
     }
 
