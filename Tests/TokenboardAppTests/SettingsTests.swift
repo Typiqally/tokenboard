@@ -177,6 +177,42 @@ final class SettingsTests: XCTestCase {
         )
     }
 
+    func testCompanionImportHeadlineDoesNotOverlayANativeSpinner() async throws {
+        // The importing copy already communicates activity. A native spinner
+        // animating over pixel artwork looks visually unstable and cannot show
+        // truthful progress because discovery has no known total yet.
+        let setup = try makeSetup()
+        defer { setup.cleanup() }
+        await setup.model.start()
+        await setup.model.select(companionTheme: .forest)
+
+        let renderer = ImageRenderer(
+            content: RichUsagePopoverView(
+                model: setup.model,
+                visibility: RichPopoverVisibility(),
+                dismiss: {}
+            )
+            .environment(\.colorScheme, .dark)
+        )
+        renderer.scale = 2
+        let image = try XCTUnwrap(renderer.nsImage)
+        let representation = try XCTUnwrap(image.tiffRepresentation)
+        let bitmap = try XCTUnwrap(NSBitmapImageRep(data: representation))
+        let scale = CGFloat(bitmap.pixelsWide) / image.size.width
+        let formerSpinnerCenter = try XCTUnwrap(bitmap.colorAt(
+            x: Int((26 * scale).rounded()),
+            y: Int((65 * scale).rounded())
+        )?.usingColorSpace(.deviceRGB))
+        let isNativeControlPlaceholder = formerSpinnerCenter.redComponent > 0.9
+            && formerSpinnerCenter.greenComponent > 0.7
+            && formerSpinnerCenter.blueComponent < 0.1
+
+        XCTAssertFalse(
+            isNativeControlPlaceholder,
+            "The companion importing headline must not contain a native indeterminate spinner"
+        )
+    }
+
     func testDiagnosticsCollectsCurrentSourceIssuesBehindTechnicalDetails() {
         let health = TokenboardHealth(
             claude: .warning(issue: .truncatedLog, message: "Imported log was truncated"),
