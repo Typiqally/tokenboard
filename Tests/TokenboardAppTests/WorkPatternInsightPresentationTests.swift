@@ -89,6 +89,27 @@ final class WorkPatternInsightPresentationTests: XCTestCase {
         ))
     }
 
+    func testAggregateToolMixNamesAnExclusiveProviderWithoutInternalTaxonomyCopy() throws {
+        let snapshot = try makeSnapshot(activity: [
+            slice("2026-08-03T06:00:00Z"),
+            slice("2026-08-03T07:00:00Z"),
+            slice("2026-08-03T08:00:00Z"),
+            slice("2026-08-03T09:00:00Z"),
+            slice("2026-08-03T10:00:00Z"),
+        ])
+
+        let presentation = try XCTUnwrap(WorkPatternInsightPresentation.make(
+            snapshot,
+            range: .sevenDays,
+            provider: nil
+        ))
+        let interaction = try XCTUnwrap(
+            presentation.rows.first { $0.kind == .aiInteraction }
+        )
+
+        XCTAssertEqual(interaction.title, "All 5 focus blocks used Codex.")
+    }
+
     func testTodayDoesNotGenerateRecurringInsights() throws {
         let snapshot = try makeSnapshot(activity: [slice("2026-08-03T07:00:00Z")])
 
