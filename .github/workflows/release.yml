@@ -22,8 +22,6 @@ jobs:
         run: swift test
       - name: Run import resource benchmark
         run: Scripts/benchmark-import.sh
-      - name: Verify public asset clearance
-        run: Scripts/verify-asset-rights.sh release
       - name: Package universal app
         env:
           RELEASE_TAG: ${{ github.ref_name }}

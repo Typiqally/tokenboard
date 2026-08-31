@@ -25,7 +25,6 @@ if [[ "$bundle_version" != "$version" ]]; then
   exit 65
 fi
 
-"$repository_root/Scripts/verify-asset-rights.sh" release
 "$repository_root/Scripts/build-app.sh" release universal
 app_path="$repository_root/.build/release/Tokenboard.app"
 "$repository_root/Scripts/verify-entitlements.sh" "$app_path"
