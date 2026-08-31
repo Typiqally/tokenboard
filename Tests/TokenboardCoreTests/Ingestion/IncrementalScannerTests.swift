@@ -10,6 +10,52 @@ final class IncrementalScannerTests: XCTestCase {
         return value
     }
 
+    func testActivityHistoryBackfillRereadsCheckpointedFileWithoutChangingUsageOrCheckpoint() async throws {
+        let setup = try await makeSetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let line = claudeLine(requestID: "request-a", messageID: "message-a")
+        try Data("\(line)\n".utf8).write(to: setup.file)
+
+        _ = try await setup.scanner.scan(
+            file: setup.file,
+            provider: .claudeCode,
+            calendar: calendar
+        )
+        let fingerprint = try await setup.ledger.sourceFingerprint(
+            provider: .claudeCode,
+            stableID: "session-a"
+        )
+        let usageBeforeBackfill = try await setup.ledger.usageRows(in: nil, calendar: calendar)
+        let checkpointBeforeBackfill = try await setup.ledger.checkpoint(for: fingerprint)
+        let database = setup.directory.appending(path: "ledger.sqlite")
+        let connection = try SQLiteConnection(url: database)
+        try connection.execute("DELETE FROM activity_slices;")
+        let emptyActivity = try await setup.ledger.activitySliceRows(in: nil, calendar: calendar)
+        XCTAssertEqual(emptyActivity, [])
+
+        let first = try await setup.scanner.backfillActivityHistory(
+            file: setup.file,
+            provider: .claudeCode,
+            calendar: calendar
+        )
+        let second = try await setup.scanner.backfillActivityHistory(
+            file: setup.file,
+            provider: .claudeCode,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(first.committedUsageRecords, 1)
+        XCTAssertEqual(second.committedUsageRecords, 1)
+        let usageAfterBackfill = try await setup.ledger.usageRows(in: nil, calendar: calendar)
+        let checkpointAfterBackfill = try await setup.ledger.checkpoint(for: fingerprint)
+        XCTAssertEqual(usageAfterBackfill, usageBeforeBackfill)
+        XCTAssertEqual(checkpointAfterBackfill, checkpointBeforeBackfill)
+        let activity = try await setup.ledger.activitySliceRows(in: nil, calendar: calendar)
+        XCTAssertEqual(activity.count, 1)
+        XCTAssertEqual(activity.first?.sliceStart, ISO8601DateFormatter().date(from: "2026-08-05T10:00:00Z"))
+        XCTAssertEqual(activity.first?.provider, .claudeCode)
+    }
+
     func testRepeatedAndRecreatedClaudeRecordsAreIdempotent() async throws {
         let directory = canonicalTestTemporaryDirectory.appending(path: UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

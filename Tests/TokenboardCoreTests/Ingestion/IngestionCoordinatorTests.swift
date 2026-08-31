@@ -137,6 +137,39 @@ final class IngestionCoordinatorTests: XCTestCase {
         await coordinator.stop()
     }
 
+    func testActivityHistoryBackfillInventoriesEveryRootUsingDedicatedScannerPath() async throws {
+        let setup = try makeSetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let claudeFile = setup.claudeRoot.appending(path: "project/session.jsonl")
+        let codexFile = setup.codexRoot.appending(path: "session.jsonl")
+        try FileManager.default.createDirectory(
+            at: claudeFile.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data().write(to: claudeFile)
+        try Data().write(to: codexFile)
+        let scanner = RecordingScanner()
+        let coordinator = IngestionCoordinator(
+            scanner: scanner,
+            watcher: FakeSourceEventWatcher(),
+            clock: ManualIngestionClock(),
+            calendar: calendar
+        )
+        _ = try await coordinator.start(roots: setup.roots)
+        await scanner.reset()
+
+        let result = await coordinator.backfillActivityHistory()
+
+        XCTAssertEqual(result.scope, .activityBackfill)
+        XCTAssertEqual(result.providers[.claudeCode], .success(discoveredFiles: 1, scannedFiles: 1))
+        XCTAssertEqual(result.providers[.codex], .success(discoveredFiles: 1, scannedFiles: 1))
+        let scannedURLs = await scanner.scannedURLs
+        let activityHistoryURLs = await scanner.activityHistoryURLs
+        XCTAssertEqual(scannedURLs, [])
+        XCTAssertEqual(activityHistoryURLs, [claudeFile, codexFile])
+        await coordinator.stop()
+    }
+
     func testStartMonitoringInventoriesAndWatchesOneApprovedRoot() async throws {
         let setup = try makeSetup()
         defer { try? FileManager.default.removeItem(at: setup.directory) }
@@ -1971,6 +2004,7 @@ private enum RecordingScannerError: Error {
 
 private actor RecordingScanner: IngestionScanning {
     private(set) var scannedURLs: [URL] = []
+    private(set) var activityHistoryURLs: [URL] = []
     private(set) var scannedProviders: [Provider] = []
     private(set) var activeScans = 0
     private(set) var maximumConcurrentScans = 0
@@ -2020,6 +2054,20 @@ private actor RecordingScanner: IngestionScanning {
         )
     }
 
+    func backfillActivityHistory(
+        file: URL,
+        provider: Provider,
+        calendar: Calendar
+    ) async throws -> ScanOutcome {
+        activityHistoryURLs.append(file)
+        return outcomes[provider] ?? ScanOutcome(
+            committedUsageRecords: 0,
+            skippedRecords: 0,
+            finalOffset: 0,
+            attention: nil
+        )
+    }
+
     func resumeFirstScan() {
         firstScanContinuation?.resume()
         firstScanContinuation = nil
@@ -2061,6 +2109,7 @@ private actor RecordingScanner: IngestionScanning {
 
     func reset() {
         scannedURLs = []
+        activityHistoryURLs = []
         scannedProviders = []
         activeScans = 0
         maximumConcurrentScans = 0
@@ -2086,6 +2135,14 @@ private actor ChunkCountingScanner: IngestionScanning {
             finalOffset: 0,
             attention: nil
         )
+    }
+
+    func backfillActivityHistory(
+        file: URL,
+        provider: Provider,
+        calendar: Calendar
+    ) async throws -> ScanOutcome {
+        try await scan(file: file, provider: provider, calendar: calendar)
     }
 
     func reset() {

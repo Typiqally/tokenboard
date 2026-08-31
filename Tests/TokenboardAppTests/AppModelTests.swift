@@ -135,6 +135,27 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(setup.access.stopCount, 2)
     }
 
+    func testWorkPatternHistoryBackfillUsesDedicatedCoordinatorPathAndRefreshesHistory() async throws {
+        let setup = try makeSetup(approved: true, grantedProviders: Set(Provider.allCases))
+        defer { setup.cleanup() }
+        await setup.model.start()
+        let rangesBefore = await setup.query.queriedHistoryRanges()
+
+        await setup.model.backfillWorkPatternHistory()
+
+        let backfillCount = await setup.coordinator.backfillCount
+        let coordinatorCounts = await setup.coordinator.counts()
+        let queriedRanges = await setup.query.queriedHistoryRanges()
+        XCTAssertEqual(backfillCount, 1)
+        XCTAssertEqual(coordinatorCounts, [1, 0])
+        XCTAssertEqual(
+            queriedRanges,
+            rangesBefore + UsageHistoryRange.allCases
+        )
+        XCTAssertTrue(setup.recorder.snapshot.contains("coordinator.backfill"))
+        XCTAssertFalse(setup.model.state.isImporting)
+    }
+
     func testUnavailableDisplayCurrencyCannotBeSelectedOrPersisted() async throws {
         let setup = try makeSetup(approved: true, grantedProviders: [.codex])
         defer { setup.cleanup() }
@@ -642,6 +663,7 @@ private actor RuntimeCoordinator: AppIngestionCoordinating {
     let recorder: OrderedRecorder
     private(set) var startCount = 0
     private(set) var refreshCount = 0
+    private(set) var backfillCount = 0
     private var runID: UInt64 = 0
     private var sequence: UInt64 = 0
     private var activeProviders: Set<Provider> = []
@@ -668,6 +690,11 @@ private actor RuntimeCoordinator: AppIngestionCoordinating {
         recorder.append("coordinator.refresh")
         return result()
     }
+    func backfillActivityHistory() -> IngestionBatchResult {
+        backfillCount += 1
+        recorder.append("coordinator.backfill")
+        return result(scope: .activityBackfill)
+    }
     func replaceSource(
         _ provider: Provider,
         with root: URL,
@@ -684,12 +711,12 @@ private actor RuntimeCoordinator: AppIngestionCoordinating {
     func stop() { recorder.append("coordinator.stop") }
     func counts() -> [Int] { [startCount, refreshCount] }
 
-    private func result() -> IngestionBatchResult {
+    private func result(scope: IngestionBatchScope = .inventory) -> IngestionBatchResult {
         sequence += 1
         return IngestionBatchResult(
             runID: runID,
             sequence: sequence,
-            scope: .inventory,
+            scope: scope,
             providers: Dictionary(uniqueKeysWithValues: activeProviders.map {
                 ($0, .success(discoveredFiles: 0, scannedFiles: 0))
             })
