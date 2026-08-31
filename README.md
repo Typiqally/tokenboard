@@ -30,17 +30,17 @@
 
 <p align="center"><em>One glance in the menu bar, one click for the complete local picture.</em></p>
 
-## Current release — 0.8.1
+## Current release — 0.9.0
 
-Tokenboard 0.8.1 fixes a crash that could occur at local midnight while Discord Activity was watching for the new calendar day. It includes the expanded companion popover, balanced data layout, top scrim for legible controls, and static **View on GitHub** Discord action introduced in 0.8.
+Tokenboard 0.9.0 adds local Work Patterns with conservative focus-time estimates, recurring rhythm and AI-interaction observations, focus-block profiles, schedule ranges, and estimate composition. Existing installations can safely backfill older focus timing from still-available granted logs without duplicating token totals or changing import checkpoints. This release also improves source-log reconciliation and companion popover stability.
 
 <p align="center">
-  <strong><a href="https://github.com/Typiqally/tokenboard/releases/download/v0.8.1/Tokenboard-0.8.1.zip">Download Tokenboard 0.8.1</a></strong>
+  <strong><a href="https://github.com/Typiqally/tokenboard/releases/download/v0.9.0/Tokenboard-0.9.0.zip">Download Tokenboard 0.9.0</a></strong>
   ·
-  <a href="https://github.com/Typiqally/tokenboard/releases/tag/v0.8.1">Release notes</a>
+  <a href="https://github.com/Typiqally/tokenboard/releases/tag/v0.9.0">Release notes</a>
 </p>
 
-The archive contains a universal Apple silicon and Intel app for macOS 14 or newer. SHA-256: `c1af74938792658ea45e7ed48a56014d76039338870d1f3dd8e86ca9bac18b61`.
+The archive contains a universal Apple silicon and Intel app for macOS 14 or newer. SHA-256: `03c2c5ecc43694802636ab40c475ca0dab76ce9be08273449e5c336de57044e2`.
 
 ## Why Tokenboard
 
