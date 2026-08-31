@@ -301,6 +301,52 @@ final class CompanionJourneyTests: XCTestCase {
     }
 
     @MainActor
+    func testGrowingPixelWorldsDoNotCollapseIntoThePanoramaBottomStrip() throws {
+        // As someone glancing at the popover, I want the growing world to
+        // remain legible in the panorama instead of retaining strip-scale
+        // subjects below a large field of empty sky.
+        for theme in [CompanionTheme.forest, .village] {
+            let variant = try XCTUnwrap(CompanionCatalog.variants(for: theme).first)
+            let presentation = CompanionPresentation(
+                theme: theme,
+                variant: variant,
+                stage: 2,
+                scenery: 0,
+                seed: 7,
+                stageTitle: "Stage 3",
+                progressFraction: 0.43,
+                tokensUntilNextStage: 51_000_000,
+                accessibilityLabel: "\(theme.title) panorama"
+            )
+            let strip = CompanionSceneComposition.make(
+                presentation: presentation,
+                size: NSSize(width: 350, height: 84),
+                layout: .strip
+            )
+            let panorama = CompanionSceneComposition.make(
+                presentation: presentation,
+                size: NSSize(width: 350, height: 224),
+                layout: .panorama
+            )
+            let stripTallest = try XCTUnwrap(strip.placements.map(\.rect.height).max())
+            let panoramaTallest = try XCTUnwrap(panorama.placements.map(\.rect.height).max())
+            let panoramaTop = try XCTUnwrap(panorama.placements.map(\.rect.minY).min())
+
+            XCTAssertEqual(
+                panoramaTallest,
+                stripTallest * 2,
+                accuracy: 0.01,
+                "\(theme.title) panorama subjects should use the panorama's inhabited scale"
+            )
+            XCTAssertLessThanOrEqual(
+                panoramaTop,
+                224 * 0.65,
+                "\(theme.title) should visibly occupy more than the panorama's bottom strip"
+            )
+        }
+    }
+
+    @MainActor
     func testCompanionStripDrawsTheJourneyProgressLineAlongItsBottomEdge() throws {
         for theme in CompanionTheme.allCases where theme != .none {
             let variant = try XCTUnwrap(CompanionCatalog.variants(for: theme).first)
