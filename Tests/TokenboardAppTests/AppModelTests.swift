@@ -156,6 +156,26 @@ final class AppModelTests: XCTestCase {
         XCTAssertFalse(setup.model.state.isImporting)
     }
 
+    func testWorkPatternHistoryBackfillPublishesDedicatedProgressUntilCompletion() async throws {
+        let setup = try makeSetup(approved: true, grantedProviders: Set(Provider.allCases))
+        defer { setup.cleanup() }
+        await setup.model.start()
+        await setup.coordinator.suspendNextBackfill()
+
+        let backfill = Task { @MainActor in
+            await setup.model.backfillWorkPatternHistory()
+        }
+        await setup.coordinator.waitUntilBackfillStarts()
+
+        XCTAssertTrue(setup.model.isBackfillingWorkPatternHistory)
+        XCTAssertTrue(setup.model.state.isImporting)
+
+        await setup.coordinator.resumeBackfill()
+        await backfill.value
+        XCTAssertFalse(setup.model.isBackfillingWorkPatternHistory)
+        XCTAssertFalse(setup.model.state.isImporting)
+    }
+
     func testUnavailableDisplayCurrencyCannotBeSelectedOrPersisted() async throws {
         let setup = try makeSetup(approved: true, grantedProviders: [.codex])
         defer { setup.cleanup() }
@@ -667,6 +687,10 @@ private actor RuntimeCoordinator: AppIngestionCoordinating {
     private var runID: UInt64 = 0
     private var sequence: UInt64 = 0
     private var activeProviders: Set<Provider> = []
+    private var shouldSuspendBackfill = false
+    private var backfillStarted = false
+    private var backfillContinuation: CheckedContinuation<Void, Never>?
+    private var backfillStartWaiters: [CheckedContinuation<Void, Never>] = []
 
     init(recorder: OrderedRecorder) { self.recorder = recorder }
 
@@ -690,9 +714,17 @@ private actor RuntimeCoordinator: AppIngestionCoordinating {
         recorder.append("coordinator.refresh")
         return result()
     }
-    func backfillActivityHistory() -> IngestionBatchResult {
+    func backfillActivityHistory() async -> IngestionBatchResult {
         backfillCount += 1
         recorder.append("coordinator.backfill")
+        backfillStarted = true
+        let waiters = backfillStartWaiters
+        backfillStartWaiters.removeAll()
+        waiters.forEach { $0.resume() }
+        if shouldSuspendBackfill {
+            shouldSuspendBackfill = false
+            await withCheckedContinuation { backfillContinuation = $0 }
+        }
         return result(scope: .activityBackfill)
     }
     func replaceSource(
@@ -710,6 +742,15 @@ private actor RuntimeCoordinator: AppIngestionCoordinating {
     }
     func stop() { recorder.append("coordinator.stop") }
     func counts() -> [Int] { [startCount, refreshCount] }
+    func suspendNextBackfill() { shouldSuspendBackfill = true }
+    func waitUntilBackfillStarts() async {
+        guard !backfillStarted else { return }
+        await withCheckedContinuation { backfillStartWaiters.append($0) }
+    }
+    func resumeBackfill() {
+        backfillContinuation?.resume()
+        backfillContinuation = nil
+    }
 
     private func result(scope: IngestionBatchScope = .inventory) -> IngestionBatchResult {
         sequence += 1
