@@ -64,7 +64,13 @@ struct RichUsagePopoverView: View {
                     companionEnabled: companion != nil
                 ).height
             )
-            .background(.ultraThinMaterial)
+            .background {
+                if companion != nil {
+                    Color(nsColor: .windowBackgroundColor)
+                } else {
+                    Rectangle().fill(.ultraThinMaterial)
+                }
+            }
         }
         // Companion scenes inside the popover animate only while this
         // window is genuinely on screen.
