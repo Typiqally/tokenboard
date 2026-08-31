@@ -37,7 +37,7 @@ These checks are interactive and must be recorded for a tagged release; merely b
 
 1. Open the release app, explicitly select test Claude Code and Codex roots, and start a local import.
 2. Leave both roots unchanged for five minutes.
-3. In Activity Monitor, verify Sandbox is `No`, CPU settles to `0.0%` between filesystem events, no child/helper Tokenboard process exists, the Network view attributes zero sent and received internet bytes to Tokenboard, and memory does not grow during the idle interval.
+3. In Activity Monitor, verify Sandbox is `No`, CPU settles to `0.0%` between filesystem events and metadata-reconciliation passes, no child/helper Tokenboard process exists, the Network view attributes zero sent and received internet bytes to Tokenboard, and memory does not grow during the idle interval.
 4. Record initial-import time, incremental-refresh time, and peak resident memory in the release notes.
 5. Copy one synthetic fixture into a temporary granted root, import it, delete only that synthetic copy, refresh, and confirm the committed aggregate remains. Never delete or modify real source logs.
 6. With synthetic usage only, enable Discord Activity, confirm the alert matches the Settings preview, verify the activity in Discord, then disable it and confirm it clears. Repeat with Discord closed to verify the recoverable status and Retry path.

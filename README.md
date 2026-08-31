@@ -46,7 +46,7 @@ The archive contains a universal Apple silicon and Intel app for macOS 14 or new
 
 Claude Code and Codex record token usage locally, but neither gives you one durable, shared view of that activity. Tokenboard reads only the folders you choose, reduces supported records to content-safe aggregates, and keeps the result available after old source logs disappear.
 
-There is no account, cloud service, telemetry endpoint, or background helper. The app is one native macOS process, refreshes from filesystem events, and sits at effectively zero CPU while nothing changes.
+There is no account, cloud service, telemetry endpoint, or background helper. The app is one native macOS process, uses filesystem events as its fast path, and reconciles read-only JSONL metadata so silently missed appends still appear.
 
 ## What you get
 
@@ -65,7 +65,7 @@ Highlights:
 - Effective-dated API-equivalent estimates that leave unknown prices visibly unpriced instead of guessing.
 - Provider, model, Input, Cache, and Output breakdowns without double-counting reasoning output.
 - Local Work Patterns: active-hour averages, peak and recurring hours or weekdays, first/last activity, consistency, and busiest-day context.
-- Event-driven updates with an explicit full Refresh action when you want one immediately.
+- Event-driven updates backed by read-only metadata reconciliation, with an explicit full Refresh action when you want one immediately.
 - Optional companion panoramas for Pokémon, Forest, Village, Old School RuneScape, Age of Empires II, Minecraft, Banished, and Frostpunk.
 - Optional Discord Rich Presence with a static **View on GitHub** action.
 
@@ -157,7 +157,7 @@ Tokenboard stores token aggregates, exact content-safe model IDs, price history,
 
 - No telemetry, analytics, remote API, web view, helper, daemon, or XPC service.
 - No source-log edits or deletions.
-- Native filesystem events instead of periodic polling.
+- Native filesystem events backed by a periodic, read-only comparison of JSONL paths, sizes, and modification dates.
 - One unsandboxed process with no privilege entitlements. The unsandboxed boundary exists for Discord's same-user local Unix socket.
 - Companions are bundled and stay offline.
 - Discord Activity is off by default and requires an exact first-use preview and confirmation.
