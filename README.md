@@ -30,6 +30,18 @@
 
 <p align="center"><em>One glance in the menu bar, one click for the complete local picture.</em></p>
 
+## Current release — 0.8.1
+
+Tokenboard 0.8.1 fixes a crash that could occur at local midnight while Discord Activity was watching for the new calendar day. It includes the expanded companion popover, balanced data layout, top scrim for legible controls, and static **View on GitHub** Discord action introduced in 0.8.
+
+<p align="center">
+  <strong><a href="https://github.com/Typiqally/tokenboard/releases/download/v0.8.1/Tokenboard-0.8.1.zip">Download Tokenboard 0.8.1</a></strong>
+  ·
+  <a href="https://github.com/Typiqally/tokenboard/releases/tag/v0.8.1">Release notes</a>
+</p>
+
+The archive contains a universal Apple silicon and Intel app for macOS 14 or newer. SHA-256: `c1af74938792658ea45e7ed48a56014d76039338870d1f3dd8e86ca9bac18b61`.
+
 ## Why Tokenboard
 
 Claude Code and Codex record token usage locally, but neither gives you one durable, shared view of that activity. Tokenboard reads only the folders you choose, reduces supported records to content-safe aggregates, and keeps the result available after old source logs disappear.
@@ -71,7 +83,7 @@ open /Applications/Tokenboard.app
 
 Upgrade later with `brew upgrade --cask tokenboard`. Uninstall with `brew uninstall --cask tokenboard`.
 
-You can also download the universal app archive and published SHA-256 sidecar from the [latest GitHub release](https://github.com/Typiqally/tokenboard/releases/latest).
+You can also download the universal app archive from the [latest GitHub release](https://github.com/Typiqally/tokenboard/releases/latest). Verify it against the SHA-256 digest GitHub publishes for the release asset before opening it.
 
 ### Ask a coding agent to install it
 
@@ -84,9 +96,10 @@ https://github.com/Typiqally/tokenboard.
 
 Prefer the official Homebrew cask typiqally/tokenboard/tokenboard. If Homebrew
 is unavailable, download the single app archive from the latest GitHub release,
-verify its SHA-256 against GitHub's published sidecar, and place Tokenboard.app
-in /Applications. Do not build from source. If Tokenboard is already installed
-through Homebrew, upgrade it instead of deleting it manually.
+verify its SHA-256 against the digest GitHub publishes for that release asset,
+and place Tokenboard.app in /Applications. Do not build from source. If
+Tokenboard is already installed through Homebrew, upgrade it instead of deleting
+it manually.
 
 Tokenboard is not Apple-notarized. Remove the quarantine attribute only from
 the exact installed path /Applications/Tokenboard.app, then open the app and
