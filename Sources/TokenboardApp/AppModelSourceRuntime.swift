@@ -143,6 +143,7 @@ extension AppModel {
         let generation = lifecycleGeneration
         activityGeneration &+= 1
         let id = activityGeneration
+        setWorkPatternHistoryBackfillInProgress(true)
         var next = state
         next.isImporting = true
         commitState(next)
@@ -154,6 +155,7 @@ extension AppModel {
         await task.value
         if activity?.id == id {
             activity = nil
+            setWorkPatternHistoryBackfillInProgress(false)
             if accepts(generation), state.lifecycle == .ready {
                 next = state
                 next.isImporting = false

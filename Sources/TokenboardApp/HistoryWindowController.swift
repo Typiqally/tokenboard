@@ -251,7 +251,7 @@ struct UsageHistoryView: View {
                         snapshot: workPatterns,
                         range: snapshot.range,
                         provider: snapshot.provider,
-                        isBackfilling: model.state.isImporting,
+                        isBackfilling: model.isBackfillingWorkPatternHistory,
                         canBackfill: model.canBackfillWorkPatternHistory,
                         onBackfill: {
                             Task { @MainActor in

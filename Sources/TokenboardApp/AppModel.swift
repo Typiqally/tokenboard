@@ -7,6 +7,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var state: AppPublishedState
     @Published private(set) var settingsState: AppSettingsState
     @Published private(set) var discordPresenceEnabled: Bool
+    @Published private(set) var isBackfillingWorkPatternHistory = false
 
     var onOpenPricing: (() -> Void)?
     var onOpenSettings: (() -> Void)?
@@ -175,6 +176,10 @@ final class AppModel: ObservableObject {
 
     func commitSettingsState(_ next: AppSettingsState) {
         settingsState = next
+    }
+
+    func setWorkPatternHistoryBackfillInProgress(_ value: Bool) {
+        isBackfillingWorkPatternHistory = value
     }
 
     func start() async {
