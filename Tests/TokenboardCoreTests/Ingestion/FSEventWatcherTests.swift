@@ -43,6 +43,53 @@ final class FSEventWatcherTests: XCTestCase {
         XCTAssertNotNil(received, "Native FSEvents should deliver source changes automatically")
     }
 
+    func testReconciliationDeliversExistingFileGrowthWhenNativeEventsStaySilent() async throws {
+        let root = canonicalTestTemporaryDirectory
+            .appending(path: "tokenboard-silent-native-watcher-\(UUID().uuidString)")
+            .standardizedFileURL
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        let changedFile = root.appending(path: "session.jsonl")
+        try Data("{\"type\":\"session_meta\"}\n".utf8).write(to: changedFile)
+        let driver = RecordingFSEventStreamDriver()
+        let watcher = FSEventWatcher(
+            driver: driver,
+            reconciliationInterval: .milliseconds(50)
+        )
+        let stream = try watcher.start(roots: [root])
+        defer {
+            watcher.stop()
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let file = try FileHandle(forWritingTo: changedFile)
+        try file.seekToEnd()
+        try file.write(contentsOf: Data("{\"type\":\"event_msg\"}\n".utf8))
+        try file.close()
+
+        let received = await withTaskGroup(of: SourceEventBatch?.self) { group in
+            group.addTask {
+                for await batch in stream where batch.paths.contains(changedFile) {
+                    return batch
+                }
+                return nil
+            }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(2))
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+
+        XCTAssertEqual(received?.paths, [changedFile])
+        XCTAssertNil(received?.checkpoint)
+        XCTAssertEqual(driver.operations.prefix(2), [.schedule, .start(true)])
+    }
+
     func testLazyNativeConversionReadsAndRetainsOnlyBoundedPrefixOnOverflow() {
         let source = LazyNativeEventSource(logicalCount: 1_000_000)
 
