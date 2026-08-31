@@ -158,11 +158,11 @@ final class SettingsTests: XCTestCase {
         let sampleX = Int((20 * scale).rounded())
         let contentColor = try XCTUnwrap(bitmap.colorAt(
             x: sampleX,
-            y: Int((230 * scale).rounded())
+            y: Int((430 * scale).rounded())
         )?.usingColorSpace(.deviceRGB))
         let flexibleGapColor = try XCTUnwrap(bitmap.colorAt(
             x: sampleX,
-            y: Int((120 * scale).rounded())
+            y: Int((520 * scale).rounded())
         )?.usingColorSpace(.deviceRGB))
         let maximumChannelDifference = max(
             abs(contentColor.redComponent - flexibleGapColor.redComponent),
