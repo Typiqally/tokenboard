@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import ImageIO
 import XCTest
@@ -318,6 +319,28 @@ final class CompanionArtworkAssetTests: XCTestCase {
                 size.height, sprite.cells * 8,
                 "\(sprite.resource) is baked at a different height than the catalog places it"
             )
+        }
+    }
+
+    func testOakCanopiesStayConnectedToTheirTrunks() throws {
+        for level in CompanionAssetCatalog.forestSpriteCellHeights["oak"]!.indices {
+            let resource = "Forest/sprites/oak-\(level).png"
+            let data = try Data(contentsOf: developmentCompanionResourceURL(resource))
+            let bitmap = try XCTUnwrap(NSBitmapImageRep(data: data))
+            let centerX = bitmap.pixelsWide / 2
+            let opaqueRows = (0..<bitmap.pixelsHigh).filter { y in
+                (bitmap.colorAt(x: centerX, y: y)?.alphaComponent ?? 0) > 0.5
+            }
+            let first = try XCTUnwrap(opaqueRows.first)
+            let last = try XCTUnwrap(opaqueRows.last)
+
+            for y in first...last {
+                XCTAssertGreaterThan(
+                    bitmap.colorAt(x: centerX, y: y)?.alphaComponent ?? 0,
+                    0.5,
+                    "\(resource) separates its canopy from its trunk at row \(y)"
+                )
+            }
         }
     }
 
