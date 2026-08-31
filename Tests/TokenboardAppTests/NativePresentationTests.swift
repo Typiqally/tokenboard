@@ -128,6 +128,29 @@ final class NativePresentationTests: XCTestCase {
         withExtendedLifetime(controller) {}
     }
 
+    func testCalendarDayChangePostedOffMainThreadDoesNotCrashTheDiscordObserver() async throws {
+        let setup = try makeModel()
+        defer { setup.cleanup() }
+        let workspaceCenter = NotificationCenter()
+        let calendarCenter = NotificationCenter()
+        let delegate = AppDelegate(model: setup.model)
+        delegate.observeDiscordLifecycle(
+            model: setup.model,
+            workspaceCenter: workspaceCenter,
+            calendarCenter: calendarCenter
+        )
+        let notificationPosted = expectation(description: "calendar day change posted")
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            calendarCenter.post(name: .NSCalendarDayChanged, object: nil)
+            notificationPosted.fulfill()
+        }
+
+        await fulfillment(of: [notificationPosted], timeout: 1)
+        try await Task.sleep(for: .milliseconds(50))
+        withExtendedLifetime(delegate) {}
+    }
+
     func testPopoverClickAwayDismissalClosesForGlobalMouseDownAndStopsAfterClose() {
         let monitorToken = NSObject()
         var registeredMask: NSEvent.EventTypeMask = []
