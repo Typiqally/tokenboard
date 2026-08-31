@@ -29,6 +29,11 @@ for pending_group in pokemon old-school-runescape age-of-empires-ii minecraft; d
   /usr/bin/grep -q -- "$pending_group" "$test_root/stderr" \
     || fail "release gate omitted pending group $pending_group"
 done
+if /usr/bin/grep -E -q -- 'verify-asset-rights\.sh"?[[:space:]]+release' \
+  "$repository_root/Scripts/package-release.sh" \
+  "$repository_root/.github/workflows/release.yml"; then
+  fail "release tooling invokes the asset-rights gate"
+fi
 if /usr/bin/grep -R -q -- '--clobber' \
   "$repository_root/Scripts/package-release.sh" \
   "$repository_root/.github/workflows/release.yml"; then
