@@ -134,6 +134,49 @@ final class SettingsTests: XCTestCase {
         }
     }
 
+    func testCompanionPopoverKeepsTheLowerSurfaceVisuallyContinuous() async throws {
+        // As someone glancing at the popover, I want the content and footer to
+        // share one surface so the desktop cannot tint an empty layout gap.
+        let setup = try makeSetup()
+        defer { setup.cleanup() }
+        await setup.model.start()
+        await setup.model.select(companionTheme: .forest)
+
+        let renderer = ImageRenderer(
+            content: RichUsagePopoverView(
+                model: setup.model,
+                visibility: RichPopoverVisibility(),
+                dismiss: {}
+            )
+            .environment(\.colorScheme, .dark)
+        )
+        renderer.scale = 2
+        let image = try XCTUnwrap(renderer.nsImage)
+        let representation = try XCTUnwrap(image.tiffRepresentation)
+        let bitmap = try XCTUnwrap(NSBitmapImageRep(data: representation))
+        let scale = CGFloat(bitmap.pixelsWide) / image.size.width
+        let sampleX = Int((20 * scale).rounded())
+        let contentColor = try XCTUnwrap(bitmap.colorAt(
+            x: sampleX,
+            y: Int((230 * scale).rounded())
+        )?.usingColorSpace(.deviceRGB))
+        let flexibleGapColor = try XCTUnwrap(bitmap.colorAt(
+            x: sampleX,
+            y: Int((120 * scale).rounded())
+        )?.usingColorSpace(.deviceRGB))
+        let maximumChannelDifference = max(
+            abs(contentColor.redComponent - flexibleGapColor.redComponent),
+            abs(contentColor.greenComponent - flexibleGapColor.greenComponent),
+            abs(contentColor.blueComponent - flexibleGapColor.blueComponent)
+        )
+
+        XCTAssertLessThan(
+            maximumChannelDifference,
+            0.02,
+            "The flexible space above the footer must use the same solid surface as the content"
+        )
+    }
+
     func testDiagnosticsCollectsCurrentSourceIssuesBehindTechnicalDetails() {
         let health = TokenboardHealth(
             claude: .warning(issue: .truncatedLog, message: "Imported log was truncated"),
