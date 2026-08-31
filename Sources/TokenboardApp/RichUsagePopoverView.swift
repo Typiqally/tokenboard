@@ -158,11 +158,7 @@ struct RichUsagePopoverView: View {
     private func panoramaHeadline(_ presentation: RichPopoverPresentation) -> some View {
         switch presentation.contentState {
         case .loading:
-            HStack(spacing: 10) {
-                ProgressView()
-                    .controlSize(.small)
-                panoramaHeadlineText(presentation)
-            }
+            panoramaHeadlineText(presentation)
         case .failed, .ready:
             panoramaHeadlineText(presentation)
         }
