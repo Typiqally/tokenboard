@@ -109,8 +109,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return url
     }
 
-    private func observeDiscordLifecycle(model: AppModel) {
-        let workspaceCenter = NSWorkspace.shared.notificationCenter
+    func observeDiscordLifecycle(
+        model: AppModel,
+        workspaceCenter: NotificationCenter = NSWorkspace.shared.notificationCenter,
+        calendarCenter: NotificationCenter = .default
+    ) {
         workspaceCenter.publisher(for: NSWorkspace.didLaunchApplicationNotification)
             .compactMap(Self.runningApplication(from:))
             .filter(Self.isOfficialDiscord)
@@ -140,8 +143,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             .store(in: &discordObservations)
 
-        NotificationCenter.default.publisher(for: .NSCalendarDayChanged)
-            .merge(with: NotificationCenter.default.publisher(for: .NSSystemTimeZoneDidChange))
+        calendarCenter.publisher(for: .NSCalendarDayChanged)
+            .merge(with: calendarCenter.publisher(for: .NSSystemTimeZoneDidChange))
+            .receive(on: DispatchQueue.main)
             .sink { _ in
                 Task { @MainActor [weak model] in
                     await model?.refreshDiscordPresenceForCalendarChange()
