@@ -50,4 +50,11 @@ final class ValueFormatterTests: XCTestCase {
         XCTAssertEqual(ValueFormatter.compactTokens(-1_250), "-1.25K")
         XCTAssertEqual(ValueFormatter.compactTokens(1_250_000), "1.25M")
     }
+
+    func testDurationUsesMinutesUntilAFullHourAndKeepsMeaningfulRemainders() {
+        XCTAssertEqual(ValueFormatter.duration(minutes: 0), "0m")
+        XCTAssertEqual(ValueFormatter.duration(minutes: 5), "5m")
+        XCTAssertEqual(ValueFormatter.duration(minutes: 60), "1h")
+        XCTAssertEqual(ValueFormatter.duration(minutes: 85), "1h 25m")
+    }
 }

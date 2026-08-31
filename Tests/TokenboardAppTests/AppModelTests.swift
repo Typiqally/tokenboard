@@ -289,7 +289,7 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(initialActivities, [
             DiscordPresencePresentation.activity(
                 tokenTotal: 321,
-                activeHourCount: nil
+                estimatedFocusMinutes: nil
             )
         ])
 
@@ -299,7 +299,7 @@ final class AppModelTests: XCTestCase {
         let updatedActivities = await setup.discordClient.activities()
         XCTAssertEqual(updatedActivities.last, DiscordPresencePresentation.activity(
             tokenTotal: 84,
-            activeHourCount: nil
+            estimatedFocusMinutes: nil
         ))
 
         await setup.model.shutdown()

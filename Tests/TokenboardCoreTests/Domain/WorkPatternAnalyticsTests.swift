@@ -3,7 +3,7 @@ import XCTest
 @testable import TokenboardCore
 
 final class WorkPatternAnalyticsTests: XCTestCase {
-    func testCalculatesBalancedMetricsAndSeparatesVolumeFromConsistency() throws {
+    func testCalculatesFocusTimeSessionsAndSeparatesVolumeFromConsistency() throws {
         let calendar = amsterdamCalendar()
         let current = interval("2026-08-02T22:00:00Z", "2026-08-16T22:00:00Z")
         let previous = interval("2026-07-19T22:00:00Z", "2026-08-02T22:00:00Z")
@@ -14,14 +14,28 @@ final class WorkPatternAnalyticsTests: XCTestCase {
             row("2026-08-05T07:00:00Z", quantity: 10),
             row("2026-08-10T07:00:00Z", quantity: 50),
         ]
+        let activity = [
+            slice("2026-08-03T07:00:00Z"),
+            slice("2026-08-03T07:10:00Z"),
+            slice("2026-08-03T08:00:00Z"),
+            slice("2026-08-04T13:00:00Z"),
+            slice("2026-08-05T07:00:00Z"),
+            slice("2026-08-10T07:00:00Z"),
+        ]
         let previousRows = [
             row("2026-07-20T07:00:00Z", quantity: 20),
             row("2026-07-21T08:00:00Z", quantity: 30),
+        ]
+        let previousActivity = [
+            slice("2026-07-20T07:00:00Z"),
+            slice("2026-07-21T08:00:00Z"),
         ]
 
         let snapshot = try WorkPatternCalculator().make(
             currentRows: rows,
             previousRows: previousRows,
+            currentActivity: activity,
+            previousActivity: previousActivity,
             currentInterval: current,
             previousInterval: previous,
             coverageStart: previous.start,
@@ -30,9 +44,11 @@ final class WorkPatternAnalyticsTests: XCTestCase {
         )
 
         XCTAssertFalse(snapshot.isCoveragePartial)
-        XCTAssertEqual(snapshot.totalActiveHours, 5)
+        XCTAssertEqual(snapshot.totalFocusMinutes, 35)
+        XCTAssertEqual(snapshot.focusSessionCount, 5)
         XCTAssertEqual(snapshot.activeDayCount, 4)
-        XCTAssertEqual(snapshot.averageActiveHoursPerActiveDay, Decimal(string: "1.25"))
+        XCTAssertEqual(snapshot.averageFocusMinutesPerActiveDay, Decimal(string: "8.75"))
+        XCTAssertEqual(snapshot.averageFocusSessionMinutes, 7)
         XCTAssertEqual(snapshot.averageActiveDaysPerWeek, 2)
         XCTAssertEqual(snapshot.volumePeakHour?.hour, 15)
         XCTAssertEqual(snapshot.volumePeakHour?.tokenTotal, 500)
@@ -43,32 +59,28 @@ final class WorkPatternAnalyticsTests: XCTestCase {
         XCTAssertEqual(snapshot.consistentWeekday?.weekday, .monday)
         XCTAssertEqual(snapshot.typicalFirstActivityHour, 9)
         XCTAssertEqual(snapshot.typicalLastActivityHour, 10)
-        XCTAssertEqual(snapshot.longestActiveRunHours, 2)
+        XCTAssertEqual(snapshot.longestFocusSessionMinutes, 15)
         XCTAssertEqual(snapshot.busiestDay?.localDay.value, "2026-08-04")
         XCTAssertEqual(snapshot.busiestDay?.tokenTotal, 500)
         XCTAssertEqual(snapshot.days.count, 14)
         XCTAssertEqual(snapshot.heatmap.count, 168)
         XCTAssertEqual(snapshot.comparison, WorkPatternComparison(
-            currentActiveHours: 5,
-            previousActiveHours: 2,
-            activeHourDelta: 3,
-            percentChange: 150
+            currentFocusMinutes: 35,
+            previousFocusMinutes: 10,
+            focusMinuteDelta: 25,
+            percentChange: 250
         ))
     }
 
-    func testDeduplicatesAdditiveRowsAndExcludesInformationalSubsets() throws {
+    func testIsolatedUsageCountsAsFiveMinutesInsteadOfAWholeHour() throws {
         let calendar = amsterdamCalendar()
         let current = interval("2026-08-02T22:00:00Z", "2026-08-09T22:00:00Z")
-        let hour = date("2026-08-03T07:00:00Z")
-        let rows = [
-            row(hour, provider: .codex, metric: .inputUncached, quantity: 100),
-            row(hour, provider: .claudeCode, metric: .output, quantity: 200),
-            row("2026-08-03T08:00:00Z", metric: .detailReasoningOutput, quantity: 900),
-        ]
 
         let snapshot = try WorkPatternCalculator().make(
-            currentRows: rows,
+            currentRows: [row("2026-08-03T07:00:00Z", quantity: 300)],
             previousRows: [],
+            currentActivity: [slice("2026-08-03T07:01:00Z")],
+            previousActivity: [],
             currentInterval: current,
             previousInterval: interval("2026-07-26T22:00:00Z", "2026-08-02T22:00:00Z"),
             coverageStart: date("2026-07-01T00:00:00Z"),
@@ -76,16 +88,83 @@ final class WorkPatternAnalyticsTests: XCTestCase {
             calendar: calendar
         )
 
-        XCTAssertEqual(snapshot.totalActiveHours, 1)
-        XCTAssertEqual(snapshot.activeDayCount, 1)
-        XCTAssertEqual(snapshot.days.first(where: { $0.activeHourCount > 0 })?.tokenTotal, 300)
-        XCTAssertEqual(snapshot.volumePeakHour?.hour, 9)
-        XCTAssertEqual(snapshot.comparison, WorkPatternComparison(
-            currentActiveHours: 1,
-            previousActiveHours: 0,
-            activeHourDelta: 1,
-            percentChange: nil
-        ))
+        XCTAssertEqual(snapshot.totalFocusMinutes, 5)
+        XCTAssertEqual(snapshot.focusSessionCount, 1)
+        XCTAssertEqual(snapshot.longestFocusSessionMinutes, 5)
+        XCTAssertEqual(snapshot.days.first(where: { $0.focusMinuteCount > 0 })?.focusMinuteCount, 5)
+    }
+
+    func testNearbySlicesFormOneBlockWhileAnIdleGapStartsAnother() throws {
+        let calendar = amsterdamCalendar()
+        let current = interval("2026-08-02T22:00:00Z", "2026-08-09T22:00:00Z")
+        let activity = [
+            slice("2026-08-03T07:01:00Z"),
+            slice("2026-08-03T07:11:00Z"),
+            slice("2026-08-03T07:31:00Z"),
+        ]
+
+        let snapshot = try WorkPatternCalculator().make(
+            currentRows: [row("2026-08-03T07:00:00Z", quantity: 300)],
+            previousRows: [],
+            currentActivity: activity,
+            previousActivity: [],
+            currentInterval: current,
+            previousInterval: interval("2026-07-26T22:00:00Z", "2026-08-02T22:00:00Z"),
+            coverageStart: date("2026-07-01T00:00:00Z"),
+            now: current.end.addingTimeInterval(-1),
+            calendar: calendar
+        )
+
+        XCTAssertEqual(snapshot.totalFocusMinutes, 20)
+        XCTAssertEqual(snapshot.focusSessionCount, 2)
+        XCTAssertEqual(snapshot.averageFocusSessionMinutes, 10)
+        XCTAssertEqual(snapshot.longestFocusSessionMinutes, 15)
+    }
+
+    func testOverlappingProvidersDoNotDoubleCountTheSameActivitySlice() throws {
+        let calendar = amsterdamCalendar()
+        let current = interval("2026-08-02T22:00:00Z", "2026-08-09T22:00:00Z")
+        let timestamp = "2026-08-03T07:00:00Z"
+
+        let snapshot = try WorkPatternCalculator().make(
+            currentRows: [row(timestamp, quantity: 300)],
+            previousRows: [],
+            currentActivity: [
+                slice(timestamp, provider: .codex),
+                slice(timestamp, provider: .claudeCode),
+            ],
+            previousActivity: [],
+            currentInterval: current,
+            previousInterval: interval("2026-07-26T22:00:00Z", "2026-08-02T22:00:00Z"),
+            coverageStart: date("2026-07-01T00:00:00Z"),
+            now: current.end.addingTimeInterval(-1),
+            calendar: calendar
+        )
+
+        XCTAssertEqual(snapshot.totalFocusMinutes, 5)
+        XCTAssertEqual(snapshot.focusSessionCount, 1)
+    }
+
+    func testTokenVolumeWithoutActivitySlicesDoesNotInventFocusTime() throws {
+        let calendar = amsterdamCalendar()
+        let current = interval("2026-08-02T22:00:00Z", "2026-08-09T22:00:00Z")
+
+        let snapshot = try WorkPatternCalculator().make(
+            currentRows: [row("2026-08-03T07:00:00Z", quantity: 300)],
+            previousRows: [],
+            currentActivity: [],
+            previousActivity: [],
+            currentInterval: current,
+            previousInterval: interval("2026-07-26T22:00:00Z", "2026-08-02T22:00:00Z"),
+            coverageStart: date("2026-07-01T00:00:00Z"),
+            now: current.end.addingTimeInterval(-1),
+            calendar: calendar
+        )
+
+        XCTAssertEqual(snapshot.totalFocusMinutes, 0)
+        XCTAssertEqual(snapshot.activeDayCount, 0)
+        XCTAssertNil(snapshot.consistentHour)
+        XCTAssertEqual(snapshot.volumePeakHour?.tokenTotal, 300)
     }
 
     func testPartialCoverageUsesOnlyCoveredCalendarDays() throws {
@@ -96,6 +175,8 @@ final class WorkPatternAnalyticsTests: XCTestCase {
         let snapshot = try WorkPatternCalculator().make(
             currentRows: [row("2026-08-10T07:00:00Z", quantity: 10)],
             previousRows: [],
+            currentActivity: [slice("2026-08-10T07:35:00Z")],
+            previousActivity: [],
             currentInterval: current,
             previousInterval: interval("2026-07-19T22:00:00Z", "2026-08-02T22:00:00Z"),
             coverageStart: coverageStart,
@@ -110,7 +191,7 @@ final class WorkPatternAnalyticsTests: XCTestCase {
         XCTAssertNil(snapshot.comparison)
     }
 
-    func testRepeatedDSTHourRemainsTwoActiveBucketsWithoutInflatingFrequency() throws {
+    func testRepeatedDSTHourKeepsSeparateFocusBucketsWithoutInflatingFrequency() throws {
         let calendar = amsterdamCalendar()
         let current = interval("2026-10-24T22:00:00Z", "2026-10-26T23:00:00Z")
         let rows = [
@@ -121,6 +202,11 @@ final class WorkPatternAnalyticsTests: XCTestCase {
         let snapshot = try WorkPatternCalculator().make(
             currentRows: rows,
             previousRows: [],
+            currentActivity: [
+                slice("2026-10-25T00:15:00Z"),
+                slice("2026-10-25T01:15:00Z"),
+            ],
+            previousActivity: [],
             currentInterval: current,
             previousInterval: interval("2026-10-22T22:00:00Z", "2026-10-24T22:00:00Z"),
             coverageStart: current.start,
@@ -128,12 +214,13 @@ final class WorkPatternAnalyticsTests: XCTestCase {
             calendar: calendar
         )
 
-        XCTAssertEqual(snapshot.totalActiveHours, 2)
+        XCTAssertEqual(snapshot.totalFocusMinutes, 10)
+        XCTAssertEqual(snapshot.focusSessionCount, 2)
         XCTAssertEqual(snapshot.activeDayCount, 1)
         XCTAssertEqual(snapshot.volumePeakHour?.hour, 2)
         XCTAssertEqual(snapshot.volumePeakHour?.tokenTotal, 30)
         XCTAssertEqual(snapshot.consistentHour?.activeOccurrenceCount, 1)
-        XCTAssertEqual(snapshot.longestActiveRunHours, 2)
+        XCTAssertEqual(snapshot.longestFocusSessionMinutes, 5)
     }
 
     private func row(
@@ -159,6 +246,18 @@ final class WorkPatternAnalyticsTests: XCTestCase {
             metric: metric,
             aggregation: metric.aggregation,
             quantity: quantity
+        )
+    }
+
+    private func slice(
+        _ value: String,
+        provider: Provider = .codex
+    ) -> ActivitySliceRow {
+        let timestamp = date(value)
+        return ActivitySliceRow(
+            sliceStart: timestamp,
+            localDay: LocalDay(date: timestamp, calendar: amsterdamCalendar()),
+            provider: provider
         )
     }
 

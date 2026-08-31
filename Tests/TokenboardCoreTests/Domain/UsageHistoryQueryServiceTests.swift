@@ -26,6 +26,10 @@ final class UsageHistoryQueryServiceTests: XCTestCase {
                     metric: .output,
                     quantity: 50
                 ),
+            ],
+            activityRows: [
+                activityRow(at: "2026-08-11T07:00:00Z", provider: .codex),
+                activityRow(at: "2026-08-11T14:00:00Z", provider: .claudeCode),
             ]
         )
 
@@ -47,7 +51,8 @@ final class UsageHistoryQueryServiceTests: XCTestCase {
         XCTAssertEqual(snapshot.breakdown.tokenTotal, 175)
         XCTAssertEqual(snapshot.comparison.previousTokenTotal, 100)
         XCTAssertEqual(snapshot.comparison.percentChange, 75)
-        XCTAssertEqual(snapshot.workPatterns?.totalActiveHours, 2)
+        XCTAssertEqual(snapshot.workPatterns?.totalFocusMinutes, 10)
+        XCTAssertEqual(snapshot.workPatterns?.focusSessionCount, 2)
         XCTAssertEqual(snapshot.workPatterns?.activeDayCount, 1)
         XCTAssertEqual(snapshot.workPatterns?.volumePeakHour?.hour, 9)
         XCTAssertEqual(snapshot.workPatterns?.volumePeakHour?.tokenTotal, 100)
@@ -175,10 +180,12 @@ final class UsageHistoryQueryServiceTests: XCTestCase {
 
         let usageQueries = await ledger.usageQueryCount()
         let hourlyQueries = await ledger.hourlyUsageQueryCount()
+        let activityQueries = await ledger.activitySliceQueryCount()
         let pricingQueries = await ledger.pricingSnapshotCallCount()
         XCTAssertEqual(Set(snapshots.keys), Set(UsageHistoryRange.allCases))
         XCTAssertEqual(usageQueries, 1)
         XCTAssertEqual(hourlyQueries, 1)
+        XCTAssertEqual(activityQueries, 1)
         XCTAssertEqual(pricingQueries, 1)
     }
 
@@ -218,6 +225,18 @@ final class UsageHistoryQueryServiceTests: XCTestCase {
         )
     }
 
+    private func activityRow(
+        at timestamp: String,
+        provider: Provider
+    ) -> ActivitySliceRow {
+        let sliceStart = date(timestamp)
+        return ActivitySliceRow(
+            sliceStart: sliceStart,
+            localDay: LocalDay(date: sliceStart, calendar: amsterdamCalendar()),
+            provider: provider
+        )
+    }
+
     private func localDay(_ value: String) -> LocalDay {
         let formatter = DateFormatter()
         formatter.calendar = Calendar(identifier: .gregorian)
@@ -246,13 +265,20 @@ private enum HistoryQueryTestLedgerError: Error {
 private actor HistoryQueryTestLedger: LedgerStore {
     private let rows: [DailyUsageRow]
     private let hourlyRows: [HourlyUsageRow]
+    private let activityRows: [ActivitySliceRow]
     private var queryIntervals: [DateInterval?] = []
     private var pricingCalls = 0
     private var hourlyQueryCount = 0
+    private var activityQueryCount = 0
 
-    init(rows: [DailyUsageRow], hourlyRows: [HourlyUsageRow] = []) {
+    init(
+        rows: [DailyUsageRow],
+        hourlyRows: [HourlyUsageRow] = [],
+        activityRows: [ActivitySliceRow] = []
+    ) {
         self.rows = rows
         self.hourlyRows = hourlyRows
+        self.activityRows = activityRows
     }
 
     func migrate() {}
@@ -282,6 +308,19 @@ private actor HistoryQueryTestLedger: LedgerStore {
         hourlyQueryCount += 1
         guard let interval else { return hourlyRows }
         return hourlyRows.filter { interval.contains($0.hourStart) }
+    }
+
+    func activitySliceRows(
+        in interval: DateInterval?,
+        calendar: Calendar
+    ) -> [ActivitySliceRow] {
+        activityQueryCount += 1
+        guard let interval else { return activityRows }
+        return activityRows.filter { interval.contains($0.sliceStart) }
+    }
+
+    func activitySliceCoverageStart() -> Date? {
+        activityRows.map(\.sliceStart).min()
     }
 
     func checkpoint(for fingerprint: String) throws -> SourceCheckpoint? {
@@ -322,5 +361,6 @@ private actor HistoryQueryTestLedger: LedgerStore {
     func lastInterval() -> DateInterval? { queryIntervals.last ?? nil }
     func usageQueryCount() -> Int { queryIntervals.count }
     func hourlyUsageQueryCount() -> Int { hourlyQueryCount }
+    func activitySliceQueryCount() -> Int { activityQueryCount }
     func pricingSnapshotCallCount() -> Int { pricingCalls }
 }

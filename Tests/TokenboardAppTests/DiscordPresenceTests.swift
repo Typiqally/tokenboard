@@ -6,19 +6,19 @@ import TokenboardCore
 
 @MainActor
 final class DiscordPresenceTests: XCTestCase {
-    func testDailySummaryUsesOnlyCompactTokensAndActiveHourBuckets() throws {
+    func testDailySummaryUsesOnlyCompactTokensAndEstimatedFocusTime() throws {
         let activity = DiscordPresencePresentation.activity(
             tokenTotal: 12_345_678,
-            activeHourCount: 4
+            estimatedFocusMinutes: 85
         )
 
         XCTAssertEqual(activity.details, "Today's AI coding usage")
-        XCTAssertEqual(activity.state, "12.3M tokens · activity in 4 hours")
+        XCTAssertEqual(activity.state, "12.3M tokens · est. focus 1h 25m")
         XCTAssertEqual(activity.largeImageKey, "tokenboard")
         XCTAssertEqual(activity.largeImageText, "Tokenboard")
         XCTAssertEqual(
             DiscordPresencePresentation.accessibilityPreview(activity),
-            "Playing Tokenboard. Today's AI coding usage. 12.3M tokens, activity in 4 hours. Action: View on GitHub."
+            "Playing Tokenboard. Today's AI coding usage. 12.3M tokens, est. focus 1h 25m. Action: View on GitHub."
         )
         XCTAssertTrue(DiscordPresencePresentation.disclosure.contains("public GitHub repository"))
     }
@@ -27,21 +27,21 @@ final class DiscordPresenceTests: XCTestCase {
         XCTAssertEqual(
             DiscordPresencePresentation.activity(
                 tokenTotal: 42,
-                activeHourCount: 1
+                estimatedFocusMinutes: 5
             ).state,
-            "42 tokens · activity in 1 hour"
+            "42 tokens · est. focus 5m"
         )
         XCTAssertEqual(
             DiscordPresencePresentation.activity(
                 tokenTotal: 42,
-                activeHourCount: nil
+                estimatedFocusMinutes: nil
             ).state,
             "42 tokens today"
         )
         XCTAssertEqual(
             DiscordPresencePresentation.activity(
                 tokenTotal: 0,
-                activeHourCount: 0
+                estimatedFocusMinutes: 0
             ).state,
             "No usage yet today"
         )
@@ -50,7 +50,7 @@ final class DiscordPresenceTests: XCTestCase {
     func testActivityPayloadIsStrictlyAllowlistedAndClearUsesNull() throws {
         let activity = DiscordPresencePresentation.activity(
             tokenTotal: 12_345_678,
-            activeHourCount: 4
+            estimatedFocusMinutes: 85
         )
         let encoded = try DiscordRPCMessage.activity(
             activity,
@@ -161,7 +161,7 @@ final class DiscordPresenceTests: XCTestCase {
         let applicationID = "123456789012345678"
         let activity = DiscordPresencePresentation.activity(
             tokenTotal: 12_345_678,
-            activeHourCount: 4
+            estimatedFocusMinutes: 85
         )
 
         async let capturedExchange = server.captureExchange()
@@ -197,11 +197,11 @@ final class DiscordPresenceTests: XCTestCase {
         )
         let initial = DiscordPresencePresentation.activity(
             tokenTotal: 42,
-            activeHourCount: 1
+            estimatedFocusMinutes: 5
         )
         let updated = DiscordPresencePresentation.activity(
             tokenTotal: 84,
-            activeHourCount: 2
+            estimatedFocusMinutes: 10
         )
 
         await coordinator.setEnabled(true, activity: initial)
@@ -233,7 +233,7 @@ final class DiscordPresenceTests: XCTestCase {
         )
         let activity = DiscordPresencePresentation.activity(
             tokenTotal: 42,
-            activeHourCount: nil
+            estimatedFocusMinutes: nil
         )
 
         await coordinator.setEnabled(true, activity: activity)
@@ -267,7 +267,7 @@ final class DiscordPresenceTests: XCTestCase {
             true,
             activity: DiscordPresencePresentation.activity(
                 tokenTotal: 42,
-                activeHourCount: nil
+                estimatedFocusMinutes: nil
             )
         )
 

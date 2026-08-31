@@ -229,6 +229,65 @@ final class SQLiteLedgerTests: XCTestCase {
         XCTAssertEqual(rows.map { calendar.component(.hour, from: $0.hourStart) }, [9, 10])
     }
 
+    func testCommitStoresProviderOnlyFiveMinuteActivitySlices() async throws {
+        let (ledger, _) = try makeLedger()
+        try await ledger.migrate()
+        let codexUsage = try [
+            usage(timestamp: timestamp("2026-08-11T07:01:00Z"), quantity: 100),
+            usage(timestamp: timestamp("2026-08-11T07:04:59Z"), quantity: 50),
+            usage(timestamp: timestamp("2026-08-11T07:05:00Z"), quantity: 25),
+        ]
+        let informationalOnly = try NormalizedUsage(
+            provider: .codex,
+            observedModelID: "gpt-test",
+            timestamp: timestamp("2026-08-11T07:10:00Z"),
+            metrics: [.detailReasoningOutput: 500],
+            stableSourceID: "session-a",
+            stableUsageID: "turn-informational"
+        )
+
+        try await ledger.commit(
+            codexUsage + [informationalOnly],
+            skipped: [],
+            checkpoint: checkpoint(),
+            calendar: calendar
+        )
+
+        let rows = try await ledger.activitySliceRows(in: nil, calendar: calendar)
+
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertEqual(rows.map(\.sliceStart), [
+            timestamp("2026-08-11T07:00:00Z"),
+            timestamp("2026-08-11T07:05:00Z"),
+        ])
+        XCTAssertEqual(rows.map(\.provider), [.codex, .codex])
+    }
+
+    func testActivitySliceCoverageBeginsAtMigrationUntilOlderHistoryIsImported() async throws {
+        let (ledger, directory) = try makeLedger()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let beforeMigration = Date()
+        try await ledger.migrate()
+
+        let queriedInitialCoverage = try await ledger.activitySliceCoverageStart()
+        let initialCoverage = try XCTUnwrap(queriedInitialCoverage)
+        XCTAssertGreaterThanOrEqual(initialCoverage, beforeMigration.addingTimeInterval(-1))
+
+        let historical = timestamp("2020-01-02T10:17:00Z")
+        try await ledger.commit(
+            [try usage(timestamp: historical)],
+            skipped: [],
+            checkpoint: checkpoint(timestamp: historical),
+            calendar: calendar
+        )
+
+        let queriedImportedCoverage = try await ledger.activitySliceCoverageStart()
+        XCTAssertEqual(
+            queriedImportedCoverage,
+            timestamp("2020-01-02T10:15:00Z")
+        )
+    }
+
     func testHourlyCoverageBeginsAtMigrationUntilOlderHistoryIsImported() async throws {
         let (ledger, directory) = try makeLedger()
         defer { try? FileManager.default.removeItem(at: directory) }

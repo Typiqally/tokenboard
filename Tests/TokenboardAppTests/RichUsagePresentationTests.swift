@@ -321,20 +321,20 @@ final class RichUsagePresentationTests: XCTestCase {
             WorkPatternPreviewPresentation(
                 title: "WORK PATTERNS · 30D",
                 metrics: [
-                    WorkPatternPreviewMetric(title: "AVG HOURS", value: "1.3h"),
+                    WorkPatternPreviewMetric(title: "FOCUS / DAY", value: "9m"),
+                    WorkPatternPreviewMetric(title: "AVG BLOCK", value: "7m"),
                     WorkPatternPreviewMetric(title: "PEAK HOUR", value: "15:00"),
-                    WorkPatternPreviewMetric(title: "PEAK DAY", value: "Tue"),
                 ],
-                accessibilityTitle: "Work patterns for the last 30 days. Average 1.3 active hours per active day. Peak hour 15:00. Peak day Tuesday. Open Work Patterns."
+                accessibilityTitle: "Work patterns for the last 30 days. Estimated focus time 9 minutes per active day. Average focus block 7 minutes. Peak hour 15:00. Open Work Patterns."
             )
         )
 
         XCTAssertEqual(
             WorkPatternPreviewPresentation.make(workPatterns, range: .today)?.metrics,
             [
-                WorkPatternPreviewMetric(title: "ACTIVE HOURS", value: "5"),
-                WorkPatternPreviewMetric(title: "PEAK HOUR", value: "15:00"),
-                WorkPatternPreviewMetric(title: "LONGEST RUN", value: "2h"),
+                WorkPatternPreviewMetric(title: "FOCUS TIME", value: "35m"),
+                WorkPatternPreviewMetric(title: "FOCUS BLOCKS", value: "5"),
+                WorkPatternPreviewMetric(title: "LONGEST BLOCK", value: "15m"),
             ]
         )
     }
@@ -493,6 +493,22 @@ final class RichUsagePresentationTests: XCTestCase {
                 ),
             ],
             previousRows: [],
+            currentActivity: [
+                "2026-08-03T07:00:00Z",
+                "2026-08-03T07:10:00Z",
+                "2026-08-04T13:00:00Z",
+                "2026-08-10T07:00:00Z",
+                "2026-08-10T08:00:00Z",
+                "2026-08-11T07:00:00Z",
+            ].map { value in
+                let timestamp = date(value)
+                return ActivitySliceRow(
+                    sliceStart: timestamp,
+                    localDay: LocalDay(date: timestamp, calendar: calendar),
+                    provider: .codex
+                )
+            },
+            previousActivity: [],
             currentInterval: current,
             previousInterval: DateInterval(
                 start: date("2026-07-20T00:00:00Z"),
