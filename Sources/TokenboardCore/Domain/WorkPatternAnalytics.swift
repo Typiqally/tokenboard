@@ -91,6 +91,116 @@ public struct WorkPatternComparison: Equatable, Sendable {
     }
 }
 
+public struct WorkPatternEstimateComposition: Equatable, Sendable {
+    public let activityBackedMinutes: Int
+    public let bridgedMinutes: Int
+
+    public init(activityBackedMinutes: Int, bridgedMinutes: Int) {
+        self.activityBackedMinutes = activityBackedMinutes
+        self.bridgedMinutes = bridgedMinutes
+    }
+
+    public var totalMinutes: Int { activityBackedMinutes + bridgedMinutes }
+
+    public var activityBackedShare: Decimal? {
+        totalMinutes == 0 ? nil : Decimal(activityBackedMinutes) / Decimal(totalMinutes)
+    }
+}
+
+public struct WorkPatternBlockProfile: Equatable, Sendable {
+    public let fiveToTenMinuteBlockCount: Int
+    public let fifteenToTwentyFiveMinuteBlockCount: Int
+    public let thirtyToFiftyFiveMinuteBlockCount: Int
+    public let sixtyPlusMinuteBlockCount: Int
+    public let sustainedFocusMinutes: Int
+    public let totalFocusMinutes: Int
+
+    public init(
+        fiveToTenMinuteBlockCount: Int,
+        fifteenToTwentyFiveMinuteBlockCount: Int,
+        thirtyToFiftyFiveMinuteBlockCount: Int,
+        sixtyPlusMinuteBlockCount: Int,
+        sustainedFocusMinutes: Int,
+        totalFocusMinutes: Int
+    ) {
+        self.fiveToTenMinuteBlockCount = fiveToTenMinuteBlockCount
+        self.fifteenToTwentyFiveMinuteBlockCount = fifteenToTwentyFiveMinuteBlockCount
+        self.thirtyToFiftyFiveMinuteBlockCount = thirtyToFiftyFiveMinuteBlockCount
+        self.sixtyPlusMinuteBlockCount = sixtyPlusMinuteBlockCount
+        self.sustainedFocusMinutes = sustainedFocusMinutes
+        self.totalFocusMinutes = totalFocusMinutes
+    }
+
+    public var totalBlockCount: Int {
+        fiveToTenMinuteBlockCount
+            + fifteenToTwentyFiveMinuteBlockCount
+            + thirtyToFiftyFiveMinuteBlockCount
+            + sixtyPlusMinuteBlockCount
+    }
+
+    public var sustainedFocusShare: Decimal? {
+        totalFocusMinutes == 0
+            ? nil
+            : Decimal(sustainedFocusMinutes) / Decimal(totalFocusMinutes)
+    }
+}
+
+public struct WorkPatternToolMix: Equatable, Sendable {
+    public let claudeOnlyBlockCount: Int
+    public let codexOnlyBlockCount: Int
+    public let mixedBlockCount: Int
+
+    public init(
+        claudeOnlyBlockCount: Int,
+        codexOnlyBlockCount: Int,
+        mixedBlockCount: Int
+    ) {
+        self.claudeOnlyBlockCount = claudeOnlyBlockCount
+        self.codexOnlyBlockCount = codexOnlyBlockCount
+        self.mixedBlockCount = mixedBlockCount
+    }
+
+    public var totalBlockCount: Int {
+        claudeOnlyBlockCount + codexOnlyBlockCount + mixedBlockCount
+    }
+}
+
+public struct WorkPatternFocusWindow: Equatable, Sendable {
+    public let startHour: Int
+    public let focusMinuteCount: Int
+    public let totalFocusMinuteCount: Int
+
+    public init(startHour: Int, focusMinuteCount: Int, totalFocusMinuteCount: Int) {
+        self.startHour = startHour
+        self.focusMinuteCount = focusMinuteCount
+        self.totalFocusMinuteCount = totalFocusMinuteCount
+    }
+
+    public var endHour: Int { (startHour + 2) % 24 }
+
+    public var focusShare: Decimal? {
+        totalFocusMinuteCount == 0
+            ? nil
+            : Decimal(focusMinuteCount) / Decimal(totalFocusMinuteCount)
+    }
+}
+
+public struct WorkPatternMinuteRange: Equatable, Sendable {
+    public let lowerMinuteOfDay: Int
+    public let medianMinuteOfDay: Int
+    public let upperMinuteOfDay: Int
+
+    public init(
+        lowerMinuteOfDay: Int,
+        medianMinuteOfDay: Int,
+        upperMinuteOfDay: Int
+    ) {
+        self.lowerMinuteOfDay = lowerMinuteOfDay
+        self.medianMinuteOfDay = medianMinuteOfDay
+        self.upperMinuteOfDay = upperMinuteOfDay
+    }
+}
+
 public struct WorkPatternSnapshot: Equatable, Sendable {
     public let coverageStart: Date
     public let isCoveragePartial: Bool
@@ -112,6 +222,14 @@ public struct WorkPatternSnapshot: Equatable, Sendable {
     public let longestFocusSessionMinutes: Int
     public let busiestDay: WorkPatternDay?
     public let comparison: WorkPatternComparison?
+    public let estimateComposition: WorkPatternEstimateComposition
+    public let blockProfile: WorkPatternBlockProfile
+    public let toolMix: WorkPatternToolMix
+    public let strongestFocusWindow: WorkPatternFocusWindow?
+    public let firstActivityMinuteRange: WorkPatternMinuteRange?
+    public let lastActivityMinuteRange: WorkPatternMinuteRange?
+    public let medianInteractionGapMinutes: Int?
+    public let interactionGapCount: Int
 }
 
 public struct WorkPatternCalculator: Sendable {
@@ -155,6 +273,7 @@ public struct WorkPatternCalculator: Sendable {
         let focusSessionCount = activeDays.reduce(0) { $0 + $1.focusSessionCount }
         let hours = try hourSummaries(buckets, activeDayCount: activeDays.count)
         let weekdays = try weekdaySummaries(days, calendar: calendar)
+        let activityBackedMinutes = focus.activitySliceCount * Self.activitySliceMinutes
 
         return WorkPatternSnapshot(
             coverageStart: coverageHour,
@@ -201,7 +320,30 @@ public struct WorkPatternCalculator: Sendable {
                 previousActivity: previousActivity,
                 previousInterval: previousInterval,
                 coverageHour: coverageHour
-            )
+            ),
+            estimateComposition: WorkPatternEstimateComposition(
+                activityBackedMinutes: activityBackedMinutes,
+                bridgedMinutes: max(totalFocusMinutes - activityBackedMinutes, 0)
+            ),
+            blockProfile: blockProfile(
+                sessions: focus.sessions,
+                totalFocusMinutes: totalFocusMinutes
+            ),
+            toolMix: toolMix(sessions: focus.sessions),
+            strongestFocusWindow: strongestFocusWindow(
+                hours: hours,
+                totalFocusMinutes: totalFocusMinutes
+            ),
+            firstActivityMinuteRange: activityMinuteRange(
+                slices: focus.slices,
+                select: { $0.first }
+            ),
+            lastActivityMinuteRange: activityMinuteRange(
+                slices: focus.slices,
+                select: { $0.last }
+            ),
+            medianInteractionGapMinutes: median(focus.interactionGapMinutes),
+            interactionGapCount: focus.interactionGapMinutes.count
         )
     }
 
@@ -395,7 +537,19 @@ public struct WorkPatternCalculator: Sendable {
                 localDayValue: localDay.value,
                 timeZoneIdentifier: localDay.timeZoneIdentifier
             )
-            unique[identity] = ActivitySlice(sliceStart: sliceStart, localDay: localDay)
+            if let existing = unique[identity] {
+                unique[identity] = ActivitySlice(
+                    sliceStart: sliceStart,
+                    localDay: localDay,
+                    providers: existing.providers.union([row.provider])
+                )
+            } else {
+                unique[identity] = ActivitySlice(
+                    sliceStart: sliceStart,
+                    localDay: localDay,
+                    providers: [row.provider]
+                )
+            }
         }
 
         let byDay = Dictionary(grouping: unique.values) {
@@ -408,29 +562,18 @@ public struct WorkPatternCalculator: Sendable {
         for values in byDay.values {
             let sorted = values.sorted { $0.sliceStart < $1.sliceStart }
             guard let first = sorted.first else { continue }
-            var sessionStart = first.sliceStart
-            var sessionEnd = first.sliceStart
-            var localDay = first.localDay
+            var sessionSlices = [first]
             for slice in sorted.dropFirst() {
-                let gapMinutes = slice.sliceStart.timeIntervalSince(sessionEnd) / 60
+                guard let previousSlice = sessionSlices.last else { continue }
+                let gapMinutes = slice.sliceStart.timeIntervalSince(previousSlice.sliceStart) / 60
                 if gapMinutes <= Double(Self.maximumSliceGapMinutes) {
-                    sessionEnd = slice.sliceStart
+                    sessionSlices.append(slice)
                 } else {
-                    sessions.append(FocusSession(
-                        firstSliceStart: sessionStart,
-                        lastSliceStart: sessionEnd,
-                        localDay: localDay
-                    ))
-                    sessionStart = slice.sliceStart
-                    sessionEnd = slice.sliceStart
-                    localDay = slice.localDay
+                    sessions.append(FocusSession(slices: sessionSlices))
+                    sessionSlices = [slice]
                 }
             }
-            sessions.append(FocusSession(
-                firstSliceStart: sessionStart,
-                lastSliceStart: sessionEnd,
-                localDay: localDay
-            ))
+            sessions.append(FocusSession(slices: sessionSlices))
         }
         sessions.sort { $0.firstSliceStart < $1.firstSliceStart }
 
@@ -458,6 +601,121 @@ public struct WorkPatternCalculator: Sendable {
             }
         }
         return FocusEstimate(buckets: focusBuckets, sessions: sessions)
+    }
+
+    private func blockProfile(
+        sessions: [FocusSession],
+        totalFocusMinutes: Int
+    ) -> WorkPatternBlockProfile {
+        var fiveToTen = 0
+        var fifteenToTwentyFive = 0
+        var thirtyToFiftyFive = 0
+        var sixtyPlus = 0
+        var sustainedMinutes = 0
+        for session in sessions {
+            switch session.minuteCount {
+            case ...10:
+                fiveToTen += 1
+            case ...25:
+                fifteenToTwentyFive += 1
+            case ...55:
+                thirtyToFiftyFive += 1
+                sustainedMinutes += session.minuteCount
+            default:
+                sixtyPlus += 1
+                sustainedMinutes += session.minuteCount
+            }
+        }
+        return WorkPatternBlockProfile(
+            fiveToTenMinuteBlockCount: fiveToTen,
+            fifteenToTwentyFiveMinuteBlockCount: fifteenToTwentyFive,
+            thirtyToFiftyFiveMinuteBlockCount: thirtyToFiftyFive,
+            sixtyPlusMinuteBlockCount: sixtyPlus,
+            sustainedFocusMinutes: sustainedMinutes,
+            totalFocusMinutes: totalFocusMinutes
+        )
+    }
+
+    private func toolMix(sessions: [FocusSession]) -> WorkPatternToolMix {
+        var claudeOnly = 0
+        var codexOnly = 0
+        var mixed = 0
+        for session in sessions {
+            if session.providers == [.claudeCode] {
+                claudeOnly += 1
+            } else if session.providers == [.codex] {
+                codexOnly += 1
+            } else {
+                mixed += 1
+            }
+        }
+        return WorkPatternToolMix(
+            claudeOnlyBlockCount: claudeOnly,
+            codexOnlyBlockCount: codexOnly,
+            mixedBlockCount: mixed
+        )
+    }
+
+    private func strongestFocusWindow(
+        hours: [WorkPatternHourSummary],
+        totalFocusMinutes: Int
+    ) -> WorkPatternFocusWindow? {
+        guard totalFocusMinutes > 0 else { return nil }
+        let focusByHour = Dictionary(uniqueKeysWithValues: hours.map {
+            ($0.hour, $0.focusMinuteCount)
+        })
+        let strongest = (0..<24).map { startHour in
+            (
+                startHour: startHour,
+                focusMinutes: focusByHour[startHour, default: 0]
+                    + focusByHour[(startHour + 1) % 24, default: 0]
+            )
+        }.max {
+            if $0.focusMinutes != $1.focusMinutes {
+                return $0.focusMinutes < $1.focusMinutes
+            }
+            return $0.startHour > $1.startHour
+        }
+        guard let strongest else { return nil }
+        return WorkPatternFocusWindow(
+            startHour: strongest.startHour,
+            focusMinuteCount: strongest.focusMinutes,
+            totalFocusMinuteCount: totalFocusMinutes
+        )
+    }
+
+    private func activityMinuteRange(
+        slices: [ActivitySlice],
+        select: ([Int]) -> Int?
+    ) -> WorkPatternMinuteRange? {
+        let byDay = Dictionary(grouping: slices) {
+            FocusDayKey(
+                localDayValue: $0.localDay.value,
+                timeZoneIdentifier: $0.localDay.timeZoneIdentifier
+            )
+        }
+        let values = byDay.values.compactMap { daySlices -> Int? in
+            let minutes = daySlices.map { slice in
+                let localCalendar = calendar(for: slice.localDay)
+                let components = localCalendar.dateComponents(
+                    [.hour, .minute],
+                    from: slice.sliceStart
+                )
+                return (components.hour ?? 0) * 60 + (components.minute ?? 0)
+            }.sorted()
+            return select(minutes)
+        }.sorted()
+        guard !values.isEmpty else { return nil }
+        return WorkPatternMinuteRange(
+            lowerMinuteOfDay: nearestRank(values, percentile: 0.25),
+            medianMinuteOfDay: nearestRank(values, percentile: 0.5),
+            upperMinuteOfDay: nearestRank(values, percentile: 0.75)
+        )
+    }
+
+    private func nearestRank(_ sortedValues: [Int], percentile: Double) -> Int {
+        let rank = max(Int(ceil(percentile * Double(sortedValues.count))), 1)
+        return sortedValues[rank - 1]
     }
 
     private func bucket(
@@ -600,6 +858,7 @@ private struct ActivitySliceIdentity: Hashable {
 private struct ActivitySlice {
     let sliceStart: Date
     let localDay: LocalDay
+    let providers: Set<Provider>
 }
 
 private struct FocusDayKey: Hashable {
@@ -608,9 +867,19 @@ private struct FocusDayKey: Hashable {
 }
 
 private struct FocusSession {
-    let firstSliceStart: Date
-    let lastSliceStart: Date
-    let localDay: LocalDay
+    let slices: [ActivitySlice]
+
+    var firstSliceStart: Date { slices[0].sliceStart }
+    var lastSliceStart: Date { slices[slices.count - 1].sliceStart }
+    var localDay: LocalDay { slices[0].localDay }
+    var providers: Set<Provider> {
+        slices.reduce(into: Set<Provider>()) { $0.formUnion($1.providers) }
+    }
+    var interactionGapMinutes: [Int] {
+        zip(slices, slices.dropFirst()).map { previous, current in
+            Int(current.sliceStart.timeIntervalSince(previous.sliceStart) / 60)
+        }
+    }
 
     var minuteCount: Int {
         Int(lastSliceStart.timeIntervalSince(firstSliceStart) / 60)
@@ -623,6 +892,9 @@ private struct FocusEstimate {
     let sessions: [FocusSession]
 
     var totalMinutes: Int { sessions.reduce(0) { $0 + $1.minuteCount } }
+    var slices: [ActivitySlice] { sessions.flatMap(\.slices) }
+    var activitySliceCount: Int { sessions.reduce(0) { $0 + $1.slices.count } }
+    var interactionGapMinutes: [Int] { sessions.flatMap(\.interactionGapMinutes) }
 }
 
 private struct FocusBucket {

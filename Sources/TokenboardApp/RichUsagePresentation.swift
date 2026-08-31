@@ -242,6 +242,167 @@ struct WorkPatternPreviewPresentation: Equatable, Sendable {
     }
 }
 
+enum WorkPatternInsightKind: Equatable, Sendable {
+    case rhythm
+    case blocks
+    case aiInteraction
+}
+
+struct WorkPatternInsightRow: Equatable, Sendable {
+    let kind: WorkPatternInsightKind
+    let title: String
+    let detail: String
+    let isLearning: Bool
+}
+
+struct WorkPatternInsightPresentation: Equatable, Sendable {
+    let rows: [WorkPatternInsightRow]
+
+    static func make(
+        _ snapshot: WorkPatternSnapshot,
+        range: UsageHistoryRange,
+        provider: Provider?
+    ) -> WorkPatternInsightPresentation? {
+        guard range != .today else { return nil }
+        return WorkPatternInsightPresentation(rows: [
+            rhythmRow(snapshot),
+            blockRow(snapshot),
+            interactionRow(snapshot, provider: provider),
+        ])
+    }
+
+    private static func rhythmRow(_ snapshot: WorkPatternSnapshot) -> WorkPatternInsightRow {
+        guard snapshot.activeDayCount >= 3,
+              let window = snapshot.strongestFocusWindow else {
+            return WorkPatternInsightRow(
+                kind: .rhythm,
+                title: "A recurring focus window will appear with more activity.",
+                detail: "3 active days needed · \(snapshot.activeDayCount) recorded",
+                isLearning: true
+            )
+        }
+
+        let detail: String
+        if snapshot.activeDayCount >= 4,
+           let first = snapshot.firstActivityMinuteRange,
+           let last = snapshot.lastActivityMinuteRange {
+            detail = "Middle 50%: first activity \(minuteRangeTitle(first)) · last activity \(minuteRangeTitle(last))"
+        } else {
+            detail = "4 active days needed for schedule ranges · \(snapshot.activeDayCount) recorded"
+        }
+        return WorkPatternInsightRow(
+            kind: .rhythm,
+            title: "Most estimated focus landed between \(hourTitle(window.startHour)) and \(hourTitle(window.endHour)).",
+            detail: detail,
+            isLearning: false
+        )
+    }
+
+    private static func blockRow(_ snapshot: WorkPatternSnapshot) -> WorkPatternInsightRow {
+        let profile = snapshot.blockProfile
+        guard profile.totalBlockCount >= 5 else {
+            return WorkPatternInsightRow(
+                kind: .blocks,
+                title: "A focus-block pattern will appear with more activity.",
+                detail: "5 focus blocks needed · \(profile.totalBlockCount) recorded",
+                isLearning: true
+            )
+        }
+
+        let title: String
+        if profile.sustainedFocusMinutes == 0 {
+            title = "Focus blocks were shorter than 30 minutes in this range."
+        } else {
+            title = "\(percentage(profile.sustainedFocusShare)) of estimated focus came from blocks of 30 minutes or longer."
+        }
+        return WorkPatternInsightRow(
+            kind: .blocks,
+            title: title,
+            detail: "5–10m: \(profile.fiveToTenMinuteBlockCount) · 15–25m: \(profile.fifteenToTwentyFiveMinuteBlockCount) · 30–55m: \(profile.thirtyToFiftyFiveMinuteBlockCount) · 60m+: \(profile.sixtyPlusMinuteBlockCount)",
+            isLearning: false
+        )
+    }
+
+    private static func interactionRow(
+        _ snapshot: WorkPatternSnapshot,
+        provider: Provider?
+    ) -> WorkPatternInsightRow {
+        if provider != nil {
+            guard snapshot.interactionGapCount >= 5,
+                  let cadence = snapshot.medianInteractionGapMinutes else {
+                return WorkPatternInsightRow(
+                    kind: .aiInteraction,
+                    title: "Interaction cadence will appear with more activity.",
+                    detail: "5 within-block gaps needed · \(snapshot.interactionGapCount) recorded",
+                    isLearning: true
+                )
+            }
+            return WorkPatternInsightRow(
+                kind: .aiInteraction,
+                title: "Recorded interactions were typically \(spokenMinutes(cadence)) apart.",
+                detail: "Based on \(snapshot.interactionGapCount) gaps within focus blocks.",
+                isLearning: false
+            )
+        }
+
+        let mix = snapshot.toolMix
+        guard mix.totalBlockCount >= 5 else {
+            return WorkPatternInsightRow(
+                kind: .aiInteraction,
+                title: "AI tool mix will appear with more activity.",
+                detail: "5 focus blocks needed · \(mix.totalBlockCount) recorded",
+                isLearning: true
+            )
+        }
+        return WorkPatternInsightRow(
+            kind: .aiInteraction,
+            title: toolMixTitle(mix),
+            detail: "Claude only: \(mix.claudeOnlyBlockCount) · Codex only: \(mix.codexOnlyBlockCount) · Both tools: \(mix.mixedBlockCount)",
+            isLearning: false
+        )
+    }
+
+    private static func toolMixTitle(_ mix: WorkPatternToolMix) -> String {
+        let categories = [
+            (title: "Claude-only", count: mix.claudeOnlyBlockCount),
+            (title: "Codex-only", count: mix.codexOnlyBlockCount),
+            (title: "Both-tool", count: mix.mixedBlockCount),
+        ]
+        guard let maximum = categories.map(\.count).max() else {
+            return "AI tool use was split across block types."
+        }
+        let leaders = categories.filter { $0.count == maximum }
+        guard leaders.count == 1, let leader = leaders.first else {
+            return "AI tool use was split across block types."
+        }
+        if maximum == mix.totalBlockCount {
+            return "All \(mix.totalBlockCount) focus blocks used \(leader.title.lowercased())."
+        }
+        return "\(leader.title) blocks were the most common."
+    }
+
+    private static func percentage(_ value: Decimal?) -> String {
+        guard let value else { return "0%" }
+        return "\(Int((NSDecimalNumber(decimal: value).doubleValue * 100).rounded()))%"
+    }
+
+    private static func spokenMinutes(_ minutes: Int) -> String {
+        "\(minutes) \(minutes == 1 ? "minute" : "minutes")"
+    }
+
+    private static func hourTitle(_ hour: Int) -> String {
+        UsageHistoryPresentation.hourTitle(hour)
+    }
+
+    private static func minuteRangeTitle(_ range: WorkPatternMinuteRange) -> String {
+        "\(minuteTitle(range.lowerMinuteOfDay))–\(minuteTitle(range.upperMinuteOfDay))"
+    }
+
+    private static func minuteTitle(_ minuteOfDay: Int) -> String {
+        String(format: "%02d:%02d", minuteOfDay / 60, minuteOfDay % 60)
+    }
+}
+
 struct UsagePointCalloutPresentation: Equatable, Sendable {
     let contextTitle: String
     let tokenTitle: String
