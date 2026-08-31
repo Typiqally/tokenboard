@@ -249,7 +249,8 @@ struct UsageHistoryView: View {
                 } else if let workPatterns = snapshot.workPatterns {
                     WorkPatternView(
                         snapshot: workPatterns,
-                        range: snapshot.range
+                        range: snapshot.range,
+                        provider: snapshot.provider
                     )
                 } else {
                     VStack(spacing: 8) {

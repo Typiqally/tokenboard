@@ -706,11 +706,35 @@ public struct WorkPatternCalculator: Sendable {
             return select(minutes)
         }.sorted()
         guard !values.isEmpty else { return nil }
+        let circularValues = circularlySortedMinutes(values)
         return WorkPatternMinuteRange(
-            lowerMinuteOfDay: nearestRank(values, percentile: 0.25),
-            medianMinuteOfDay: nearestRank(values, percentile: 0.5),
-            upperMinuteOfDay: nearestRank(values, percentile: 0.75)
+            lowerMinuteOfDay: clockMinute(nearestRank(circularValues, percentile: 0.25)),
+            medianMinuteOfDay: clockMinute(nearestRank(circularValues, percentile: 0.5)),
+            upperMinuteOfDay: clockMinute(nearestRank(circularValues, percentile: 0.75))
         )
+    }
+
+    private func circularlySortedMinutes(_ sortedValues: [Int]) -> [Int] {
+        guard let first = sortedValues.first, let last = sortedValues.last else { return [] }
+        var largestGapIndex = sortedValues.count - 1
+        var largestGap = first + 1_440 - last
+        for index in 0..<(sortedValues.count - 1) {
+            let gap = sortedValues[index + 1] - sortedValues[index]
+            if gap > largestGap {
+                largestGap = gap
+                largestGapIndex = index
+            }
+        }
+
+        let startIndex = (largestGapIndex + 1) % sortedValues.count
+        return (0..<sortedValues.count).map { offset in
+            let index = (startIndex + offset) % sortedValues.count
+            return sortedValues[index] + (index < startIndex ? 1_440 : 0)
+        }
+    }
+
+    private func clockMinute(_ value: Int) -> Int {
+        value % 1_440
     }
 
     private func nearestRank(_ sortedValues: [Int], percentile: Double) -> Int {

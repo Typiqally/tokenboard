@@ -3,6 +3,7 @@ import SwiftUI
 import TokenboardCore
 
 private enum WorkHeatmapMode: String, CaseIterable {
+    case focus = "Focus time"
     case volume = "Token volume"
     case consistency = "Consistency"
 }
@@ -10,16 +11,21 @@ private enum WorkHeatmapMode: String, CaseIterable {
 struct WorkPatternView: View {
     let snapshot: WorkPatternSnapshot
     let range: UsageHistoryRange
+    let provider: Provider?
 
     @State private var selectedDayID: String?
     @State private var selectedTodayHour: Int?
     @State private var selectedHeatmapID: String?
-    @State private var heatmapMode: WorkHeatmapMode = .volume
+    @State private var heatmapMode: WorkHeatmapMode = .focus
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             if snapshot.isCoveragePartial {
                 coverageNotice
+            }
+            if let insightPresentation {
+                insightSection(insightPresentation)
+                Divider()
             }
             overview
             Divider()
@@ -30,7 +36,9 @@ struct WorkPatternView: View {
             }
             Divider()
             scheduleSection
-            Text("Focus time estimates AI-assisted work from five-minute local activity slices. Slices up to 15 minutes apart form one focus block; gaps and non-AI work are not measured.")
+            Divider()
+            estimateCompositionSection
+            Text("Activity-backed time represents recorded five-minute slices. Bridged time fills the intervals between slices up to 15 minutes apart; larger gaps and non-AI work are not measured.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -88,7 +96,7 @@ struct WorkPatternView: View {
                 if let selectedTodayCell {
                     detailLine(
                         title: "\(hour(selectedTodayCell.hour))–\(hour((selectedTodayCell.hour + 1) % 24))",
-                        detail: "\(ValueFormatter.exactTokens(selectedTodayCell.tokenTotal)) tokens"
+                        detail: "\(duration(selectedTodayCell.focusMinuteCount)) focus · \(ValueFormatter.exactTokens(selectedTodayCell.tokenTotal)) tokens"
                     )
                 }
             } else {
@@ -132,7 +140,7 @@ struct WorkPatternView: View {
         Chart(todayCells, id: \.hour) { cell in
             BarMark(
                 x: .value("Hour", cell.hour),
-                y: .value("Tokens", cell.tokenTotal)
+                y: .value("Estimated focus minutes", cell.focusMinuteCount)
             )
             .foregroundStyle(
                 selectedTodayHour == nil || selectedTodayHour == cell.hour
@@ -152,7 +160,37 @@ struct WorkPatternView: View {
         .chartYAxis(.hidden)
         .chartXSelection(value: $selectedTodayHour)
         .frame(height: 155)
-        .accessibilityLabel("Hourly token activity for today")
+        .accessibilityLabel("Hourly estimated focus time for today")
+    }
+
+    private func insightSection(_ presentation: WorkPatternInsightPresentation) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionTitle("Your pattern", detail: "Neutral observations")
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(presentation.rows.enumerated()), id: \.offset) { index, row in
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: insightIcon(row.kind))
+                            .foregroundStyle(row.isLearning ? .tertiary : .secondary)
+                            .frame(width: 18)
+                            .accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(row.title)
+                                .font(.callout.weight(.medium))
+                                .fixedSize(horizontal: false, vertical: true)
+                            Text(row.detail)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .padding(.vertical, 7)
+                    .accessibilityElement(children: .combine)
+                    if index < presentation.rows.count - 1 {
+                        Divider().padding(.leading, 28)
+                    }
+                }
+            }
+        }
     }
 
     private var rhythmSection: some View {
@@ -167,7 +205,7 @@ struct WorkPatternView: View {
                 }
                 .labelsHidden()
                 .pickerStyle(.segmented)
-                .frame(width: 220)
+                .frame(width: 300)
             }
             heatmap
             if let selectedHeatmapCell {
@@ -253,11 +291,31 @@ struct WorkPatternView: View {
         VStack(alignment: .leading, spacing: 9) {
             sectionTitle("Schedule highlights", detail: nil)
             HStack(spacing: 0) {
-                metric("Typical first activity", hour(snapshot.typicalFirstActivityHour))
-                metricDivider
-                metric("Typical last activity", hour(snapshot.typicalLastActivityHour))
-                metricDivider
-                metric("Longest focus block", duration(snapshot.longestFocusSessionMinutes))
+                if range == .today {
+                    metric("First activity", hour(snapshot.typicalFirstActivityHour))
+                    metricDivider
+                    metric("Last activity", hour(snapshot.typicalLastActivityHour))
+                    metricDivider
+                    metric("Longest focus block", duration(snapshot.longestFocusSessionMinutes))
+                } else {
+                    metric(
+                        "Strongest focus window",
+                        qualifiedFocusWindow,
+                        detail: focusWindowDetail
+                    )
+                    metricDivider
+                    metric(
+                        "First activity range",
+                        qualifiedMinuteRange(snapshot.firstActivityMinuteRange),
+                        detail: scheduleRangeDetail
+                    )
+                    metricDivider
+                    metric(
+                        "Last activity range",
+                        qualifiedMinuteRange(snapshot.lastActivityMinuteRange),
+                        detail: scheduleRangeDetail
+                    )
+                }
                 metricDivider
                 metric(
                     "Busiest date",
@@ -269,6 +327,33 @@ struct WorkPatternView: View {
                     }
                 )
             }
+        }
+    }
+
+    private var estimateCompositionSection: some View {
+        let composition = snapshot.estimateComposition
+        return VStack(alignment: .leading, spacing: 9) {
+            sectionTitle("Estimate makeup", detail: "How focus time was formed")
+            HStack(spacing: 0) {
+                metric(
+                    "Activity-backed",
+                    duration(composition.activityBackedMinutes),
+                    detail: percentage(composition.activityBackedShare)
+                )
+                metricDivider
+                metric(
+                    "Bridged between interactions",
+                    duration(composition.bridgedMinutes)
+                )
+            }
+            ProgressView(
+                value: Double(composition.activityBackedMinutes),
+                total: Double(max(composition.totalMinutes, 1))
+            )
+            .tint(.accentColor)
+            .accessibilityLabel(
+                "\(duration(composition.activityBackedMinutes)) activity-backed and \(duration(composition.bridgedMinutes)) bridged between interactions"
+            )
         }
     }
 
@@ -365,6 +450,9 @@ struct WorkPatternView: View {
     private func heatmapColor(_ cell: WorkPatternHeatmapCell) -> Color {
         let value: Double
         switch heatmapMode {
+        case .focus:
+            let maximum = max(snapshot.heatmap.map(\.focusMinuteCount).max() ?? 0, 1)
+            value = Double(cell.focusMinuteCount) / Double(maximum)
         case .volume:
             let maximum = max(snapshot.heatmap.map(\.tokenTotal).max() ?? 0, 1)
             value = Double(cell.tokenTotal) / Double(maximum)
@@ -377,6 +465,44 @@ struct WorkPatternView: View {
 
     private func heatmapAccessibility(_ cell: WorkPatternHeatmapCell) -> String {
         "\(UsageHistoryPresentation.weekdayTitle(cell.weekday)) at \(hour(cell.hour)), \(ValueFormatter.exactTokens(cell.tokenTotal)) tokens, \(duration(cell.focusMinuteCount)) estimated focus, active \(cell.activeOccurrenceCount) of \(cell.eligibleOccurrenceCount) times"
+    }
+
+    private var insightPresentation: WorkPatternInsightPresentation? {
+        WorkPatternInsightPresentation.make(snapshot, range: range, provider: provider)
+    }
+
+    private var scheduleRangeDetail: String {
+        snapshot.activeDayCount >= 4 ? "Middle 50% of active days" : "Needs 4 active days"
+    }
+
+    private var qualifiedFocusWindow: String {
+        snapshot.activeDayCount >= 3 ? focusWindow(snapshot.strongestFocusWindow) : "—"
+    }
+
+    private var focusWindowDetail: String? {
+        snapshot.activeDayCount >= 3 ? nil : "Needs 3 active days"
+    }
+
+    private func insightIcon(_ kind: WorkPatternInsightKind) -> String {
+        switch kind {
+        case .rhythm: "clock"
+        case .blocks: "rectangle.stack"
+        case .aiInteraction: "cpu"
+        }
+    }
+
+    private func focusWindow(_ value: WorkPatternFocusWindow?) -> String {
+        guard let value else { return "—" }
+        return "\(hour(value.startHour))–\(hour(value.endHour))"
+    }
+
+    private func qualifiedMinuteRange(_ value: WorkPatternMinuteRange?) -> String {
+        guard snapshot.activeDayCount >= 4, let value else { return "—" }
+        return "\(minute(value.lowerMinuteOfDay))–\(minute(value.upperMinuteOfDay))"
+    }
+
+    private func minute(_ minuteOfDay: Int) -> String {
+        String(format: "%02d:%02d", minuteOfDay / 60, minuteOfDay % 60)
     }
 
     private func hour(_ value: Int?) -> String {
@@ -414,6 +540,12 @@ struct WorkPatternView: View {
         guard let value else { return "No activity" }
         let percentage = (NSDecimalNumber(decimal: value).doubleValue * 100).rounded()
         return "\(Int(percentage))% of eligible days"
+    }
+
+    private func percentage(_ value: Decimal?) -> String {
+        guard let value else { return "No focus activity" }
+        let percentage = (NSDecimalNumber(decimal: value).doubleValue * 100).rounded()
+        return "\(Int(percentage))% of estimate"
     }
 
     private func compactTokens(_ value: Int64) -> String {

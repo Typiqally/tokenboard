@@ -64,7 +64,7 @@ Highlights:
 - Independent `TODAY`, `7D`, `30D`, and `90D` charts with hover, scrub, and click-to-pin values.
 - Effective-dated API-equivalent estimates that leave unknown prices visibly unpriced instead of guessing.
 - Provider, model, Input, Cache, and Output breakdowns without double-counting reasoning output.
-- Local Work Patterns: conservative focus-time estimates, focus blocks, activity consistency, peak hours or weekdays, first/last activity, and busiest-day context.
+- Local Work Patterns: conservative focus-time estimates, neutral rhythm and AI-interaction observations, focus-block profiles, activity consistency, schedule ranges, and estimate makeup.
 - Event-driven updates backed by read-only metadata reconciliation, with an explicit full Refresh action when you want one immediately.
 - Optional companion panoramas for Pokémon, Forest, Village, Old School RuneScape, Age of Empires II, Minecraft, Banished, and Frostpunk.
 - Optional Discord Rich Presence with a static **View on GitHub** action.
@@ -134,6 +134,8 @@ The standard popover is `350 × 560`. Enabling a companion keeps the complete su
 History uses the same typography, chart language, range control, and provider identity at working-window scale. Expand providers, models, and token categories, or switch to Work Patterns for hourly and weekday structure.
 
 Focus time is a conservative estimate of AI-assisted work, not continuous time tracking. Tokenboard records provider-only five-minute activity slices when additive usage occurs. Slices up to 15 minutes apart form one focus block; larger gaps start another block. One isolated interaction therefore counts as five minutes, not a full hour. Work without Claude Code or Codex activity is not measured, and earlier token totals remain available even when focus timing does not.
+
+For 7D, 30D, and 90D ranges, Work Patterns presents three stable, neutral observations: recurring local-time rhythm, focus-block shape, and Claude/Codex interaction mix. Sparse history stays visibly in a learning state instead of producing an unstable conclusion. The supporting view includes a focus-time heatmap, 5–10/15–25/30–55/60+ minute block bands, the middle 50% of first and last activity times, and an explicit split between activity-backed five-minute slices and time bridged between interactions. These are descriptive patterns, never productivity or efficiency scores.
 
 ### Companion journeys
 

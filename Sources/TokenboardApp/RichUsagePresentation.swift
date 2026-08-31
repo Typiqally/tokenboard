@@ -364,9 +364,21 @@ struct WorkPatternInsightPresentation: Equatable, Sendable {
 
     private static func toolMixTitle(_ mix: WorkPatternToolMix) -> String {
         let categories = [
-            (title: "Claude-only", count: mix.claudeOnlyBlockCount),
-            (title: "Codex-only", count: mix.codexOnlyBlockCount),
-            (title: "Both-tool", count: mix.mixedBlockCount),
+            (
+                commonTitle: "Claude-only blocks",
+                completeTitle: "Claude Code",
+                count: mix.claudeOnlyBlockCount
+            ),
+            (
+                commonTitle: "Codex-only blocks",
+                completeTitle: "Codex",
+                count: mix.codexOnlyBlockCount
+            ),
+            (
+                commonTitle: "Blocks using both tools",
+                completeTitle: "both tools",
+                count: mix.mixedBlockCount
+            ),
         ]
         guard let maximum = categories.map(\.count).max() else {
             return "AI tool use was split across block types."
@@ -376,9 +388,9 @@ struct WorkPatternInsightPresentation: Equatable, Sendable {
             return "AI tool use was split across block types."
         }
         if maximum == mix.totalBlockCount {
-            return "All \(mix.totalBlockCount) focus blocks used \(leader.title.lowercased())."
+            return "All \(mix.totalBlockCount) focus blocks used \(leader.completeTitle)."
         }
-        return "\(leader.title) blocks were the most common."
+        return "\(leader.commonTitle) were the most common."
     }
 
     private static func percentage(_ value: Decimal?) -> String {
