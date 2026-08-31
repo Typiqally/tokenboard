@@ -334,6 +334,24 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(clearCount, 1)
     }
 
+    func testDiscordDoesNotPublishAfterTheSharedMetricChangesWithoutFreshConsent() async throws {
+        let setup = try makeSetup(
+            approved: true,
+            grantedProviders: Set(Provider.allCases),
+            discordEnabled: true,
+            discordConsentVersion: DiscordPresencePresentation.consentVersion - 1
+        )
+        defer { setup.cleanup() }
+
+        await setup.model.start()
+
+        XCTAssertFalse(setup.model.discordPresenceEnabled)
+        XCTAssertFalse(setup.preferences.discordPresenceEnabled)
+        XCTAssertTrue(setup.model.discordPresenceRequiresConsent)
+        let activities = await setup.discordClient.activities()
+        XCTAssertEqual(activities, [])
+    }
+
     func testCompanionPresentationFollowsTheInjectedCalendar() async throws {
         // 20:00 UTC: a UTC calendar is still on one local day while a
         // calendar fourteen hours ahead has already crossed midnight — so

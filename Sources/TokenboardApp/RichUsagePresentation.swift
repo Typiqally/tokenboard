@@ -173,44 +173,44 @@ struct WorkPatternPreviewPresentation: Equatable, Sendable {
         if range == .today {
             let metrics = [
                 WorkPatternPreviewMetric(
-                    title: "ACTIVE HOURS",
-                    value: "\(snapshot.totalActiveHours)"
+                    title: "FOCUS TIME",
+                    value: ValueFormatter.duration(minutes: snapshot.totalFocusMinutes)
                 ),
-                WorkPatternPreviewMetric(title: "PEAK HOUR", value: peakHour),
                 WorkPatternPreviewMetric(
-                    title: "LONGEST RUN",
-                    value: "\(snapshot.longestActiveRunHours)h"
+                    title: "FOCUS BLOCKS",
+                    value: "\(snapshot.focusSessionCount)"
+                ),
+                WorkPatternPreviewMetric(
+                    title: "LONGEST BLOCK",
+                    value: ValueFormatter.duration(
+                        minutes: snapshot.longestFocusSessionMinutes
+                    )
                 ),
             ]
             return WorkPatternPreviewPresentation(
                 title: title,
                 metrics: metrics,
-                accessibilityTitle: "Work patterns for today. \(snapshot.totalActiveHours) active hours. Peak hour \(peakHour). Longest active run \(snapshot.longestActiveRunHours) hours. Open Work Patterns."
+                accessibilityTitle: "Work patterns for today. Estimated focus time \(spokenDuration(snapshot.totalFocusMinutes)). \(snapshot.focusSessionCount) focus blocks. Longest focus block \(spokenDuration(snapshot.longestFocusSessionMinutes)). Open Work Patterns."
             )
         }
-        let average = snapshot.averageActiveHoursPerActiveDay.map(oneDecimal) ?? "—"
-        let weekday = snapshot.volumePeakWeekday.map {
-            UsageHistoryPresentation.shortWeekdayTitle($0.weekday)
-        } ?? "—"
-        let spokenWeekday = snapshot.volumePeakWeekday.map {
-            UsageHistoryPresentation.weekdayTitle($0.weekday)
-        } ?? "unavailable"
+        let averagePerDay = duration(snapshot.averageFocusMinutesPerActiveDay)
+        let averageBlock = duration(snapshot.averageFocusSessionMinutes)
         let metrics = [
-            WorkPatternPreviewMetric(title: "AVG HOURS", value: average == "—" ? average : "\(average)h"),
+            WorkPatternPreviewMetric(title: "FOCUS / DAY", value: averagePerDay),
+            WorkPatternPreviewMetric(title: "AVG BLOCK", value: averageBlock),
             WorkPatternPreviewMetric(title: "PEAK HOUR", value: peakHour),
-            WorkPatternPreviewMetric(title: "PEAK DAY", value: weekday),
         ]
         return WorkPatternPreviewPresentation(
             title: title,
             metrics: metrics,
-            accessibilityTitle: "Work patterns for the \(UsageHistoryPresentation.rangeDescription(range).lowercased()). Average \(average) active hours per active day. Peak hour \(peakHour). Peak day \(spokenWeekday). Open Work Patterns."
+            accessibilityTitle: "Work patterns for the \(UsageHistoryPresentation.rangeDescription(range).lowercased()). Estimated focus time \(spokenDuration(snapshot.averageFocusMinutesPerActiveDay)) per active day. Average focus block \(spokenDuration(snapshot.averageFocusSessionMinutes)). Peak hour \(peakHour). Open Work Patterns."
         )
     }
 
-    private static func oneDecimal(_ value: Decimal) -> String {
+    private static func roundedMinutes(_ value: Decimal) -> Int {
         let behavior = NSDecimalNumberHandler(
             roundingMode: .plain,
-            scale: 1,
+            scale: 0,
             raiseOnExactness: false,
             raiseOnOverflow: false,
             raiseOnUnderflow: false,
@@ -218,7 +218,26 @@ struct WorkPatternPreviewPresentation: Equatable, Sendable {
         )
         return NSDecimalNumber(decimal: value)
             .rounding(accordingToBehavior: behavior)
-            .stringValue
+            .intValue
+    }
+
+    private static func duration(_ value: Decimal?) -> String {
+        value.map { ValueFormatter.duration(minutes: roundedMinutes($0)) } ?? "—"
+    }
+
+    private static func spokenDuration(_ minutes: Int) -> String {
+        let hours = minutes / 60
+        let remainingMinutes = minutes % 60
+        let hourText = hours == 0 ? nil : "\(hours) \(hours == 1 ? "hour" : "hours")"
+        let minuteText = remainingMinutes == 0
+            ? nil
+            : "\(remainingMinutes) \(remainingMinutes == 1 ? "minute" : "minutes")"
+        return [hourText, minuteText].compactMap { $0 }.joined(separator: " ")
+    }
+
+    private static func spokenDuration(_ value: Decimal?) -> String {
+        guard let value else { return "unavailable" }
+        return spokenDuration(roundedMinutes(value))
     }
 }
 

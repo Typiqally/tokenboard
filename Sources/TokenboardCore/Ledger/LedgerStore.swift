@@ -53,6 +53,22 @@ public struct HourlyUsageRow: Equatable, Sendable {
     }
 }
 
+public struct ActivitySliceRow: Equatable, Sendable {
+    public let sliceStart: Date
+    public let localDay: LocalDay
+    public let provider: Provider
+
+    public init(
+        sliceStart: Date,
+        localDay: LocalDay,
+        provider: Provider
+    ) {
+        self.sliceStart = sliceStart
+        self.localDay = localDay
+        self.provider = provider
+    }
+}
+
 public struct SkippedRecord: Equatable, Sendable {
     public let sourceFingerprint: String
     public let byteOffset: Int64
@@ -89,6 +105,11 @@ public protocol LedgerStore: Sendable {
         calendar: Calendar
     ) async throws -> [HourlyUsageRow]
     func hourlyUsageCoverageStart() async throws -> Date?
+    func activitySliceRows(
+        in interval: DateInterval?,
+        calendar: Calendar
+    ) async throws -> [ActivitySliceRow]
+    func activitySliceCoverageStart() async throws -> Date?
     func checkpoint(for fingerprint: String) async throws -> SourceCheckpoint?
     func sourceFingerprint(provider: Provider, stableID: String) async throws -> String
     func recordIdentityHash(_ value: String) async throws -> String
@@ -112,5 +133,16 @@ public extension LedgerStore {
 
     func hourlyUsageCoverageStart() async throws -> Date? {
         try await hourlyUsageRows(in: nil, calendar: .current).map(\.hourStart).min()
+    }
+
+    func activitySliceRows(
+        in interval: DateInterval?,
+        calendar: Calendar
+    ) async throws -> [ActivitySliceRow] {
+        []
+    }
+
+    func activitySliceCoverageStart() async throws -> Date? {
+        try await activitySliceRows(in: nil, calendar: .current).map(\.sliceStart).min()
     }
 }

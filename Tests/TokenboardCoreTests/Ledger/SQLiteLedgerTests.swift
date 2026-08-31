@@ -296,7 +296,7 @@ final class SQLiteLedgerTests: XCTestCase {
         let connection = try SQLiteConnection(url: directory.appending(path: "ledger.sqlite"))
         XCTAssertEqual(
             try connection.queryStrings("SELECT version FROM schema_migrations ORDER BY version;"),
-            ["1", "2", "3", "4", "5"]
+            ["1", "2", "3", "4", "5", "6"]
         )
         XCTAssertEqual(
             try connection.queryStrings("SELECT applied_at FROM schema_migrations WHERE version = 4;" ).count,
@@ -349,8 +349,10 @@ final class SQLiteLedgerTests: XCTestCase {
         }
 
         let rows = try await ledger.usageRows(in: nil, calendar: calendar)
+        let activity = try await ledger.activitySliceRows(in: nil, calendar: calendar)
         let checkpoint = try await ledger.checkpoint(for: fingerprintA)
         XCTAssertEqual(rows, [])
+        XCTAssertEqual(activity, [])
         XCTAssertNil(checkpoint)
         let connection = try SQLiteConnection(url: directory.appending(path: "ledger.sqlite"))
         XCTAssertEqual(try connection.queryStrings("SELECT record_hash FROM skipped_records;"), [])

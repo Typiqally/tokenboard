@@ -587,7 +587,7 @@ struct RichUsagePopoverView: View {
                         }
                     }
                 } else {
-                    Text("Hourly work patterns are not available yet")
+                    Text("Focus patterns are not available yet")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }

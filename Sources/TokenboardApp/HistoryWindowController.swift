@@ -257,7 +257,7 @@ struct UsageHistoryView: View {
                             .font(.title2)
                         Text("Work patterns are not available yet")
                             .font(.headline)
-                        Text("Tokenboard starts measuring active hours when hourly local usage is available.")
+                        Text("Tokenboard starts estimating focus time when five-minute local activity slices are available.")
                             .font(.callout)
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)

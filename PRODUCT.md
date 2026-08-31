@@ -38,14 +38,14 @@ Simple, clean, mean. Quietly confident and direct, with precise language and no 
 ## Primary Surfaces
 
 - Use the `350 × 560` transient rich popover for the one-click summary, interactive recent trend, work-pattern preview, provider shares, and primary navigation. A selected companion turns the top `350 × 224` into an inhabited panorama with the header and headline overlaid, and expands the complete surface to `350 × 656`; `None` remains the default.
-- Use a standard resizable History window with Usage and Work Patterns views for selectable usage details, provider/model/token-type disclosures, active-hour summaries, and recurring local-time patterns.
+- Use a standard resizable History window with Usage and Work Patterns views for selectable usage details, provider/model/token-type disclosures, conservative focus-time summaries, and recurring local-time patterns.
 - Keep durable display preferences in General Settings; the popover owns only the summary period and session-only trend range.
 - Share one visual grammar across popover and History. The detailed contract lives in [DESIGN.md](DESIGN.md).
 
 ## Discord Activity
 
 - Keep Discord Activity off by default in General Settings. The first enable shows the exact current preview and requires explicit confirmation; later toggles may reuse a versioned consent until the disclosure changes.
-- Publish one deliberately narrow daily summary: `Playing Tokenboard`, today's AI coding usage, a compact token total, the count of active local hour buckets, and one static `View on GitHub` action to Tokenboard's public repository. Do not include provider, model, project, path, conversation, cost, timestamps, party data, or secrets.
+- Publish one deliberately narrow daily summary: `Playing Tokenboard`, today's AI coding usage, a compact token total, estimated focus duration, and one static `View on GitHub` action to Tokenboard's public repository. Do not include provider, model, project, path, conversation, cost, timestamps, party data, or secrets.
 - Connect only to the running desktop client's documented local IPC socket. Tokenboard does not authenticate a Discord account, contact Discord remotely, or keep a helper alive.
 - Keep the preference enabled across launches, retry when Discord launches or the Mac wakes, update after local usage refreshes and calendar changes, and clear activity on disable or clean shutdown.
 - Make `Connected`, `Discord isn't running`, failure, and unavailable-build states visible, with an explicit Retry action for recoverable states.

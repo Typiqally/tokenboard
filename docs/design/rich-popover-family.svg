@@ -140,14 +140,14 @@
         <text x="60" y="493" fill="#9da0a4" font-size="10" font-weight="700" letter-spacing=".75">WORK PATTERNS · TODAY</text>
         <text x="370" y="493" text-anchor="end" fill="#777b80" font-size="17">›</text>
         <g fill="#f1f2f3" font-size="13" font-weight="650">
-          <text x="60" y="512">6</text>
-          <text x="164" y="512">21:00</text>
-          <text x="267" y="512">7h</text>
+          <text x="60" y="512">1h 25m</text>
+          <text x="164" y="512">4</text>
+          <text x="267" y="512">35m</text>
         </g>
         <g fill="#989b9f" font-size="9.5">
-          <text x="60" y="526">ACTIVE HOURS</text>
-          <text x="164" y="526">PEAK HOUR</text>
-          <text x="267" y="526">LONGEST RUN</text>
+          <text x="60" y="526">FOCUS TIME</text>
+          <text x="164" y="526">FOCUS BLOCKS</text>
+          <text x="267" y="526">LONGEST BLOCK</text>
         </g>
         <path d="M153.5 500v27M256.5 500v27M60 533.5H370" stroke="#fff" stroke-opacity=".14"/>
 

@@ -30,7 +30,7 @@ struct WorkPatternView: View {
             }
             Divider()
             scheduleSection
-            Text("Active hours are clock-hour buckets containing additive local usage. They are an activity estimate, not continuous time tracking.")
+            Text("Focus time estimates AI-assisted work from five-minute local activity slices. Slices up to 15 minutes apart form one focus block; gaps and non-AI work are not measured.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -39,7 +39,7 @@ struct WorkPatternView: View {
 
     private var coverageNotice: some View {
         Label {
-            Text("Hourly activity is available from \(coverageDate). Earlier token totals remain in Usage.")
+            Text("Focus timing is available from \(coverageDate). Earlier token totals remain in Usage.")
         } icon: {
             Image(systemName: "info.circle")
         }
@@ -56,19 +56,19 @@ struct WorkPatternView: View {
             sectionTitle("Overview", detail: UsageHistoryPresentation.rangeDescription(range))
             HStack(spacing: 0) {
                 if range == .today {
-                    metric("Active hours", "\(snapshot.totalActiveHours)")
+                    metric("Est. focus time", duration(snapshot.totalFocusMinutes))
                     metricDivider
-                    metric("Peak hour", hour(snapshot.volumePeakHour?.hour))
+                    metric("Focus blocks", "\(snapshot.focusSessionCount)")
                     metricDivider
-                    metric("Longest run", "\(snapshot.longestActiveRunHours)h")
+                    metric("Longest block", duration(snapshot.longestFocusSessionMinutes))
                     metricDivider
                     metric("Tokens", compactTokens(totalTokens))
                 } else {
-                    metric("Avg hours / active day", decimal(snapshot.averageActiveHoursPerActiveDay))
+                    metric("Focus / active day", duration(snapshot.averageFocusMinutesPerActiveDay))
                     metricDivider
-                    metric("Avg active days / week", decimal(snapshot.averageActiveDaysPerWeek))
+                    metric("Avg focus block", duration(snapshot.averageFocusSessionMinutes))
                     metricDivider
-                    metric("Active hours", "\(snapshot.totalActiveHours)")
+                    metric("Est. focus time", duration(snapshot.totalFocusMinutes))
                     metricDivider
                     metric("Active days", "\(snapshot.activeDayCount)")
                 }
@@ -80,7 +80,7 @@ struct WorkPatternView: View {
     private var activitySection: some View {
         VStack(alignment: .leading, spacing: 9) {
             sectionTitle(
-                range == .today ? "Today’s activity" : "Active hours by day",
+                range == .today ? "Today’s activity" : "Estimated focus by day",
                 detail: comparisonTitle
             )
             if range == .today {
@@ -96,7 +96,7 @@ struct WorkPatternView: View {
                 if let selectedDay {
                     detailLine(
                         title: UsageHistoryPresentation.shortDate(selectedDay.localDay),
-                        detail: "\(selectedDay.activeHourCount) active hours · Peak \(hour(selectedDay.peakHour)) · \(ValueFormatter.exactTokens(selectedDay.tokenTotal)) tokens"
+                        detail: "\(duration(selectedDay.focusMinuteCount)) focus · \(selectedDay.focusSessionCount) blocks · Peak \(hour(selectedDay.peakHour)) · \(ValueFormatter.exactTokens(selectedDay.tokenTotal)) tokens"
                     )
                 }
             }
@@ -107,7 +107,7 @@ struct WorkPatternView: View {
         Chart(snapshot.days, id: \.selectionID) { day in
             BarMark(
                 x: .value("Day", day.selectionID),
-                y: .value("Active hours", day.activeHourCount)
+                y: .value("Estimated focus hours", Double(day.focusMinuteCount) / 60)
             )
             .foregroundStyle(
                 selectedDayID == nil || selectedDayID == day.selectionID
@@ -125,7 +125,7 @@ struct WorkPatternView: View {
         }
         .chartXSelection(value: $selectedDayID)
         .frame(height: 155)
-        .accessibilityLabel("Daily active hours for the \(UsageHistoryPresentation.rangeDescription(range).lowercased())")
+        .accessibilityLabel("Daily estimated focus time for the \(UsageHistoryPresentation.rangeDescription(range).lowercased())")
     }
 
     private var todayChart: some View {
@@ -173,7 +173,7 @@ struct WorkPatternView: View {
             if let selectedHeatmapCell {
                 detailLine(
                     title: "\(UsageHistoryPresentation.weekdayTitle(selectedHeatmapCell.weekday)) at \(hour(selectedHeatmapCell.hour))",
-                    detail: "\(ValueFormatter.exactTokens(selectedHeatmapCell.tokenTotal)) tokens · Active \(selectedHeatmapCell.activeOccurrenceCount) of \(selectedHeatmapCell.eligibleOccurrenceCount) times"
+                    detail: "\(ValueFormatter.exactTokens(selectedHeatmapCell.tokenTotal)) tokens · \(duration(selectedHeatmapCell.focusMinuteCount)) focus · Active \(selectedHeatmapCell.activeOccurrenceCount) of \(selectedHeatmapCell.eligibleOccurrenceCount) times"
                 )
             }
             HStack(spacing: 0) {
@@ -257,7 +257,7 @@ struct WorkPatternView: View {
                 metricDivider
                 metric("Typical last activity", hour(snapshot.typicalLastActivityHour))
                 metricDivider
-                metric("Longest active run", "\(snapshot.longestActiveRunHours)h")
+                metric("Longest focus block", duration(snapshot.longestFocusSessionMinutes))
                 metricDivider
                 metric(
                     "Busiest date",
@@ -346,9 +346,9 @@ struct WorkPatternView: View {
 
     private var comparisonTitle: String? {
         guard let comparison = snapshot.comparison else { return nil }
-        if comparison.activeHourDelta == 0 { return "No change vs previous range" }
-        let direction = comparison.activeHourDelta > 0 ? "+" : "−"
-        return "\(direction)\(abs(comparison.activeHourDelta))h vs previous range"
+        if comparison.focusMinuteDelta == 0 { return "No change vs previous range" }
+        let direction = comparison.focusMinuteDelta > 0 ? "+" : "−"
+        return "\(direction)\(duration(abs(comparison.focusMinuteDelta))) vs previous range"
     }
 
     private var coverageDate: String {
@@ -376,7 +376,7 @@ struct WorkPatternView: View {
     }
 
     private func heatmapAccessibility(_ cell: WorkPatternHeatmapCell) -> String {
-        "\(UsageHistoryPresentation.weekdayTitle(cell.weekday)) at \(hour(cell.hour)), \(ValueFormatter.exactTokens(cell.tokenTotal)) tokens, active \(cell.activeOccurrenceCount) of \(cell.eligibleOccurrenceCount) times"
+        "\(UsageHistoryPresentation.weekdayTitle(cell.weekday)) at \(hour(cell.hour)), \(ValueFormatter.exactTokens(cell.tokenTotal)) tokens, \(duration(cell.focusMinuteCount)) estimated focus, active \(cell.activeOccurrenceCount) of \(cell.eligibleOccurrenceCount) times"
     }
 
     private func hour(_ value: Int?) -> String {
@@ -387,11 +387,10 @@ struct WorkPatternView: View {
         value.map(UsageHistoryPresentation.shortWeekdayTitle) ?? "—"
     }
 
-    private func decimal(_ value: Decimal?) -> String {
-        guard let value else { return "—" }
+    private func roundedMinutes(_ value: Decimal) -> Int {
         let behavior = NSDecimalNumberHandler(
             roundingMode: .plain,
-            scale: 1,
+            scale: 0,
             raiseOnExactness: false,
             raiseOnOverflow: false,
             raiseOnUnderflow: false,
@@ -399,7 +398,16 @@ struct WorkPatternView: View {
         )
         return NSDecimalNumber(decimal: value)
             .rounding(accordingToBehavior: behavior)
-            .stringValue
+            .intValue
+    }
+
+    private func duration(_ minutes: Int) -> String {
+        ValueFormatter.duration(minutes: minutes)
+    }
+
+    private func duration(_ minutes: Decimal?) -> String {
+        guard let minutes else { return "—" }
+        return duration(roundedMinutes(minutes))
     }
 
     private func consistency(_ value: Decimal?) -> String {

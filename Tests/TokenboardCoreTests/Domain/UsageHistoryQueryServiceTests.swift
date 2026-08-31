@@ -320,7 +320,8 @@ private actor HistoryQueryTestLedger: LedgerStore {
     }
 
     func activitySliceCoverageStart() -> Date? {
-        activityRows.map(\.sliceStart).min()
+        activityQueryCount += 1
+        return activityRows.map(\.sliceStart).min()
     }
 
     func checkpoint(for fingerprint: String) throws -> SourceCheckpoint? {

@@ -56,7 +56,7 @@ There is no account, cloud service, telemetry endpoint, or background helper. Th
 | **Popover** | What is the exact total, how is it trending, when am I active, and how is usage split between Claude Code and Codex? |
 | **History** | Which providers, models, and token categories produced the total? What are my recurring work patterns? |
 | **Companions** | Can today's progress inhabit a quiet visual world without turning usage into a streak or score? |
-| **Discord Activity** | Can I optionally share today's compact total and active-hour count with friends? |
+| **Discord Activity** | Can I optionally share today's compact total and estimated focus time with friends? |
 
 Highlights:
 
@@ -64,7 +64,7 @@ Highlights:
 - Independent `TODAY`, `7D`, `30D`, and `90D` charts with hover, scrub, and click-to-pin values.
 - Effective-dated API-equivalent estimates that leave unknown prices visibly unpriced instead of guessing.
 - Provider, model, Input, Cache, and Output breakdowns without double-counting reasoning output.
-- Local Work Patterns: active-hour averages, peak and recurring hours or weekdays, first/last activity, consistency, and busiest-day context.
+- Local Work Patterns: conservative focus-time estimates, focus blocks, activity consistency, peak hours or weekdays, first/last activity, and busiest-day context.
 - Event-driven updates backed by read-only metadata reconciliation, with an explicit full Refresh action when you want one immediately.
 - Optional companion panoramas for Pokémon, Forest, Village, Old School RuneScape, Age of Empires II, Minecraft, Banished, and Frostpunk.
 - Optional Discord Rich Presence with a static **View on GitHub** action.
@@ -133,7 +133,7 @@ The standard popover is `350 × 560`. Enabling a companion keeps the complete su
 
 History uses the same typography, chart language, range control, and provider identity at working-window scale. Expand providers, models, and token categories, or switch to Work Patterns for hourly and weekday structure.
 
-An active hour is one local clock-hour bucket containing additive usage. It is an activity estimate, not continuous time tracking. Earlier daily-only totals remain available even when precise hourly coverage does not.
+Focus time is a conservative estimate of AI-assisted work, not continuous time tracking. Tokenboard records provider-only five-minute activity slices when additive usage occurs. Slices up to 15 minutes apart form one focus block; larger gaps start another block. One isolated interaction therefore counts as five minutes, not a full hour. Work without Claude Code or Codex activity is not measured, and earlier token totals remain available even when focus timing does not.
 
 ### Companion journeys
 
@@ -147,13 +147,13 @@ Scenes animate only while genuinely visible. Settings thumbnails stay still, and
 Folders you choose
       ↓ read-only
 Local parsers
-      ↓ content-safe daily and hourly aggregates
+      ↓ content-safe token aggregates + five-minute activity slices
 Local SQLite ledger
       ↓
 Menu bar · Popover · History
 ```
 
-Tokenboard stores token aggregates, exact content-safe model IDs, price history, opaque salted bookkeeping hashes, the two selected-root bookmarks, and explicit preferences. It does **not** store prompts, responses, tool content, project metadata, paths beneath the granted roots, raw session IDs, or per-session totals.
+Tokenboard stores token aggregates, provider-only five-minute activity slices, exact content-safe model IDs, price history, opaque salted bookkeeping hashes, the two selected-root bookmarks, and explicit preferences. It does **not** store prompts, responses, tool content, project metadata, paths beneath the granted roots, raw session IDs, or per-session totals.
 
 - No telemetry, analytics, remote API, web view, helper, daemon, or XPC service.
 - No source-log edits or deletions.
@@ -178,7 +178,7 @@ Discord sharing is deliberately narrow and disabled by default. When enabled, To
 
 - `Playing Tokenboard`
 - today's compact token total
-- today's active-hour bucket count
+- today's estimated focus duration
 - a static **View on GitHub** action
 
 It does not send provider, model, project, path, conversation, cost, timestamps, party data, or secrets. Communication goes only to the running Discord desktop client's same-user local IPC socket. Discord hides Rich Presence buttons from the account publishing the activity, so the GitHub action is visible to other users rather than in your own Current Activity card.

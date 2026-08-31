@@ -84,6 +84,19 @@ public struct UsageQueryService: Sendable {
         } else {
             hourlyRows = []
         }
+        let activityCoverageStart = try await ledger.activitySliceCoverageStart()
+        let activityRows: [ActivitySliceRow]
+        if activityCoverageStart != nil {
+            let queriedActivityRows = try await ledger.activitySliceRows(
+                in: queryInterval,
+                calendar: calendar
+            )
+            activityRows = queriedActivityRows.filter {
+                provider == nil || $0.provider == provider
+            }
+        } else {
+            activityRows = []
+        }
 
         var snapshots: [UsageHistoryRange: UsageHistorySnapshot] = [:]
         for range in requestedRanges {
@@ -110,6 +123,15 @@ public struct UsageQueryService: Sendable {
             let previousHourlyRows = rangeHourlyRows.filter {
                 $0.hourStart < intervals.current.start
             }
+            let rangeActivityRows = activityRows.filter {
+                $0.sliceStart >= intervals.previous.start
+            }
+            let currentActivity = rangeActivityRows.filter {
+                $0.sliceStart >= intervals.current.start
+            }
+            let previousActivity = rangeActivityRows.filter {
+                $0.sliceStart < intervals.current.start
+            }
             snapshots[range] = try historySnapshot(
                 range: range,
                 intervals: intervals,
@@ -117,7 +139,9 @@ public struct UsageQueryService: Sendable {
                 previousRows: previousRows,
                 currentHourlyRows: currentHourlyRows,
                 previousHourlyRows: previousHourlyRows,
-                hourlyCoverageStart: hourlyCoverageStart,
+                currentActivity: currentActivity,
+                previousActivity: previousActivity,
+                activityCoverageStart: activityCoverageStart,
                 now: now,
                 calendar: calendar,
                 provider: provider,
@@ -157,7 +181,9 @@ public struct UsageQueryService: Sendable {
         previousRows: [DailyUsageRow],
         currentHourlyRows: [HourlyUsageRow],
         previousHourlyRows: [HourlyUsageRow],
-        hourlyCoverageStart: Date?,
+        currentActivity: [ActivitySliceRow],
+        previousActivity: [ActivitySliceRow],
+        activityCoverageStart: Date?,
         now: Date,
         calendar: Calendar,
         provider: Provider?,
@@ -196,13 +222,15 @@ public struct UsageQueryService: Sendable {
             )
         }
 
-        let workPatterns: WorkPatternSnapshot? = if let hourlyCoverageStart {
+        let workPatterns: WorkPatternSnapshot? = if let activityCoverageStart {
             try WorkPatternCalculator().make(
                 currentRows: currentHourlyRows,
                 previousRows: previousHourlyRows,
+                currentActivity: currentActivity,
+                previousActivity: previousActivity,
                 currentInterval: intervals.current,
                 previousInterval: intervals.previous,
-                coverageStart: hourlyCoverageStart,
+                coverageStart: activityCoverageStart,
                 now: now,
                 calendar: calendar
             )

@@ -494,6 +494,12 @@ final class AppModel: ObservableObject {
 
     func reconcileDiscordPresence() async {
         guard discordPresenceEnabled else { return }
+        guard !discordPresenceRequiresConsent else {
+            preferences.discordPresenceEnabled = false
+            discordPresenceEnabled = false
+            await discordPresence.setEnabled(false, activity: makeDiscordPresenceActivity())
+            return
+        }
         let activity = makeDiscordPresenceActivity()
         if discordPresence.isEnabled {
             await discordPresence.update(activity)
@@ -507,12 +513,12 @@ final class AppModel: ObservableObject {
               snapshot.currentInterval.contains(now()) else {
             return DiscordPresencePresentation.activity(
                 tokenTotal: 0,
-                activeHourCount: 0
+                estimatedFocusMinutes: 0
             )
         }
         return DiscordPresencePresentation.activity(
             tokenTotal: snapshot.breakdown.tokenTotal,
-            activeHourCount: snapshot.workPatterns?.totalActiveHours
+            estimatedFocusMinutes: snapshot.workPatterns?.totalFocusMinutes
         )
     }
 

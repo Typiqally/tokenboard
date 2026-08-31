@@ -149,6 +149,7 @@ public actor SQLiteLedger: LedgerStore {
         try validateStorageBoundary(usage: usage, skipped: skipped, checkpoint: checkpoint)
         let groupedUsage = try grouped(usage, calendar: calendar)
         let groupedHourlyUsage = try groupedHourly(usage, calendar: calendar)
+        let activitySlices = try groupedActivitySlices(usage, calendar: calendar)
         let checkpointMetrics = try encodedJSON(checkpoint.cumulativeMetrics)
         let adapterState = try encodedJSON(checkpoint.adapterState)
 
@@ -159,6 +160,9 @@ public actor SQLiteLedger: LedgerStore {
             }
             for row in groupedHourlyUsage {
                 try upsertHourlyUsage(row, using: connection)
+            }
+            for row in activitySlices {
+                try insertActivitySlice(row, using: connection)
             }
             for record in skipped {
                 try insertSkippedRecord(record, using: connection)
@@ -275,6 +279,73 @@ public actor SQLiteLedger: LedgerStore {
             SELECT
               strftime('%s', (SELECT applied_at FROM schema_migrations WHERE version = 4)),
               (SELECT MIN(hour_start) FROM hourly_usage);
+            """,
+            using: connection
+        )
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_step(statement) == SQLITE_ROW else {
+            throw failure(sqlite3_errcode(connection.handle), using: connection)
+        }
+        let migrationDate: Date? = sqlite3_column_type(statement, 0) == SQLITE_NULL
+            ? nil
+            : Date(timeIntervalSince1970: TimeInterval(sqlite3_column_int64(statement, 0)))
+        let firstUsageDate: Date? = sqlite3_column_type(statement, 1) == SQLITE_NULL
+            ? nil
+            : Date(timeIntervalSince1970: TimeInterval(sqlite3_column_int64(statement, 1)))
+        return [migrationDate, firstUsageDate].compactMap { $0 }.min()
+    }
+
+    public func activitySliceRows(
+        in interval: DateInterval?,
+        calendar: Calendar
+    ) async throws -> [ActivitySliceRow] {
+        let connection = try requiredConnection()
+        let statement: OpaquePointer
+        if let interval {
+            statement = try prepare(
+                """
+                SELECT slice_start, local_day, time_zone, provider
+                FROM activity_slices
+                WHERE slice_start >= ? AND slice_start < ?
+                ORDER BY slice_start, time_zone, provider;
+                """,
+                using: connection
+            )
+            try bind(epochSeconds(interval.start), to: statement, at: 1, using: connection)
+            try bind(epochSeconds(interval.end), to: statement, at: 2, using: connection)
+        } else {
+            statement = try prepare(
+                """
+                SELECT slice_start, local_day, time_zone, provider
+                FROM activity_slices
+                ORDER BY slice_start, time_zone, provider;
+                """,
+                using: connection
+            )
+        }
+        defer { sqlite3_finalize(statement) }
+
+        var rows: [ActivitySliceRow] = []
+        while true {
+            let result = sqlite3_step(statement)
+            switch result {
+            case SQLITE_ROW:
+                rows.append(try activitySliceRow(from: statement))
+            case SQLITE_DONE:
+                return rows
+            default:
+                throw failure(result, using: connection)
+            }
+        }
+    }
+
+    public func activitySliceCoverageStart() async throws -> Date? {
+        let connection = try requiredConnection()
+        let statement = try prepare(
+            """
+            SELECT
+              strftime('%s', (SELECT applied_at FROM schema_migrations WHERE version = 6)),
+              (SELECT MIN(slice_start) FROM activity_slices);
             """,
             using: connection
         )
@@ -977,6 +1048,34 @@ public actor SQLiteLedger: LedgerStore {
         }
     }
 
+    private func groupedActivitySlices(
+        _ usage: [NormalizedUsage],
+        calendar: Calendar
+    ) throws -> [ActivitySliceRow] {
+        let activeEntries = usage.filter { entry in
+            entry.metrics.contains { metric, quantity in
+                metric.aggregation == .additive && quantity > 0
+            }
+        }
+        let rows = activeEntries.map { entry in
+            let sliceStart = Date(
+                timeIntervalSince1970: floor(entry.timestamp.timeIntervalSince1970 / 300) * 300
+            )
+            return ActivitySliceRow(
+                sliceStart: sliceStart,
+                localDay: LocalDay(date: sliceStart, calendar: calendar),
+                provider: entry.provider
+            )
+        }
+        return Array(Set(rows.map(ActivitySliceKey.init))).map(\.row).sorted {
+            if $0.sliceStart != $1.sliceStart { return $0.sliceStart < $1.sliceStart }
+            if $0.localDay.timeZoneIdentifier != $1.localDay.timeZoneIdentifier {
+                return $0.localDay.timeZoneIdentifier < $1.localDay.timeZoneIdentifier
+            }
+            return $0.provider.rawValue < $1.provider.rawValue
+        }
+    }
+
     private func upsertUsage(_ row: DailyUsageRow, using connection: SQLiteConnection) throws {
         let statement = try prepare(
             """
@@ -1022,6 +1121,26 @@ public actor SQLiteLedger: LedgerStore {
         try bind(row.metric.rawValue, to: statement, at: 6, using: connection)
         try bind(row.aggregation.rawValue, to: statement, at: 7, using: connection)
         try bind(row.quantity, to: statement, at: 8, using: connection)
+        try stepDone(statement, using: connection)
+    }
+
+    private func insertActivitySlice(
+        _ row: ActivitySliceRow,
+        using connection: SQLiteConnection
+    ) throws {
+        let statement = try prepare(
+            """
+            INSERT OR IGNORE INTO activity_slices(
+              slice_start, local_day, time_zone, provider
+            ) VALUES(?, ?, ?, ?);
+            """,
+            using: connection
+        )
+        defer { sqlite3_finalize(statement) }
+        try bind(epochSeconds(row.sliceStart), to: statement, at: 1, using: connection)
+        try bind(row.localDay.value, to: statement, at: 2, using: connection)
+        try bind(row.localDay.timeZoneIdentifier, to: statement, at: 3, using: connection)
+        try bind(row.provider.rawValue, to: statement, at: 4, using: connection)
         try stepDone(statement, using: connection)
     }
 
@@ -1116,6 +1235,24 @@ public actor SQLiteLedger: LedgerStore {
             metric: metric,
             aggregation: aggregation,
             quantity: sqlite3_column_int64(statement, 7)
+        )
+    }
+
+    private func activitySliceRow(from statement: OpaquePointer) throws -> ActivitySliceRow {
+        let localDay = try requiredText(statement, at: 1)
+        let timeZone = try requiredText(statement, at: 2)
+        guard let provider = Provider(rawValue: try requiredText(statement, at: 3)) else {
+            throw LedgerError.corruptData("activity slice provider is invalid")
+        }
+        return ActivitySliceRow(
+            sliceStart: Date(
+                timeIntervalSince1970: TimeInterval(sqlite3_column_int64(statement, 0))
+            ),
+            localDay: try decodedLocalDay(
+                value: localDay,
+                timeZoneIdentifier: timeZone
+            ),
+            provider: provider
         )
     }
 
@@ -1256,6 +1393,26 @@ private struct HourlyUsageKey: Hashable {
     let provider: Provider
     let observedModelID: String
     let metric: UsageMetric
+}
+
+private struct ActivitySliceKey: Hashable {
+    let sliceStart: Date
+    let localDay: LocalDay
+    let provider: Provider
+
+    init(_ row: ActivitySliceRow) {
+        sliceStart = row.sliceStart
+        localDay = row.localDay
+        provider = row.provider
+    }
+
+    var row: ActivitySliceRow {
+        ActivitySliceRow(
+            sliceStart: sliceStart,
+            localDay: localDay,
+            provider: provider
+        )
+    }
 }
 
 private extension SQLiteLedger {

@@ -54,4 +54,13 @@ public enum ValueFormatter {
         formatter.maximumFractionDigits = 0
         return formatter.string(from: NSNumber(value: value))!
     }
+
+    public static func duration(minutes: Int) -> String {
+        let clampedMinutes = max(minutes, 0)
+        let hours = clampedMinutes / 60
+        let remainingMinutes = clampedMinutes % 60
+        if hours == 0 { return "\(remainingMinutes)m" }
+        if remainingMinutes == 0 { return "\(hours)h" }
+        return "\(hours)h \(remainingMinutes)m"
+    }
 }

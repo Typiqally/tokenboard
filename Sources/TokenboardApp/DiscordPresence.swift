@@ -16,19 +16,18 @@ struct DiscordPresenceActivity: Equatable, Sendable {
 }
 
 enum DiscordPresencePresentation {
-    static let consentVersion = 1
+    static let consentVersion = 2
     static let disclosure = "Discord may show this activity on your profile, in friend lists, and in server member lists. Tokenboard publishes only this preview and a static link to its public GitHub repository through the local Discord desktop client."
 
     static func activity(
         tokenTotal: Int64,
-        activeHourCount: Int?
+        estimatedFocusMinutes: Int?
     ) -> DiscordPresenceActivity {
         let state: String
         if tokenTotal == 0 {
             state = "No usage yet today"
-        } else if let activeHourCount {
-            let hour = activeHourCount == 1 ? "hour" : "hours"
-            state = "\(ValueFormatter.compactTokens(tokenTotal)) tokens · activity in \(activeHourCount) \(hour)"
+        } else if let estimatedFocusMinutes, estimatedFocusMinutes > 0 {
+            state = "\(ValueFormatter.compactTokens(tokenTotal)) tokens · est. focus \(ValueFormatter.duration(minutes: estimatedFocusMinutes))"
         } else {
             state = "\(ValueFormatter.compactTokens(tokenTotal)) tokens today"
         }

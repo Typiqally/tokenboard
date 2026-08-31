@@ -67,6 +67,68 @@ final class DatabaseMigratorTests: XCTestCase {
         )
     }
 
+    func testActivitySliceMigrationUpgradesEveryPriorSchemaWithoutChangingUsage() throws {
+        for startingVersion in 1...5 {
+            let directory = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let connection = try SQLiteConnection(
+                url: directory.appending(path: "ledger.sqlite")
+            )
+            let backups = directory.appending(path: "Backups")
+            try DatabaseMigrator(
+                connection: connection,
+                backupDirectory: backups,
+                migrations: Array(Migrations.all.prefix(startingVersion))
+            ).migrate()
+            try connection.execute(
+                """
+                INSERT INTO daily_usage VALUES(
+                  '2026-08-01', 'Europe/Amsterdam', 'codex', 'gpt-test',
+                  'input_uncached', 'additive', 17
+                );
+                """
+            )
+            if startingVersion >= 4 {
+                try connection.execute(
+                    """
+                    INSERT INTO hourly_usage VALUES(
+                      1785571200, '2026-08-01', 'Europe/Amsterdam', 'codex',
+                      'gpt-test', 'input_uncached', 'additive', 17
+                    );
+                    """
+                )
+            }
+
+            try DatabaseMigrator(
+                connection: connection,
+                backupDirectory: backups,
+                migrations: Migrations.all
+            ).migrate()
+
+            XCTAssertEqual(try connection.userVersion, 6, "starting at v\(startingVersion)")
+            XCTAssertEqual(
+                try connection.queryStrings("SELECT quantity FROM daily_usage;"),
+                ["17"],
+                "starting at v\(startingVersion)"
+            )
+            if startingVersion >= 4 {
+                XCTAssertEqual(
+                    try connection.queryStrings("SELECT quantity FROM hourly_usage;"),
+                    ["17"],
+                    "starting at v\(startingVersion)"
+                )
+            }
+            XCTAssertEqual(
+                try connection.queryStrings(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='activity_slices';"
+                ),
+                ["activity_slices"],
+                "starting at v\(startingVersion)"
+            )
+            try connection.close()
+        }
+    }
+
     func testPricingImportHistoryMigrationPreservesV1V2AndV3PricingData() throws {
         for startingVersion in 1...3 {
             let directory = try temporaryDirectory()

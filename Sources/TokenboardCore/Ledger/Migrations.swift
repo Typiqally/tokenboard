@@ -201,5 +201,21 @@ public enum Migrations {
         """
     )
 
-    public static let all = [v1, v2, v3, v4, v5]
+    public static let v6 = Migration(
+        version: 6,
+        name: "store privacy-limited activity slices",
+        sql: """
+        CREATE TABLE activity_slices(
+          slice_start INTEGER NOT NULL,
+          local_day TEXT NOT NULL,
+          time_zone TEXT NOT NULL,
+          provider TEXT NOT NULL,
+          PRIMARY KEY(slice_start, time_zone, provider)
+        );
+        CREATE INDEX activity_slices_range_idx
+          ON activity_slices(slice_start, provider);
+        """
+    )
+
+    public static let all = [v1, v2, v3, v4, v5, v6]
 }
