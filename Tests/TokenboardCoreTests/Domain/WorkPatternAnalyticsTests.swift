@@ -137,6 +137,124 @@ final class WorkPatternAnalyticsTests: XCTestCase {
         XCTAssertEqual(snapshot.focusSessionCount, 1)
     }
 
+    func testDerivesEstimateCompositionBlockProfileToolMixAndCadence() throws {
+        let calendar = amsterdamCalendar()
+        let current = interval("2026-08-02T22:00:00Z", "2026-08-09T22:00:00Z")
+        let activity = [
+            slice("2026-08-03T06:00:00Z", provider: .codex),
+            slice("2026-08-03T07:00:00Z", provider: .claudeCode),
+            slice("2026-08-03T07:10:00Z", provider: .claudeCode),
+            slice("2026-08-03T08:00:00Z", provider: .codex),
+            slice("2026-08-03T08:15:00Z", provider: .claudeCode),
+            slice("2026-08-03T08:25:00Z", provider: .codex),
+            slice("2026-08-03T10:00:00Z", provider: .codex),
+            slice("2026-08-03T10:15:00Z", provider: .codex),
+            slice("2026-08-03T10:30:00Z", provider: .codex),
+            slice("2026-08-03T10:45:00Z", provider: .codex),
+            slice("2026-08-03T10:55:00Z", provider: .codex),
+        ]
+
+        let snapshot = try WorkPatternCalculator().make(
+            currentRows: [],
+            currentActivity: activity,
+            previousActivity: [],
+            currentInterval: current,
+            previousInterval: interval("2026-07-26T22:00:00Z", "2026-08-02T22:00:00Z"),
+            coverageStart: date("2026-07-01T00:00:00Z"),
+            now: current.end.addingTimeInterval(-1),
+            calendar: calendar
+        )
+
+        XCTAssertEqual(snapshot.totalFocusMinutes, 110)
+        XCTAssertEqual(snapshot.estimateComposition, WorkPatternEstimateComposition(
+            activityBackedMinutes: 55,
+            bridgedMinutes: 55
+        ))
+        XCTAssertEqual(snapshot.blockProfile, WorkPatternBlockProfile(
+            fiveToTenMinuteBlockCount: 1,
+            fifteenToTwentyFiveMinuteBlockCount: 1,
+            thirtyToFiftyFiveMinuteBlockCount: 1,
+            sixtyPlusMinuteBlockCount: 1,
+            sustainedFocusMinutes: 90,
+            totalFocusMinutes: 110
+        ))
+        XCTAssertEqual(snapshot.toolMix, WorkPatternToolMix(
+            claudeOnlyBlockCount: 1,
+            codexOnlyBlockCount: 2,
+            mixedBlockCount: 1
+        ))
+        XCTAssertEqual(snapshot.medianInteractionGapMinutes, 15)
+    }
+
+    func testFindsMidnightWrappingFocusWindowAndLocalScheduleRanges() throws {
+        let calendar = amsterdamCalendar()
+        let current = interval("2026-08-02T22:00:00Z", "2026-08-09T22:00:00Z")
+        let activity = [
+            slice("2026-08-03T21:00:00Z"),
+            slice("2026-08-03T22:00:00Z"),
+            slice("2026-08-04T21:10:00Z"),
+            slice("2026-08-04T22:10:00Z"),
+            slice("2026-08-05T21:30:00Z"),
+            slice("2026-08-05T22:30:00Z"),
+            slice("2026-08-06T22:00:00Z"),
+        ]
+
+        let snapshot = try WorkPatternCalculator().make(
+            currentRows: [],
+            currentActivity: activity,
+            previousActivity: [],
+            currentInterval: current,
+            previousInterval: interval("2026-07-26T22:00:00Z", "2026-08-02T22:00:00Z"),
+            coverageStart: date("2026-07-01T00:00:00Z"),
+            now: current.end.addingTimeInterval(-1),
+            calendar: calendar
+        )
+
+        XCTAssertEqual(snapshot.strongestFocusWindow, WorkPatternFocusWindow(
+            startHour: 23,
+            focusMinuteCount: 35,
+            totalFocusMinuteCount: 35
+        ))
+        XCTAssertEqual(snapshot.firstActivityMinuteRange, WorkPatternMinuteRange(
+            lowerMinuteOfDay: 0,
+            medianMinuteOfDay: 10,
+            upperMinuteOfDay: 30
+        ))
+        XCTAssertEqual(snapshot.lastActivityMinuteRange, WorkPatternMinuteRange(
+            lowerMinuteOfDay: 30,
+            medianMinuteOfDay: 1_380,
+            upperMinuteOfDay: 1_390
+        ))
+    }
+
+    func testEmptyActivityProducesZeroedDerivedInsightMetrics() throws {
+        let calendar = amsterdamCalendar()
+        let current = interval("2026-08-02T22:00:00Z", "2026-08-09T22:00:00Z")
+
+        let snapshot = try WorkPatternCalculator().make(
+            currentRows: [],
+            currentActivity: [],
+            previousActivity: [],
+            currentInterval: current,
+            previousInterval: interval("2026-07-26T22:00:00Z", "2026-08-02T22:00:00Z"),
+            coverageStart: date("2026-07-01T00:00:00Z"),
+            now: current.end.addingTimeInterval(-1),
+            calendar: calendar
+        )
+
+        XCTAssertEqual(snapshot.estimateComposition, WorkPatternEstimateComposition(
+            activityBackedMinutes: 0,
+            bridgedMinutes: 0
+        ))
+        XCTAssertEqual(snapshot.blockProfile.totalBlockCount, 0)
+        XCTAssertNil(snapshot.blockProfile.sustainedFocusShare)
+        XCTAssertEqual(snapshot.toolMix.totalBlockCount, 0)
+        XCTAssertNil(snapshot.strongestFocusWindow)
+        XCTAssertNil(snapshot.firstActivityMinuteRange)
+        XCTAssertNil(snapshot.lastActivityMinuteRange)
+        XCTAssertNil(snapshot.medianInteractionGapMinutes)
+    }
+
     func testTokenVolumeWithoutActivitySlicesDoesNotInventFocusTime() throws {
         let calendar = amsterdamCalendar()
         let current = interval("2026-08-02T22:00:00Z", "2026-08-09T22:00:00Z")
