@@ -84,6 +84,7 @@ protocol AppIngestionCoordinating: Sendable {
     func results() async -> AsyncStream<IngestionBatchResult>
     func startMonitoring(roots: [Provider: URL]) async throws -> IngestionBatchResult
     func refreshAll() async -> IngestionBatchResult
+    func backfillActivityHistory() async -> IngestionBatchResult
     func replaceSource(
         _ provider: Provider,
         with root: URL,

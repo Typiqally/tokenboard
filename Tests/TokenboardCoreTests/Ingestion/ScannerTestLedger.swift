@@ -46,6 +46,11 @@ actor ScannerTestLedger: LedgerStore {
         }
     }
 
+    func backfillActivitySlices(
+        _ observations: [ActivityObservation],
+        calendar: Calendar
+    ) {}
+
     func usageRows(in interval: DateInterval?, calendar: Calendar) -> [DailyUsageRow] { [] }
 
     func checkpoint(for fingerprint: String) -> SourceCheckpoint? {

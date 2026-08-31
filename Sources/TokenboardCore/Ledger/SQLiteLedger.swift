@@ -180,6 +180,24 @@ public actor SQLiteLedger: LedgerStore {
         }
     }
 
+    public func backfillActivitySlices(
+        _ observations: [ActivityObservation],
+        calendar: Calendar
+    ) throws {
+        let connection = try requiredConnection()
+        let rows = groupedActivitySlices(observations, calendar: calendar)
+        try connection.beginTransaction()
+        do {
+            for row in rows {
+                try insertActivitySlice(row, using: connection)
+            }
+            try connection.commitTransaction()
+        } catch {
+            try? connection.rollbackTransaction()
+            throw error
+        }
+    }
+
     public func usageRows(in interval: DateInterval?, calendar: Calendar) throws -> [DailyUsageRow] {
         let connection = try requiredConnection()
         let statement: OpaquePointer
@@ -1052,19 +1070,27 @@ public actor SQLiteLedger: LedgerStore {
         _ usage: [NormalizedUsage],
         calendar: Calendar
     ) throws -> [ActivitySliceRow] {
-        let activeEntries = usage.filter { entry in
-            entry.metrics.contains { metric, quantity in
+        let observations = usage.compactMap { entry -> ActivityObservation? in
+            guard entry.metrics.contains(where: { metric, quantity in
                 metric.aggregation == .additive && quantity > 0
-            }
+            }) else { return nil }
+            return ActivityObservation(timestamp: entry.timestamp, provider: entry.provider)
         }
-        let rows = activeEntries.map { entry in
+        return groupedActivitySlices(observations, calendar: calendar)
+    }
+
+    private func groupedActivitySlices(
+        _ observations: [ActivityObservation],
+        calendar: Calendar
+    ) -> [ActivitySliceRow] {
+        let rows = observations.map { observation in
             let sliceStart = Date(
-                timeIntervalSince1970: floor(entry.timestamp.timeIntervalSince1970 / 300) * 300
+                timeIntervalSince1970: floor(observation.timestamp.timeIntervalSince1970 / 300) * 300
             )
             return ActivitySliceRow(
                 sliceStart: sliceStart,
                 localDay: LocalDay(date: sliceStart, calendar: calendar),
-                provider: entry.provider
+                provider: observation.provider
             )
         }
         return Array(Set(rows.map(ActivitySliceKey.init))).map(\.row).sorted {

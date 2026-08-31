@@ -2,6 +2,11 @@ import Foundation
 
 public protocol IngestionScanning: Sendable {
     func scan(file: URL, provider: Provider, calendar: Calendar) async throws -> ScanOutcome
+    func backfillActivityHistory(
+        file: URL,
+        provider: Provider,
+        calendar: Calendar
+    ) async throws -> ScanOutcome
 }
 
 extension IncrementalScanner: IngestionScanning {}
@@ -34,6 +39,7 @@ public enum ProviderIngestionResult: Equatable, Sendable {
 public enum IngestionBatchScope: Equatable, Sendable {
     case inventory
     case incremental
+    case activityBackfill
 }
 
 public struct ProviderIngestionDiagnostics: Equatable, Sendable {
@@ -407,7 +413,26 @@ public actor IngestionCoordinator {
         }
         return await enqueueInventoryAndWait(
             runID: runID,
-            providers: Set(roots.keys)
+            providers: Set(roots.keys),
+            scope: .inventory
+        )
+    }
+
+    public func backfillActivityHistory() async -> IngestionBatchResult {
+        guard let runID = activeRunID else {
+            return IngestionBatchResult(
+                runID: runGeneration,
+                sequence: 0,
+                scope: .activityBackfill,
+                providers: Dictionary(uniqueKeysWithValues: Provider.allCases.map {
+                    ($0, .failure(discoveredFiles: 0, scannedFiles: 0))
+                })
+            )
+        }
+        return await enqueueInventoryAndWait(
+            runID: runID,
+            providers: Set(roots.keys),
+            scope: .activityBackfill
         )
     }
 
@@ -609,17 +634,18 @@ public actor IngestionCoordinator {
 
     private func enqueueInventoryAndWait(
         runID: UInt64,
-        providers: Set<Provider>
+        providers: Set<Provider>,
+        scope: IngestionBatchScope = .inventory
     ) async -> IngestionBatchResult {
         await withCheckedContinuation { continuation in
-            if activeBatchScope == .inventory,
+            if activeBatchScope == scope,
                activeBatchRunID == runID,
                activeInventoryProviders == providers {
                 activeInventoryContinuations.append(continuation)
                 return
             }
             if let index = pendingBatches.firstIndex(where: {
-                $0.scope == .inventory
+                $0.scope == scope
                     && $0.runID == runID
                     && $0.inventoryProviders == providers
             }) {
@@ -637,7 +663,7 @@ public actor IngestionCoordinator {
             )
             pendingBatches.append(QueuedBatch(
                 runID: runID,
-                scope: .inventory,
+                scope: scope,
                 inventoryProviders: providers,
                 inputs: inputs,
                 failedProviders: failedProviders,
@@ -738,6 +764,7 @@ public actor IngestionCoordinator {
                 await Self.executeBatch(
                     inputs: queued.inputs,
                     failedProviders: queued.failedProviders,
+                    scope: queued.scope,
                     scanner: scanner,
                     discovery: discovery,
                     calendar: calendar
@@ -837,6 +864,7 @@ public actor IngestionCoordinator {
     private nonisolated static func executeBatch(
         inputs: [WorkInput],
         failedProviders: Set<Provider>,
+        scope: IngestionBatchScope,
         scanner: any IngestionScanning,
         discovery: any LogDiscovering,
         calendar: Calendar
@@ -861,6 +889,7 @@ public actor IngestionCoordinator {
                         try await scan(
                             files: uniqueFiles,
                             provider: input.provider,
+                            scope: scope,
                             scanner: scanner,
                             calendar: calendar,
                             accumulator: accumulator
@@ -879,6 +908,7 @@ public actor IngestionCoordinator {
                 try await scan(
                     files: [input.url],
                     provider: input.provider,
+                    scope: scope,
                     scanner: scanner,
                     calendar: calendar,
                     accumulator: accumulator
@@ -950,6 +980,7 @@ public actor IngestionCoordinator {
     private nonisolated static func scan(
         files: [URL],
         provider: Provider,
+        scope: IngestionBatchScope,
         scanner: any IngestionScanning,
         calendar: Calendar,
         accumulator: ProgressAccumulator
@@ -957,11 +988,20 @@ public actor IngestionCoordinator {
         for file in files {
             try Task.checkCancellation()
             do {
-                let outcome = try await scanner.scan(
-                    file: file,
-                    provider: provider,
-                    calendar: calendar
-                )
+                let outcome: ScanOutcome
+                if scope == .activityBackfill {
+                    outcome = try await scanner.backfillActivityHistory(
+                        file: file,
+                        provider: provider,
+                        calendar: calendar
+                    )
+                } else {
+                    outcome = try await scanner.scan(
+                        file: file,
+                        provider: provider,
+                        calendar: calendar
+                    )
+                }
                 accumulator.recordScan(
                     provider: provider,
                     outcome: outcome

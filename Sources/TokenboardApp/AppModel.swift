@@ -30,6 +30,14 @@ final class AppModel: ObservableObject {
     var historyState: UsageHistoryLoadState { state.historyState }
     var lastUpdated: Date? { state.lastUpdated }
     var canStartHistoricalImport: Bool { state.canStartHistoricalImport }
+    var canBackfillWorkPatternHistory: Bool {
+        isReadyForSources
+            && preferences.historicalImportApproved
+            && hasAnyGrant
+            && activity == nil
+            && !isDatabaseRestoreInProgress
+            && !isDatabaseRecoveryActionLocked
+    }
     var isSourceMutationInProgress: Bool { sourceMutation != nil }
     var isDatabaseRestoreInProgress: Bool {
         restoreActivity != nil || preservationActivity != nil || settingsState.isRestoringDatabase
@@ -210,6 +218,14 @@ final class AppModel: ObservableObject {
             return
         }
         await launchIngestion(refreshExisting: true)
+    }
+
+    func backfillWorkPatternHistory() async {
+        guard canBackfillWorkPatternHistory else {
+            if let activity { await activity.task.value }
+            return
+        }
+        await launchActivityBackfill()
     }
 
     func select(period: CalendarPeriod) async {

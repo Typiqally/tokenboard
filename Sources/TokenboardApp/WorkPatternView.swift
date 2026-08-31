@@ -12,6 +12,9 @@ struct WorkPatternView: View {
     let snapshot: WorkPatternSnapshot
     let range: UsageHistoryRange
     let provider: Provider?
+    let isBackfilling: Bool
+    let canBackfill: Bool
+    let onBackfill: () -> Void
 
     @State private var selectedDayID: String?
     @State private var selectedTodayHour: Int?
@@ -46,13 +49,30 @@ struct WorkPatternView: View {
     }
 
     private var coverageNotice: some View {
-        Label {
-            Text("Focus timing is available from \(coverageDate). Earlier token totals remain in Usage.")
-        } icon: {
+        HStack(alignment: .top, spacing: 12) {
             Image(systemName: "info.circle")
+                .foregroundStyle(.secondary)
+                .padding(.top, 2)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Focus timing is available from \(coverageDate). Earlier token totals remain in Usage.")
+                Text("Rescan your already granted local logs to recover older timing. Token totals won’t be counted again.")
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            if isBackfilling {
+                HStack(spacing: 6) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Backfilling…")
+                }
+                .foregroundStyle(.secondary)
+            } else {
+                Button("Backfill from local logs", action: onBackfill)
+                    .controlSize(.small)
+                    .disabled(!canBackfill)
+            }
         }
         .font(.callout)
-        .foregroundStyle(.secondary)
         .padding(.vertical, 8)
         .padding(.horizontal, 10)
         .frame(maxWidth: .infinity, alignment: .leading)

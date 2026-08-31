@@ -69,6 +69,16 @@ public struct ActivitySliceRow: Equatable, Sendable {
     }
 }
 
+public struct ActivityObservation: Equatable, Sendable {
+    public let timestamp: Date
+    public let provider: Provider
+
+    public init(timestamp: Date, provider: Provider) {
+        self.timestamp = timestamp
+        self.provider = provider
+    }
+}
+
 public struct SkippedRecord: Equatable, Sendable {
     public let sourceFingerprint: String
     public let byteOffset: Int64
@@ -97,6 +107,10 @@ public protocol LedgerStore: Sendable {
         _ usage: [NormalizedUsage],
         skipped: [SkippedRecord],
         checkpoint: SourceCheckpoint,
+        calendar: Calendar
+    ) async throws
+    func backfillActivitySlices(
+        _ observations: [ActivityObservation],
         calendar: Calendar
     ) async throws
     func usageRows(in interval: DateInterval?, calendar: Calendar) async throws -> [DailyUsageRow]

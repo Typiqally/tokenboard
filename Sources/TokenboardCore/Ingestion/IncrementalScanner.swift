@@ -177,6 +177,116 @@ public actor IncrementalScanner {
         )
     }
 
+    public func backfillActivityHistory(
+        file: URL,
+        provider: Provider,
+        calendar: Calendar
+    ) async throws -> ScanOutcome {
+        let source: RetainedSourceFile
+        do {
+            source = try RetainedSourceFile(url: file)
+        } catch RetainedSourceFileError.unsafeSource {
+            return attention(.unsafeSource, offset: 0)
+        }
+        try sourceOperation(.didOpenSource)
+        try Task.checkCancellation()
+        let stableSourceID: String
+        do {
+            stableSourceID = try sourceProbe.stableID(in: source, provider: provider)
+        } catch SourceProbeError.missingStableIdentity {
+            return attention(.missingStableIdentity, offset: 0)
+        }
+
+        var adapter = ScannerAdapter(
+            provider: provider,
+            stableSourceID: stableSourceID,
+            currentModel: nil
+        )
+        var cumulativeMetrics: [UsageMetric: Int64] = [:]
+        var lastUsageIdentity: String?
+        var offset: Int64 = 0
+        var activityCount = 0
+        var skippedCount = 0
+        var reachedEndOfFile = false
+
+        while !reachedEndOfFile {
+            try Task.checkCancellation()
+            let result = try reader.batch(
+                from: source,
+                startingAt: offset,
+                maxLines: Self.maximumBatchLines
+            )
+            reachedEndOfFile = result.reachedEndOfFile
+            guard !result.lines.isEmpty else {
+                if result.oversizedRecordOffset != nil {
+                    return ScanOutcome(
+                        committedUsageRecords: activityCount,
+                        skippedRecords: skippedCount,
+                        finalOffset: offset,
+                        attention: .oversizedRecord
+                    )
+                }
+                break
+            }
+
+            var observations: [ActivityObservation] = []
+            observations.reserveCapacity(result.lines.count)
+            for line in result.lines {
+                try Task.checkCancellation()
+                let adapterResult: AdapterResult = line.data.isEmpty
+                    ? .ignored
+                    : adapter.consume(line: line.data)
+                switch adapterResult {
+                case let .usage(parsed):
+                    let repeatsCumulativeSnapshot = !parsed.cumulativeMetrics.isEmpty
+                        && parsed.cumulativeMetrics == cumulativeMetrics
+                    let repeatsUsageIdentity = parsed.usage.stableUsageID != nil
+                        && parsed.usage.stableUsageID == lastUsageIdentity
+                    if !repeatsCumulativeSnapshot,
+                       !repeatsUsageIdentity,
+                       parsed.usage.metrics.contains(where: { metric, quantity in
+                           metric.aggregation == .additive && quantity > 0
+                       }) {
+                        observations.append(ActivityObservation(
+                            timestamp: parsed.usage.timestamp,
+                            provider: parsed.usage.provider
+                        ))
+                    }
+                    if !parsed.cumulativeMetrics.isEmpty {
+                        cumulativeMetrics = parsed.cumulativeMetrics
+                    }
+                    if let stableUsageID = parsed.usage.stableUsageID {
+                        lastUsageIdentity = stableUsageID
+                    }
+                case .skipped:
+                    skippedCount += 1
+                case .ignored:
+                    break
+                }
+                offset = line.endOffset
+            }
+
+            try await ledger.backfillActivitySlices(observations, calendar: calendar)
+            try Task.checkCancellation()
+            activityCount += observations.count
+            if result.oversizedRecordOffset != nil {
+                return ScanOutcome(
+                    committedUsageRecords: activityCount,
+                    skippedRecords: skippedCount,
+                    finalOffset: offset,
+                    attention: .oversizedRecord
+                )
+            }
+        }
+
+        return ScanOutcome(
+            committedUsageRecords: activityCount,
+            skippedRecords: skippedCount,
+            finalOffset: offset,
+            attention: nil
+        )
+    }
+
     private func emptyCheckpoint(
         fingerprint: String,
         provider: Provider,

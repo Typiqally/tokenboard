@@ -250,7 +250,17 @@ struct UsageHistoryView: View {
                     WorkPatternView(
                         snapshot: workPatterns,
                         range: snapshot.range,
-                        provider: snapshot.provider
+                        provider: snapshot.provider,
+                        isBackfilling: model.state.isImporting,
+                        canBackfill: model.canBackfillWorkPatternHistory,
+                        onBackfill: {
+                            Task { @MainActor in
+                                await model.backfillWorkPatternHistory()
+                                if snapshot.provider != nil {
+                                    viewModel.retry()
+                                }
+                            }
+                        }
                     )
                 } else {
                     VStack(spacing: 8) {

@@ -144,6 +144,13 @@ private actor QueryTestLedger: LedgerStore {
         throw QueryTestLedgerError.unsupported
     }
 
+    func backfillActivitySlices(
+        _ observations: [ActivityObservation],
+        calendar: Calendar
+    ) throws {
+        throw QueryTestLedgerError.unsupported
+    }
+
     func usageRows(in interval: DateInterval?, calendar: Calendar) -> [DailyUsageRow] {
         queryIntervals.append(interval)
         queryCalendars.append(calendar)

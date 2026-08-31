@@ -1640,6 +1640,9 @@ private actor LifecycleCoordinator: AppIngestionCoordinating {
         if let refreshGate, refreshes == 1 { await refreshGate.suspend() }
         return result
     }
+    func backfillActivityHistory() -> IngestionBatchResult {
+        successResult(scope: .activityBackfill)
+    }
     func replaceSource(
         _ provider: Provider,
         with root: URL,

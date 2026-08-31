@@ -292,6 +292,13 @@ private actor HistoryQueryTestLedger: LedgerStore {
         throw HistoryQueryTestLedgerError.unsupported
     }
 
+    func backfillActivitySlices(
+        _ observations: [ActivityObservation],
+        calendar: Calendar
+    ) throws {
+        throw HistoryQueryTestLedgerError.unsupported
+    }
+
     func usageRows(in interval: DateInterval?, calendar: Calendar) -> [DailyUsageRow] {
         queryIntervals.append(interval)
         guard let interval else { return rows }

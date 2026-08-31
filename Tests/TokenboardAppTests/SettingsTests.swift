@@ -1480,6 +1480,13 @@ private actor SettingsCoordinator: AppIngestionCoordinating {
         sequence += 1
         return result(providers: lastRoots.map { Set($0.keys) } ?? [])
     }
+    func backfillActivityHistory() -> IngestionBatchResult {
+        sequence += 1
+        return result(
+            providers: lastRoots.map { Set($0.keys) } ?? [],
+            scope: .activityBackfill
+        )
+    }
     func stop() { stopped += 1 }
     func replaceSource(
         _ provider: Provider,
@@ -1518,11 +1525,14 @@ private actor SettingsCoordinator: AppIngestionCoordinating {
     ) {
         (stopped, replacedProviders, revokedProviders, lastRoots)
     }
-    private func result(providers: Set<Provider>) -> IngestionBatchResult {
+    private func result(
+        providers: Set<Provider>,
+        scope: IngestionBatchScope = .inventory
+    ) -> IngestionBatchResult {
         IngestionBatchResult(
             runID: runID,
             sequence: sequence,
-            scope: .inventory,
+            scope: scope,
             providers: Dictionary(uniqueKeysWithValues: providers.map {
                 ($0, .success(discoveredFiles: 0, scannedFiles: 0))
             })

@@ -252,6 +252,10 @@ private actor PricingCatalogTestLedger: LedgerStore {
         checkpoint: SourceCheckpoint,
         calendar: Calendar
     ) {}
+    func backfillActivitySlices(
+        _ observations: [ActivityObservation],
+        calendar: Calendar
+    ) {}
     func usageRows(in interval: DateInterval?, calendar: Calendar) -> [DailyUsageRow] { [] }
     func checkpoint(for fingerprint: String) -> SourceCheckpoint? { nil }
     func sourceFingerprint(provider: Provider, stableID: String) -> String { "unused" }

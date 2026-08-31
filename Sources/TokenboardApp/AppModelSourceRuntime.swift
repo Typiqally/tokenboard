@@ -138,6 +138,54 @@ extension AppModel {
         }
     }
 
+    func launchActivityBackfill() async {
+        guard activity == nil, isReadyForSources else { return }
+        let generation = lifecycleGeneration
+        activityGeneration &+= 1
+        let id = activityGeneration
+        var next = state
+        next.isImporting = true
+        commitState(next)
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.runActivityBackfill(generation: generation)
+        }
+        activity = AppRuntimeActivity(id: id, task: task)
+        await task.value
+        if activity?.id == id {
+            activity = nil
+            if accepts(generation), state.lifecycle == .ready {
+                next = state
+                next.isImporting = false
+                commitState(next)
+            }
+        }
+    }
+
+    func runActivityBackfill(generation: UInt64) async {
+        guard readyGeneration == generation, accepts(generation), hasAnyGrant else { return }
+        if coordinatorStatus == .inactive {
+            await runIngestion(refreshExisting: false, generation: generation)
+        }
+        guard readyGeneration == generation,
+              accepts(generation),
+              case let .active(runID) = coordinatorStatus else { return }
+
+        beginCoordinatorInventoryRequest()
+        let result = await coordinator.backfillActivityHistory()
+        guard readyGeneration == generation,
+              accepts(generation),
+              result.runID == runID else {
+            completeCoordinatorInventoryRequest()
+            return
+        }
+        await submitAndWaitForIngestionResult(
+            result,
+            generation: generation,
+            completesInventoryRequest: true
+        )
+    }
+
     func ensureResultConsumer(generation: UInt64) async {
         guard resultConsumerTask == nil else { return }
         let stream = await coordinator.results()
