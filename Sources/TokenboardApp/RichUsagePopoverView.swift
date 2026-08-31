@@ -154,14 +154,8 @@ struct RichUsagePopoverView: View {
         }
     }
 
-    @ViewBuilder
     private func panoramaHeadline(_ presentation: RichPopoverPresentation) -> some View {
-        switch presentation.contentState {
-        case .loading:
-            panoramaHeadlineText(presentation)
-        case .failed, .ready:
-            panoramaHeadlineText(presentation)
-        }
+        panoramaHeadlineText(presentation)
     }
 
     private func panoramaHeadlineText(
