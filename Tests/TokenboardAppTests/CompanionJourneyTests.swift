@@ -352,6 +352,49 @@ final class CompanionJourneyTests: XCTestCase {
     }
 
     @MainActor
+    func testGrowingPixelWorldsKeepTheirGroundInsetsInThePanorama() throws {
+        for theme in [CompanionTheme.forest, .village] {
+            let variant = try XCTUnwrap(CompanionCatalog.variants(for: theme).first)
+            let presentation = CompanionPresentation(
+                theme: theme,
+                variant: variant,
+                stage: 2,
+                scenery: 0,
+                seed: 7,
+                stageTitle: "Stage 3",
+                progressFraction: 0.43,
+                tokensUntilNextStage: 51_000_000,
+                accessibilityLabel: "\(theme.title) panorama"
+            )
+            let strip = CompanionSceneComposition.make(
+                presentation: presentation,
+                size: NSSize(width: 350, height: 84),
+                layout: .strip
+            )
+            let panorama = CompanionSceneComposition.make(
+                presentation: presentation,
+                size: NSSize(width: 350, height: 224),
+                layout: .panorama
+            )
+            let stripByID = Dictionary(
+                uniqueKeysWithValues: strip.placements.map { ($0.layer.id, $0) }
+            )
+
+            for placement in panorama.placements {
+                let stripPlacement = try XCTUnwrap(stripByID[placement.layer.id])
+                let stripGroundInset = strip.size.height - stripPlacement.rect.maxY
+                let panoramaGroundInset = panorama.size.height - placement.rect.maxY
+                XCTAssertEqual(
+                    panoramaGroundInset,
+                    stripGroundInset,
+                    accuracy: 0.01,
+                    "\(theme.title) \(placement.layer.id) must stay planted on its authored ground band"
+                )
+            }
+        }
+    }
+
+    @MainActor
     func testCompanionStripDrawsTheJourneyProgressLineAlongItsBottomEdge() throws {
         for theme in CompanionTheme.allCases where theme != .none {
             let variant = try XCTUnwrap(CompanionCatalog.variants(for: theme).first)
