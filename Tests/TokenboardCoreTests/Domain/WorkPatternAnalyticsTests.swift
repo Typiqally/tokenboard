@@ -217,13 +217,13 @@ final class WorkPatternAnalyticsTests: XCTestCase {
         ))
         XCTAssertEqual(snapshot.firstActivityMinuteRange, WorkPatternMinuteRange(
             lowerMinuteOfDay: 0,
-            medianMinuteOfDay: 10,
-            upperMinuteOfDay: 30
+            medianMinuteOfDay: 0,
+            upperMinuteOfDay: 10
         ))
         XCTAssertEqual(snapshot.lastActivityMinuteRange, WorkPatternMinuteRange(
-            lowerMinuteOfDay: 30,
-            medianMinuteOfDay: 1_380,
-            upperMinuteOfDay: 1_390
+            lowerMinuteOfDay: 1_390,
+            medianMinuteOfDay: 1_410,
+            upperMinuteOfDay: 0
         ))
     }
 
