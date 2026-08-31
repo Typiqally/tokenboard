@@ -334,7 +334,7 @@ final class CompanionJourneyTests: XCTestCase {
 
             XCTAssertEqual(
                 panoramaTallest,
-                stripTallest * 2,
+                stripTallest * 2.25,
                 accuracy: 0.01,
                 "\(theme.title) panorama subjects should use the panorama's inhabited scale"
             )

@@ -10,15 +10,29 @@ enum CompanionSceneLayout: Equatable, Sendable {
         case .strip:
             return size.height
         case .panorama:
-            if theme == .forest || theme == .village {
+            if Self.usesCompactGrowthBand(theme) {
                 // These generated sprites share the plate's compact 84-point
-                // art direction. Give their inhabited band a deliberate 2x
+                // art direction. Give their inhabited band a deliberate 2.25x
                 // panorama treatment instead of the hero-sized default.
-                return TokenboardSurfaceMetrics.companionSceneHeight * 2
+                return TokenboardSurfaceMetrics.companionSceneHeight * 2.25
             }
             // Keeps foreground heroes within the approved 74–84 point range
             // while the panorama gains room for the world around them.
             return 112
+        }
+    }
+
+    func subjectBottomBasis(for size: CGSize, theme: CompanionTheme) -> CGFloat {
+        switch self {
+        case .strip:
+            return size.height
+        case .panorama:
+            // Forest and Village depth offsets were authored inside the
+            // original ground band. Keep that point inset when the panorama
+            // adds sky, so shadows and foundations remain planted.
+            return Self.usesCompactGrowthBand(theme)
+                ? TokenboardSurfaceMetrics.companionSceneHeight
+                : size.height
         }
     }
 
@@ -31,6 +45,10 @@ enum CompanionSceneLayout: Equatable, Sendable {
             // every background actor into a second foreground hero.
             1.6
         }
+    }
+
+    private static func usesCompactGrowthBand(_ theme: CompanionTheme) -> Bool {
+        theme == .forest || theme == .village
     }
 }
 
@@ -119,11 +137,15 @@ struct CompanionSceneComposition {
             for: size,
             theme: presentation.theme
         )
+        let subjectBottomBasis = layout.subjectBottomBasis(
+            for: size,
+            theme: presentation.theme
+        )
         let placements = asset.layers.enumerated().map { index, layer in
             let height = subjectHeightBasis * layer.relativeHeight
             let width = height * CompanionAssetImageStore.aspectRatio(resource: layer.resource)
             let centerX = size.width * layer.horizontalPosition
-            let bottom = size.height - size.height * layer.bottomOffset
+            let bottom = size.height - subjectBottomBasis * layer.bottomOffset
             let windows = lightsOn
                 ? CompanionWindowMapStore.windows(resource: layer.resource)
                 : []
