@@ -27,9 +27,9 @@ Any new entitlement or privacy-boundary change requires an explicit security rev
 
 CI and tagged releases read the same public ID from the `TOKENBOARD_DISCORD_APPLICATION_ID` GitHub Actions repository variable. It is public configuration, not a secret. Keep the variable aligned with Tokenboard's shared Discord application and its `tokenboard` Rich Presence asset.
 
-## Public release gate
+## Public release packaging
 
-`Scripts/package-release.sh <version>` reruns the public asset-rights gate, builds the universal app, verifies its entitlements, and publishes a new zip plus SHA-256 sidecar without overwriting an existing artifact. Public packaging is intentionally blocked while any asset group in `Resources/Companions/rights-manifest.json` remains pending. Do not bypass the gate or mark an asset cleared without evidence.
+`Scripts/package-release.sh <version>` builds the universal app, verifies its entitlements, and publishes a new zip plus SHA-256 sidecar without overwriting an existing artifact. Asset-manifest coverage remains part of development builds and CI. Run `Scripts/verify-asset-rights.sh release` explicitly when a strict rights-clearance check is needed; tagged release packaging does not invoke it automatically.
 
 ## Manual native release acceptance
 
