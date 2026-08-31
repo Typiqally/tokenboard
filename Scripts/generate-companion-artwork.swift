@@ -511,23 +511,24 @@ enum TreeSprites {
             canvas.disc(cx: cx, cy: 4, rx: 1.7, ry: 1.5, pack(oakLeafMid))
             canvas.set(cx - 1, 4, pack(oakLeafLight))
         case 1:
-            canvas.rect(cx, 0, 1, 4, pack(trunkMid))
+            let crownY = 8
+            canvas.rect(cx, 0, 1, crownY + 1, pack(trunkMid))
             canvas.set(cx + 1, 1, pack(trunkDark))
-            canvas.disc(cx: cx, cy: 8, rx: 3.6, ry: 3.4, pack(oakLeafDark))
-            canvas.disc(cx: cx - 1, cy: 8, rx: 2.6, ry: 2.4, pack(oakLeafMid))
+            canvas.disc(cx: cx, cy: crownY, rx: 3.6, ry: 3.4, pack(oakLeafDark))
+            canvas.disc(cx: cx - 1, cy: crownY, rx: 2.6, ry: 2.4, pack(oakLeafMid))
             canvas.set(cx - 2, 9, pack(oakLeafLight))
             canvas.set(cx - 1, 10, pack(oakLeafLight))
         default:
             let trunkWidth = level == 2 ? 2 : 3
             let trunkHeight = level == 2 ? 7 : 10
-            canvas.rect(cx - trunkWidth / 2, 0, trunkWidth, trunkHeight, pack(trunkMid))
+            let crownY = trunkHeight + (canvas.height - trunkHeight) / 2 - 1
+            let radius = Double(canvas.height - trunkHeight) * 0.52
+            canvas.rect(cx - trunkWidth / 2, 0, trunkWidth, crownY + 1, pack(trunkMid))
             canvas.rect(cx + trunkWidth / 2, 0, 1, trunkHeight - 2, pack(trunkDark))
             // Root flare.
             canvas.set(cx - trunkWidth / 2 - 1, 0, pack(trunkMid))
             canvas.set(cx + trunkWidth / 2 + 1, 0, pack(trunkDark))
             let lobes = level == 2 ? 2 : 3
-            let crownY = trunkHeight + (canvas.height - trunkHeight) / 2 - 1
-            let radius = Double(canvas.height - trunkHeight) * 0.52
             for lobe in 0..<lobes {
                 let offset = lobes == 1 ? 0.0 : (Double(lobe) / Double(lobes - 1) - 0.5)
                 let lx = cx + Int((offset * Double(canvas.width) * 0.52).rounded())
