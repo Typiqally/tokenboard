@@ -122,7 +122,6 @@ public struct WorkPatternCalculator: Sendable {
 
     public func make(
         currentRows: [HourlyUsageRow],
-        previousRows: [HourlyUsageRow],
         currentActivity: [ActivitySliceRow],
         previousActivity: [ActivitySliceRow],
         currentInterval: DateInterval,
@@ -199,7 +198,6 @@ public struct WorkPatternCalculator: Sendable {
             busiestDay: activeDays.sorted(by: busiestDayOrder).first,
             comparison: try comparison(
                 currentFocusMinutes: totalFocusMinutes,
-                previousRows: previousRows,
                 previousActivity: previousActivity,
                 previousInterval: previousInterval,
                 coverageHour: coverageHour
@@ -367,13 +365,11 @@ public struct WorkPatternCalculator: Sendable {
 
     private func comparison(
         currentFocusMinutes: Int,
-        previousRows: [HourlyUsageRow],
         previousActivity: [ActivitySliceRow],
         previousInterval: DateInterval,
         coverageHour: Date
     ) throws -> WorkPatternComparison? {
         guard coverageHour <= previousInterval.start else { return nil }
-        _ = previousRows
         let previous = try focusEstimate(previousActivity, interval: previousInterval).totalMinutes
         let delta = currentFocusMinutes - previous
         return WorkPatternComparison(

@@ -206,7 +206,7 @@ public enum Migrations {
         name: "store privacy-limited activity slices",
         sql: """
         CREATE TABLE activity_slices(
-          slice_start INTEGER NOT NULL,
+          slice_start INTEGER NOT NULL CHECK(typeof(slice_start) = 'integer'),
           local_day TEXT NOT NULL,
           time_zone TEXT NOT NULL,
           provider TEXT NOT NULL,

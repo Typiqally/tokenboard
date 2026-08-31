@@ -226,6 +226,7 @@ struct WorkPatternPreviewPresentation: Equatable, Sendable {
     }
 
     private static func spokenDuration(_ minutes: Int) -> String {
+        guard minutes > 0 else { return "0 minutes" }
         let hours = minutes / 60
         let remainingMinutes = minutes % 60
         let hourText = hours == 0 ? nil : "\(hours) \(hours == 1 ? "hour" : "hours")"

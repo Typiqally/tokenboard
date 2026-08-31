@@ -129,6 +129,25 @@ final class DatabaseMigratorTests: XCTestCase {
         }
     }
 
+    func testActivitySliceSchemaRejectsNonIntegerTimestamps() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let connection = try SQLiteConnection(url: directory.appending(path: "ledger.sqlite"))
+        try DatabaseMigrator(
+            connection: connection,
+            backupDirectory: directory.appending(path: "Backups"),
+            migrations: Migrations.all
+        ).migrate()
+
+        XCTAssertThrowsError(try connection.execute(
+            """
+            INSERT INTO activity_slices VALUES(
+              'not-a-timestamp', '2026-08-01', 'Europe/Amsterdam', 'codex'
+            );
+            """
+        ))
+    }
+
     func testPricingImportHistoryMigrationPreservesV1V2AndV3PricingData() throws {
         for startingVersion in 1...3 {
             let directory = try temporaryDirectory()

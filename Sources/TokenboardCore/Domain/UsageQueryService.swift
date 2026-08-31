@@ -76,8 +76,11 @@ public struct UsageQueryService: Sendable {
         let hourlyCoverageStart = try await ledger.hourlyUsageCoverageStart()
         let hourlyRows: [HourlyUsageRow]
         if hourlyCoverageStart != nil {
+            guard let hourlyQueryStart = intervalsByRange.values.map(\.current.start).min() else {
+                throw UsageHistoryError.calendarArithmeticFailure
+            }
             let queriedHourlyRows = try await ledger.hourlyUsageRows(
-                in: queryInterval,
+                in: DateInterval(start: hourlyQueryStart, end: today.end),
                 calendar: calendar
             )
             hourlyRows = queriedHourlyRows.filter { provider == nil || $0.provider == provider }
@@ -114,14 +117,8 @@ public struct UsageQueryService: Sendable {
             let rangeRows = rows.filter { $0.localDay.value >= previousStartDay }
             let currentRows = rangeRows.filter { $0.localDay.value >= currentStartDay }
             let previousRows = rangeRows.filter { $0.localDay.value < currentStartDay }
-            let rangeHourlyRows = hourlyRows.filter {
-                $0.hourStart >= intervals.previous.start
-            }
-            let currentHourlyRows = rangeHourlyRows.filter {
+            let currentHourlyRows = hourlyRows.filter {
                 $0.hourStart >= intervals.current.start
-            }
-            let previousHourlyRows = rangeHourlyRows.filter {
-                $0.hourStart < intervals.current.start
             }
             let rangeActivityRows = activityRows.filter {
                 $0.sliceStart >= intervals.previous.start
@@ -138,7 +135,6 @@ public struct UsageQueryService: Sendable {
                 currentRows: currentRows,
                 previousRows: previousRows,
                 currentHourlyRows: currentHourlyRows,
-                previousHourlyRows: previousHourlyRows,
                 currentActivity: currentActivity,
                 previousActivity: previousActivity,
                 activityCoverageStart: activityCoverageStart,
@@ -180,7 +176,6 @@ public struct UsageQueryService: Sendable {
         currentRows: [DailyUsageRow],
         previousRows: [DailyUsageRow],
         currentHourlyRows: [HourlyUsageRow],
-        previousHourlyRows: [HourlyUsageRow],
         currentActivity: [ActivitySliceRow],
         previousActivity: [ActivitySliceRow],
         activityCoverageStart: Date?,
@@ -225,7 +220,6 @@ public struct UsageQueryService: Sendable {
         let workPatterns: WorkPatternSnapshot? = if let activityCoverageStart {
             try WorkPatternCalculator().make(
                 currentRows: currentHourlyRows,
-                previousRows: previousHourlyRows,
                 currentActivity: currentActivity,
                 previousActivity: previousActivity,
                 currentInterval: intervals.current,

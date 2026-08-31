@@ -492,7 +492,6 @@ final class RichUsagePresentationTests: XCTestCase {
                     quantity: 10
                 ),
             ],
-            previousRows: [],
             currentActivity: [
                 "2026-08-03T07:00:00Z",
                 "2026-08-03T07:10:00Z",

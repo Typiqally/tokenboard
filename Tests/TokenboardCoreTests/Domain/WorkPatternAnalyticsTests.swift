@@ -22,10 +22,6 @@ final class WorkPatternAnalyticsTests: XCTestCase {
             slice("2026-08-05T07:00:00Z"),
             slice("2026-08-10T07:00:00Z"),
         ]
-        let previousRows = [
-            row("2026-07-20T07:00:00Z", quantity: 20),
-            row("2026-07-21T08:00:00Z", quantity: 30),
-        ]
         let previousActivity = [
             slice("2026-07-20T07:00:00Z"),
             slice("2026-07-21T08:00:00Z"),
@@ -33,7 +29,6 @@ final class WorkPatternAnalyticsTests: XCTestCase {
 
         let snapshot = try WorkPatternCalculator().make(
             currentRows: rows,
-            previousRows: previousRows,
             currentActivity: activity,
             previousActivity: previousActivity,
             currentInterval: current,
@@ -78,7 +73,6 @@ final class WorkPatternAnalyticsTests: XCTestCase {
 
         let snapshot = try WorkPatternCalculator().make(
             currentRows: [row("2026-08-03T07:00:00Z", quantity: 300)],
-            previousRows: [],
             currentActivity: [slice("2026-08-03T07:01:00Z")],
             previousActivity: [],
             currentInterval: current,
@@ -105,7 +99,6 @@ final class WorkPatternAnalyticsTests: XCTestCase {
 
         let snapshot = try WorkPatternCalculator().make(
             currentRows: [row("2026-08-03T07:00:00Z", quantity: 300)],
-            previousRows: [],
             currentActivity: activity,
             previousActivity: [],
             currentInterval: current,
@@ -128,7 +121,6 @@ final class WorkPatternAnalyticsTests: XCTestCase {
 
         let snapshot = try WorkPatternCalculator().make(
             currentRows: [row(timestamp, quantity: 300)],
-            previousRows: [],
             currentActivity: [
                 slice(timestamp, provider: .codex),
                 slice(timestamp, provider: .claudeCode),
@@ -151,7 +143,6 @@ final class WorkPatternAnalyticsTests: XCTestCase {
 
         let snapshot = try WorkPatternCalculator().make(
             currentRows: [row("2026-08-03T07:00:00Z", quantity: 300)],
-            previousRows: [],
             currentActivity: [],
             previousActivity: [],
             currentInterval: current,
@@ -174,7 +165,6 @@ final class WorkPatternAnalyticsTests: XCTestCase {
 
         let snapshot = try WorkPatternCalculator().make(
             currentRows: [row("2026-08-10T07:00:00Z", quantity: 10)],
-            previousRows: [],
             currentActivity: [slice("2026-08-10T07:35:00Z")],
             previousActivity: [],
             currentInterval: current,
@@ -201,7 +191,6 @@ final class WorkPatternAnalyticsTests: XCTestCase {
 
         let snapshot = try WorkPatternCalculator().make(
             currentRows: rows,
-            previousRows: [],
             currentActivity: [
                 slice("2026-10-25T00:15:00Z"),
                 slice("2026-10-25T01:15:00Z"),
