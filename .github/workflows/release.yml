@@ -43,6 +43,8 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
       - name: Download verified artifacts
         uses: actions/download-artifact@v4
         with:
