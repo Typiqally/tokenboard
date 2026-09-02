@@ -101,8 +101,8 @@ final class AppBundleConfigurationTests: XCTestCase {
         XCTAssertEqual(plist["LSMinimumSystemVersion"] as? String, "14.0")
         XCTAssertEqual(plist["CFBundleIdentifier"] as? String, BuildInfo.bundleIdentifier)
         XCTAssertEqual(plist["CFBundleIconFile"] as? String, "Tokenboard.icns")
-        XCTAssertEqual(plist["CFBundleShortVersionString"] as? String, "0.9.0")
-        XCTAssertEqual(plist["CFBundleVersion"] as? String, "15")
+        XCTAssertEqual(plist["CFBundleShortVersionString"] as? String, "0.9.1")
+        XCTAssertEqual(plist["CFBundleVersion"] as? String, "16")
         let shortVersion = try XCTUnwrap(plist["CFBundleShortVersionString"] as? String)
         XCTAssertNotNil(
             shortVersion.range(
