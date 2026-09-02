@@ -275,26 +275,51 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
     static let productionRecentReconciliationInterval = DispatchTimeInterval.seconds(5)
     static let productionFullReconciliationInterval = DispatchTimeInterval.seconds(15 * 60)
     static let maximumRecentReconciliationFiles = 64
+    private static let reconciledFileResourceKeys: Set<URLResourceKey> = [
+        .contentModificationDateKey,
+        .fileSizeKey,
+        .isRegularFileKey,
+        .isSymbolicLinkKey
+    ]
 
-    private struct ReconciledFileState: Equatable, Sendable {
+    struct ReconciledFileState: Equatable, Sendable {
         let size: Int
         let modificationDate: Date?
+    }
+
+    struct ReconciliationFileSystem: Sendable {
+        let inventory: @Sendable ([URL]) -> [URL: ReconciledFileState]
+        let metadata: @Sendable (Set<URL>) -> [(URL, ReconciledFileState?)]
+
+        static let live = ReconciliationFileSystem(
+            inventory: { FSEventWatcher.reconciledFiles(under: $0) },
+            metadata: { FSEventWatcher.reconciledStates(for: $0) }
+        )
     }
 
     private final class ReconciliationSnapshot: @unchecked Sendable {
         private let lock = NSLock()
         private let maximumRecentFileCount: Int
+        private let roots: [URL]
         private var files: [URL: ReconciledFileState]
+        private var fileCountsByRoot: [Int: Int]
         private var recentFiles: [URL]
 
         init(
             files: [URL: ReconciledFileState],
+            roots: [URL],
             maximumRecentFileCount: Int
         ) {
             self.maximumRecentFileCount = maximumRecentFileCount
+            self.roots = roots
             self.files = files
+            fileCountsByRoot = FSEventWatcher.fileCountsByRoot(
+                files.keys,
+                roots: roots
+            )
             recentFiles = FSEventWatcher.mostRecentFiles(
                 in: files,
+                roots: roots,
                 limit: maximumRecentFileCount
             )
         }
@@ -307,10 +332,11 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
             lock.withLock {
                 for (url, state) in states {
                     guard let state else {
-                        files.removeValue(forKey: url)
+                        removeFile(at: url)
                         recentFiles.removeAll { $0 == url }
                         continue
                     }
+                    recordFileIfNeeded(at: url)
                     files[url] = state
                     promote(url)
                 }
@@ -326,13 +352,15 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
                 var removedFile = false
                 for (url, state) in states {
                     guard let state else {
-                        if files.removeValue(forKey: url) != nil {
+                        if removeFile(at: url) {
                             removedFile = true
                         }
                         recentFiles.removeAll { $0 == url }
                         continue
                     }
-                    if files[url] != state {
+                    let previousState = files[url]
+                    recordFileIfNeeded(at: url)
+                    if previousState != state {
                         changed.insert(url)
                         promote(url)
                     }
@@ -353,8 +381,13 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
                     roots: roots
                 )
                 files = nextFiles
+                fileCountsByRoot = FSEventWatcher.fileCountsByRoot(
+                    nextFiles.keys,
+                    roots: roots
+                )
                 recentFiles = FSEventWatcher.mostRecentFiles(
                     in: nextFiles,
+                    roots: roots,
                     limit: maximumRecentFileCount
                 )
                 return changed
@@ -364,9 +397,55 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
         private func promote(_ url: URL) {
             recentFiles.removeAll { $0 == url }
             recentFiles.insert(url, at: 0)
-            if recentFiles.count > maximumRecentFileCount {
-                recentFiles.removeLast(recentFiles.count - maximumRecentFileCount)
+            guard recentFiles.count > maximumRecentFileCount else { return }
+
+            let activeRootIndices = Set(fileCountsByRoot.compactMap { index, count in
+                count > 0 ? index : nil
+            })
+            let minimumPerRoot = activeRootIndices.isEmpty
+                ? 0
+                : maximumRecentFileCount / activeRootIndices.count
+            var counts: [Int: Int] = [:]
+            for recentFile in recentFiles {
+                guard let rootIndex = FSEventWatcher.rootIndex(
+                    containing: recentFile,
+                    roots: roots
+                ) else { continue }
+                counts[rootIndex, default: 0] += 1
             }
+            let promotedRoot = FSEventWatcher.rootIndex(containing: url, roots: roots)
+            let rootToTrim = promotedRoot.flatMap { index in
+                (counts[index, default: 0] > minimumPerRoot) ? index : nil
+            } ?? counts
+                .filter { $0.value > minimumPerRoot }
+                .max { lhs, rhs in lhs.value < rhs.value }?
+                .key
+            if let rootToTrim,
+               let removalIndex = recentFiles.lastIndex(where: {
+                   FSEventWatcher.rootIndex(containing: $0, roots: roots) == rootToTrim
+               }) {
+                recentFiles.remove(at: removalIndex)
+            } else {
+                recentFiles.removeLast()
+            }
+        }
+
+        private func recordFileIfNeeded(at url: URL) {
+            guard files[url] == nil,
+                  let rootIndex = FSEventWatcher.rootIndex(
+                      containing: url,
+                      roots: roots
+                  ) else { return }
+            fileCountsByRoot[rootIndex, default: 0] += 1
+        }
+
+        @discardableResult
+        private func removeFile(at url: URL) -> Bool {
+            guard files.removeValue(forKey: url) != nil else { return false }
+            if let rootIndex = FSEventWatcher.rootIndex(containing: url, roots: roots) {
+                fileCountsByRoot[rootIndex, default: 1] -= 1
+            }
+            return true
         }
     }
 
@@ -386,6 +465,7 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
     private let recentReconciliationInterval: DispatchTimeInterval?
     private let fullReconciliationInterval: DispatchTimeInterval?
     private let maximumRecentFileCount: Int
+    private let reconciliationFileSystem: ReconciliationFileSystem
     private var state: StreamState?
     private var baselineEventID: UInt64?
     private var lastAcknowledgedEventID: UInt64?
@@ -396,7 +476,8 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
             driver: NativeFSEventStreamDriver(),
             recentReconciliationInterval: Self.productionRecentReconciliationInterval,
             fullReconciliationInterval: Self.productionFullReconciliationInterval,
-            maximumRecentFileCount: Self.maximumRecentReconciliationFiles
+            maximumRecentFileCount: Self.maximumRecentReconciliationFiles,
+            reconciliationFileSystem: .live
         )
     }
 
@@ -405,7 +486,8 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
             driver: driver,
             recentReconciliationInterval: nil,
             fullReconciliationInterval: nil,
-            maximumRecentFileCount: Self.maximumRecentReconciliationFiles
+            maximumRecentFileCount: Self.maximumRecentReconciliationFiles,
+            reconciliationFileSystem: .live
         )
     }
 
@@ -417,7 +499,8 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
             driver: driver,
             recentReconciliationInterval: nil,
             fullReconciliationInterval: reconciliationInterval,
-            maximumRecentFileCount: Self.maximumRecentReconciliationFiles
+            maximumRecentFileCount: Self.maximumRecentReconciliationFiles,
+            reconciliationFileSystem: .live
         )
     }
 
@@ -425,13 +508,15 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
         driver: any FSEventStreamDriving,
         recentReconciliationInterval: DispatchTimeInterval?,
         fullReconciliationInterval: DispatchTimeInterval?,
-        maximumRecentFileCount: Int
+        maximumRecentFileCount: Int,
+        reconciliationFileSystem: ReconciliationFileSystem = .live
     ) {
         precondition(maximumRecentFileCount > 0)
         self.driver = driver
         self.recentReconciliationInterval = recentReconciliationInterval
         self.fullReconciliationInterval = fullReconciliationInterval
         self.maximumRecentFileCount = maximumRecentFileCount
+        self.reconciliationFileSystem = reconciliationFileSystem
     }
 
     deinit {
@@ -473,7 +558,8 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
         let reconciliationSnapshot: ReconciliationSnapshot? = if recentReconciliationInterval != nil
             || fullReconciliationInterval != nil {
             ReconciliationSnapshot(
-                files: Self.reconciledFiles(under: resolvedRoots),
+                files: reconciliationFileSystem.inventory(resolvedRoots),
+                roots: resolvedRoots,
                 maximumRecentFileCount: maximumRecentFileCount
             )
         } else {
@@ -497,7 +583,7 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
                 : Self.changedURLs(from: batch.events, roots: resolvedRoots)
             if !changed.isEmpty {
                 reconciliationSnapshot?.recordNativeChanges(
-                    Self.reconciledStates(for: changed)
+                    reconciliationFileSystem.metadata(changed)
                 )
                 let terminalEventID = eventIDsWrapped
                     ? driver.currentEventID()
@@ -524,37 +610,36 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
             throw FSEventWatcherError.couldNotCreateStream
         }
 
-        var reconciliationSources: [any DispatchSourceTimer] = []
-        if let snapshot = reconciliationSnapshot,
-           let interval = recentReconciliationInterval {
-            let source = makeTimer(interval: interval)
-            source.setEventHandler { [weak self] in
-                self?.reconcileRecentChanges(
-                    roots: resolvedRoots,
-                    snapshot: snapshot,
-                    handle: handle,
-                    continuation: continuation
-                )
-            }
-            reconciliationSources.append(source)
-        }
-        if let snapshot = reconciliationSnapshot,
-           let interval = fullReconciliationInterval {
-            let source = makeTimer(interval: interval)
-            source.setEventHandler { [weak self] in
-                self?.reconcileAllChanges(
-                    roots: resolvedRoots,
-                    snapshot: snapshot,
-                    handle: handle,
-                    continuation: continuation
-                )
-            }
-            reconciliationSources.append(source)
-        }
-
         let started = lock.withLock {
             driver.schedule(handle, on: queue)
             guard driver.start(handle) else { return false }
+            var reconciliationSources: [any DispatchSourceTimer] = []
+            if let snapshot = reconciliationSnapshot,
+               let interval = recentReconciliationInterval {
+                let source = makeTimer(interval: interval)
+                source.setEventHandler { [weak self] in
+                    self?.reconcileRecentChanges(
+                        roots: resolvedRoots,
+                        snapshot: snapshot,
+                        handle: handle,
+                        continuation: continuation
+                    )
+                }
+                reconciliationSources.append(source)
+            }
+            if let snapshot = reconciliationSnapshot,
+               let interval = fullReconciliationInterval {
+                let source = makeTimer(interval: interval)
+                source.setEventHandler { [weak self] in
+                    self?.reconcileAllChanges(
+                        roots: resolvedRoots,
+                        snapshot: snapshot,
+                        handle: handle,
+                        continuation: continuation
+                    )
+                }
+                reconciliationSources.append(source)
+            }
             state = StreamState(
                 handle: handle,
                 continuation: continuation,
@@ -564,7 +649,6 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
             return true
         }
         guard started else {
-            reconciliationSources.forEach { $0.cancel() }
             driver.invalidate(handle)
             driver.release(handle)
             handle.releaseCallbackContext()
@@ -626,7 +710,7 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
         continuation: AsyncStream<SourceEventBatch>.Continuation
     ) {
         guard lock.withLock({ state?.handle === handle }) else { return }
-        let states = Self.reconciledStates(for: Set(snapshot.recentFileURLs()))
+        let states = reconciliationFileSystem.metadata(Set(snapshot.recentFileURLs()))
         guard lock.withLock({ state?.handle === handle }) else { return }
         let changed = snapshot.applyRecentStates(states, roots: roots)
         yieldReconciledChanges(
@@ -643,7 +727,7 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
         continuation: AsyncStream<SourceEventBatch>.Continuation
     ) {
         guard lock.withLock({ state?.handle === handle }) else { return }
-        let nextFiles = Self.reconciledFiles(under: roots)
+        let nextFiles = reconciliationFileSystem.inventory(roots)
         guard lock.withLock({ state?.handle === handle }) else { return }
         let changed = snapshot.replaceAll(with: nextFiles, roots: roots)
         yieldReconciledChanges(
@@ -680,13 +764,7 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
     }
 
     private static func reconciledFileState(at url: URL) -> ReconciledFileState? {
-        let resourceKeys: Set<URLResourceKey> = [
-            .contentModificationDateKey,
-            .fileSizeKey,
-            .isRegularFileKey,
-            .isSymbolicLinkKey
-        ]
-        guard let values = try? url.resourceValues(forKeys: resourceKeys),
+        guard let values = try? url.resourceValues(forKeys: reconciledFileResourceKeys),
               values.isSymbolicLink != true,
               values.isRegularFile == true else {
             return nil
@@ -700,17 +778,11 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
     private static func reconciledFiles(
         under roots: [URL]
     ) -> [URL: ReconciledFileState] {
-        let resourceKeys: Set<URLResourceKey> = [
-            .contentModificationDateKey,
-            .fileSizeKey,
-            .isRegularFileKey,
-            .isSymbolicLinkKey
-        ]
         var files: [URL: ReconciledFileState] = [:]
         for root in roots {
             guard let enumerator = FileManager.default.enumerator(
                 at: root,
-                includingPropertiesForKeys: Array(resourceKeys),
+                includingPropertiesForKeys: Array(reconciledFileResourceKeys),
                 options: [],
                 errorHandler: { _, _ in true }
             ) else {
@@ -729,16 +801,65 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
 
     private static func mostRecentFiles(
         in files: [URL: ReconciledFileState],
+        roots: [URL],
         limit: Int
     ) -> [URL] {
-        files.sorted { lhs, rhs in
+        let sortedFiles = files.sorted { lhs, rhs in
             let lhsDate = lhs.value.modificationDate ?? .distantPast
             let rhsDate = rhs.value.modificationDate ?? .distantPast
             if lhsDate != rhsDate { return lhsDate > rhsDate }
             return lhs.key.path < rhs.key.path
         }
-        .prefix(limit)
-        .map(\.key)
+        guard limit > 0 else { return [] }
+
+        var filesByRoot = Array(repeating: [URL](), count: roots.count)
+        for (url, _) in sortedFiles {
+            guard let rootIndex = rootIndex(containing: url, roots: roots) else { continue }
+            filesByRoot[rootIndex].append(url)
+        }
+        let nonemptyRootIndices = filesByRoot.indices.filter {
+            !filesByRoot[$0].isEmpty
+        }
+        guard !nonemptyRootIndices.isEmpty else {
+            return sortedFiles.prefix(limit).map(\.key)
+        }
+
+        let minimumPerRoot = limit / nonemptyRootIndices.count
+        let remainder = limit % nonemptyRootIndices.count
+        var selected: [URL] = []
+        var selectedSet: Set<URL> = []
+        for (position, rootIndex) in nonemptyRootIndices.enumerated() {
+            let allocation = minimumPerRoot + (position < remainder ? 1 : 0)
+            for url in filesByRoot[rootIndex].prefix(allocation) {
+                selected.append(url)
+                selectedSet.insert(url)
+            }
+        }
+        if selected.count < limit {
+            for (url, _) in sortedFiles where !selectedSet.contains(url) {
+                selected.append(url)
+                if selected.count == limit { break }
+            }
+        }
+        return selected
+    }
+
+    private static func rootIndex(containing url: URL, roots: [URL]) -> Int? {
+        roots.indices
+            .filter { url.pathComponents.starts(with: roots[$0].pathComponents) }
+            .max { roots[$0].pathComponents.count < roots[$1].pathComponents.count }
+    }
+
+    private static func fileCountsByRoot<S: Sequence>(
+        _ urls: S,
+        roots: [URL]
+    ) -> [Int: Int] where S.Element == URL {
+        var counts: [Int: Int] = [:]
+        for url in urls {
+            guard let rootIndex = rootIndex(containing: url, roots: roots) else { continue }
+            counts[rootIndex, default: 0] += 1
+        }
+        return counts
     }
 
     private static func changedReconciledURLs(

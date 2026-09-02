@@ -231,6 +231,11 @@ final class AppModelTests: XCTestCase {
             await clock.requestCount == 1
         }
         XCTAssertTrue(initialWindowStarted)
+        let initialRequestedDurations = await clock.requestedDurations
+        XCTAssertEqual(
+            initialRequestedDurations,
+            [AppModel.productionHistoryRefreshInterval]
+        )
 
         await setup.model.receiveIngestionResult(
             incrementalResult(sequence: 2),
@@ -257,6 +262,30 @@ final class AppModelTests: XCTestCase {
             await clock.requestCount == 2
         }
         XCTAssertTrue(nextWindowStarted)
+        await setup.model.receiveIngestionResult(
+            incrementalResult(sequence: 4),
+            generation: setup.model.lifecycleGeneration
+        )
+        let rangesDuringNextWindow = await setup.query.queriedHistoryRanges()
+        XCTAssertEqual(
+            rangesDuringNextWindow.count,
+            initialRanges.count * 2,
+            "a new active window must continue coalescing incremental batches"
+        )
+        await clock.resumeNext()
+        let nextTrailingRefreshCompleted = await waitUntil {
+            await setup.query.queriedHistoryRanges().count == initialRanges.count * 3
+        }
+        XCTAssertTrue(nextTrailingRefreshCompleted)
+        let thirdWindowStarted = await waitUntil {
+            await clock.requestCount == 3
+        }
+        XCTAssertTrue(thirdWindowStarted)
+        let requestedDurations = await clock.requestedDurations
+        XCTAssertEqual(
+            requestedDurations,
+            Array(repeating: AppModel.productionHistoryRefreshInterval, count: 3)
+        )
         await clock.resumeNext()
     }
 
@@ -750,10 +779,11 @@ private actor RuntimeQuery: AppUsageQuerying {
 
 private actor ManualHistoryRefreshClock: IngestionClock {
     private var continuations: [CheckedContinuation<Void, any Error>] = []
-    private(set) var requestCount = 0
+    private(set) var requestedDurations: [Duration] = []
+    var requestCount: Int { requestedDurations.count }
 
     func sleep(for duration: Duration) async throws {
-        requestCount += 1
+        requestedDurations.append(duration)
         try await withCheckedThrowingContinuation { continuation in
             continuations.append(continuation)
         }

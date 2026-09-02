@@ -91,64 +91,234 @@ final class FSEventWatcherTests: XCTestCase {
     }
 
     func testFrequentReconciliationPollsOnlyTheBoundedMostRecentFiles() async throws {
-        let root = canonicalTestTemporaryDirectory
-            .appending(path: "tokenboard-bounded-reconciliation-\(UUID().uuidString)")
+        let root = URL(fileURLWithPath: "/tmp/tokenboard-bounded-reconciliation")
             .standardizedFileURL
-        try FileManager.default.createDirectory(
-            at: root,
-            withIntermediateDirectories: true
-        )
-        let olderFile = root.appending(path: "older.jsonl")
-        let recentFile = root.appending(path: "recent.jsonl")
-        try Data("{\"type\":\"session_meta\"}\n".utf8).write(to: olderFile)
-        try Data("{\"type\":\"session_meta\"}\n".utf8).write(to: recentFile)
-        try FileManager.default.setAttributes(
-            [.modificationDate: Date(timeIntervalSinceNow: -3_600)],
-            ofItemAtPath: olderFile.path
-        )
-        try FileManager.default.setAttributes(
-            [.modificationDate: Date()],
-            ofItemAtPath: recentFile.path
-        )
-
+        let files = Dictionary(uniqueKeysWithValues: (0..<200).map { index in
+            (
+                root.appending(path: "session-\(index).jsonl"),
+                FSEventWatcher.ReconciledFileState(
+                    size: index,
+                    modificationDate: Date(timeIntervalSince1970: TimeInterval(index))
+                )
+            )
+        })
+        let fileSystem = RecordingReconciliationFileSystem(files: files)
         let driver = RecordingFSEventStreamDriver()
         let watcher = FSEventWatcher(
             driver: driver,
             recentReconciliationInterval: .milliseconds(50),
             fullReconciliationInterval: nil,
-            maximumRecentFileCount: 1
+            maximumRecentFileCount: 64,
+            reconciliationFileSystem: fileSystem.adapter
         )
         let stream = try watcher.start(roots: [root])
         defer {
             watcher.stop()
-            try? FileManager.default.removeItem(at: root)
         }
 
-        for fileURL in [olderFile, recentFile] {
-            let file = try FileHandle(forWritingTo: fileURL)
-            try file.seekToEnd()
-            try file.write(contentsOf: Data("{\"type\":\"event_msg\"}\n".utf8))
-            try file.close()
+        let reconciled = await waitUntil {
+            !fileSystem.metadataReadRequests.isEmpty
+        }
+        XCTAssertTrue(reconciled)
+        XCTAssertEqual(
+            fileSystem.inventoryReadCount,
+            1,
+            "recent ticks must not enumerate roots"
+        )
+        XCTAssertTrue(fileSystem.metadataReadRequests.allSatisfy { $0.count <= 64 })
+        withExtendedLifetime(stream) {}
+    }
+
+    func testFullReconciliationPerformsACompleteInventory() async throws {
+        let root = URL(fileURLWithPath: "/tmp/tokenboard-full-reconciliation")
+            .standardizedFileURL
+        let fileSystem = RecordingReconciliationFileSystem(files: [:])
+        let watcher = FSEventWatcher(
+            driver: RecordingFSEventStreamDriver(),
+            recentReconciliationInterval: nil,
+            fullReconciliationInterval: .milliseconds(50),
+            maximumRecentFileCount: 64,
+            reconciliationFileSystem: fileSystem.adapter
+        )
+        let stream = try watcher.start(roots: [root])
+        defer { watcher.stop() }
+
+        let inventoried = await waitUntil {
+            fileSystem.inventoryReadCount >= 2
         }
 
-        let received = await withTaskGroup(of: SourceEventBatch?.self) { group in
-            group.addTask {
-                for await batch in stream where batch.paths.contains(recentFile) {
-                    return batch
-                }
-                return nil
+        XCTAssertTrue(inventoried)
+        withExtendedLifetime(stream) {}
+    }
+
+    func testRecentReconciliationReservesCapacityForEveryNonemptyRoot() async throws {
+        let firstRoot = URL(fileURLWithPath: "/tmp/tokenboard-busy-provider")
+            .standardizedFileURL
+        let secondRoot = URL(fileURLWithPath: "/tmp/tokenboard-quiet-provider")
+            .standardizedFileURL
+        let firstFiles = (0..<2).map { index in
+            (
+                firstRoot.appending(path: "session-\(index).jsonl"),
+                FSEventWatcher.ReconciledFileState(
+                    size: 1,
+                    modificationDate: Date(timeIntervalSince1970: TimeInterval(200 + index))
+                )
+            )
+        }
+        let quietFile = secondRoot.appending(path: "session.jsonl")
+        let fileSystem = RecordingReconciliationFileSystem(files: Dictionary(
+            uniqueKeysWithValues: firstFiles + [(
+                quietFile,
+                FSEventWatcher.ReconciledFileState(
+                    size: 1,
+                    modificationDate: Date(timeIntervalSince1970: 100)
+                )
+            )]
+        ))
+        let watcher = FSEventWatcher(
+            driver: RecordingFSEventStreamDriver(),
+            recentReconciliationInterval: .milliseconds(50),
+            fullReconciliationInterval: nil,
+            maximumRecentFileCount: 2,
+            reconciliationFileSystem: fileSystem.adapter
+        )
+        let stream = try watcher.start(roots: [firstRoot, secondRoot])
+        defer { watcher.stop() }
+        fileSystem.update(
+            quietFile,
+            state: FSEventWatcher.ReconciledFileState(
+                size: 2,
+                modificationDate: Date(timeIntervalSince1970: 300)
+            )
+        )
+
+        let received = await firstBatch(in: stream) { batch in
+            batch.paths.contains(quietFile)
+        }
+
+        XCTAssertEqual(received?.paths, [quietFile])
+    }
+
+    func testNativeChangesUpdateAndPromoteTheRecentReconciliationSnapshot() async throws {
+        let root = URL(fileURLWithPath: "/tmp/tokenboard-native-promotion")
+            .standardizedFileURL
+        let olderFile = root.appending(path: "older.jsonl")
+        let recentFile = root.appending(path: "recent.jsonl")
+        let fileSystem = RecordingReconciliationFileSystem(files: [
+            olderFile: FSEventWatcher.ReconciledFileState(
+                size: 1,
+                modificationDate: Date(timeIntervalSince1970: 100)
+            ),
+            recentFile: FSEventWatcher.ReconciledFileState(
+                size: 1,
+                modificationDate: Date(timeIntervalSince1970: 200)
+            )
+        ])
+        let driver = RecordingFSEventStreamDriver()
+        let watcher = FSEventWatcher(
+            driver: driver,
+            recentReconciliationInterval: .milliseconds(50),
+            fullReconciliationInterval: nil,
+            maximumRecentFileCount: 1,
+            reconciliationFileSystem: fileSystem.adapter
+        )
+        let stream = try watcher.start(roots: [root])
+        let batches = SourceBatchRecorder()
+        let consumer = Task {
+            for await batch in stream {
+                batches.append(batch)
             }
-            group.addTask {
-                try? await Task.sleep(for: .seconds(2))
-                return nil
-            }
-            let first = await group.next() ?? nil
-            group.cancelAll()
-            return first
+        }
+        defer {
+            watcher.stop()
+            consumer.cancel()
         }
 
-        XCTAssertEqual(received?.paths, [recentFile])
-        XCTAssertFalse(received?.paths.contains(olderFile) == true)
+        fileSystem.update(
+            olderFile,
+            state: FSEventWatcher.ReconciledFileState(
+                size: 2,
+                modificationDate: Date(timeIntervalSince1970: 300)
+            )
+        )
+        XCTAssertTrue(driver.emit([
+            FSEventDriverEvent(path: olderFile.path, flags: 0, eventID: 1)
+        ]))
+        let promotedFileWasPolled = await waitUntil {
+            fileSystem.metadataReadRequests.filter { $0 == [olderFile] }.count >= 2
+        }
+
+        XCTAssertTrue(promotedFileWasPolled)
+        XCTAssertEqual(
+            batches.snapshot.map(\.paths),
+            [[olderFile]],
+            "the recent poll must not duplicate the native delivery"
+        )
+
+        fileSystem.update(
+            olderFile,
+            state: FSEventWatcher.ReconciledFileState(
+                size: 3,
+                modificationDate: Date(timeIntervalSince1970: 400)
+            )
+        )
+        let silentGrowthWasDelivered = await waitUntil {
+            batches.snapshot.count == 2
+        }
+
+        XCTAssertTrue(silentGrowthWasDelivered)
+        XCTAssertEqual(batches.snapshot.last?.paths, [olderFile])
+    }
+
+    func testNativePromotionPreservesAnotherRootsReservedRecentSlot() async throws {
+        let firstRoot = URL(fileURLWithPath: "/tmp/tokenboard-promotion-first")
+            .standardizedFileURL
+        let secondRoot = URL(fileURLWithPath: "/tmp/tokenboard-promotion-second")
+            .standardizedFileURL
+        let selectedFirstFile = firstRoot.appending(path: "selected.jsonl")
+        let promotedFirstFile = firstRoot.appending(path: "promoted.jsonl")
+        let secondFile = secondRoot.appending(path: "session.jsonl")
+        let fileSystem = RecordingReconciliationFileSystem(files: [
+            selectedFirstFile: FSEventWatcher.ReconciledFileState(
+                size: 1,
+                modificationDate: Date(timeIntervalSince1970: 300)
+            ),
+            promotedFirstFile: FSEventWatcher.ReconciledFileState(
+                size: 1,
+                modificationDate: Date(timeIntervalSince1970: 100)
+            ),
+            secondFile: FSEventWatcher.ReconciledFileState(
+                size: 1,
+                modificationDate: Date(timeIntervalSince1970: 200)
+            )
+        ])
+        let driver = RecordingFSEventStreamDriver()
+        let watcher = FSEventWatcher(
+            driver: driver,
+            recentReconciliationInterval: .milliseconds(50),
+            fullReconciliationInterval: nil,
+            maximumRecentFileCount: 2,
+            reconciliationFileSystem: fileSystem.adapter
+        )
+        let stream = try watcher.start(roots: [firstRoot, secondRoot])
+        defer { watcher.stop() }
+
+        fileSystem.update(
+            promotedFirstFile,
+            state: FSEventWatcher.ReconciledFileState(
+                size: 2,
+                modificationDate: Date(timeIntervalSince1970: 400)
+            )
+        )
+        XCTAssertTrue(driver.emit([
+            FSEventDriverEvent(path: promotedFirstFile.path, flags: 0, eventID: 1)
+        ]))
+        let fairRecentSetWasPolled = await waitUntil {
+            fileSystem.metadataReadRequests.contains([promotedFirstFile, secondFile])
+        }
+
+        XCTAssertTrue(fairRecentSetWasPolled)
+        withExtendedLifetime(stream) {}
     }
 
     func testProductionReconciliationUsesSlowFullInventoryAndBoundedRecentPolling() {
@@ -775,6 +945,24 @@ final class FSEventWatcherTests: XCTestCase {
         XCTAssertEqual(driver.callbackReleaseCount, 1)
     }
 
+    func testStartFailureWithReconciliationEnabledDoesNotReleaseInactiveTimers() {
+        let driver = RecordingFSEventStreamDriver(startResult: false)
+        let watcher = FSEventWatcher(
+            driver: driver,
+            recentReconciliationInterval: .seconds(5),
+            fullReconciliationInterval: .seconds(15 * 60),
+            maximumRecentFileCount: 64
+        )
+
+        XCTAssertThrowsError(
+            try watcher.start(roots: [URL(fileURLWithPath: "/tmp/claude")])
+        ) { error in
+            XCTAssertEqual(error as? FSEventWatcherError, .couldNotStartStream)
+        }
+        XCTAssertEqual(driver.operations, [.schedule, .start(false), .invalidate, .release])
+        XCTAssertEqual(driver.callbackReleaseCount, 1)
+    }
+
     func testStreamTerminationCleansUpOnceWithoutReordering() async {
         let driver = RecordingFSEventStreamDriver()
         let watcher = FSEventWatcher(driver: driver)
@@ -798,6 +986,93 @@ final class FSEventWatcherTests: XCTestCase {
         XCTAssertEqual(driver.callbackReleaseCount, 1)
         XCTAssertEqual(driver.operationCountsAtCallbackRelease, [6])
     }
+
+    private func firstBatch(
+        in stream: AsyncStream<SourceEventBatch>,
+        matching predicate: @escaping @Sendable (SourceEventBatch) -> Bool
+    ) async -> SourceEventBatch? {
+        await withTaskGroup(of: SourceEventBatch?.self) { group in
+            group.addTask {
+                for await batch in stream where predicate(batch) {
+                    return batch
+                }
+                return nil
+            }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(2))
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+    }
+
+    private func waitUntil(
+        timeout: Duration = .seconds(2),
+        condition: @escaping () -> Bool
+    ) async -> Bool {
+        let deadline = ContinuousClock().now.advanced(by: timeout)
+        while ContinuousClock().now < deadline {
+            if condition() { return true }
+            try? await Task.sleep(for: .milliseconds(1))
+        }
+        return condition()
+    }
+}
+
+private final class RecordingReconciliationFileSystem: @unchecked Sendable {
+    private let lock = NSLock()
+    private var files: [URL: FSEventWatcher.ReconciledFileState]
+    private var recordedInventoryReadCount = 0
+    private var recordedMetadataReadRequests: [Set<URL>] = []
+
+    init(files: [URL: FSEventWatcher.ReconciledFileState]) {
+        self.files = files
+    }
+
+    var inventoryReadCount: Int { lock.withLock { recordedInventoryReadCount } }
+    var metadataReadRequests: [Set<URL>] {
+        lock.withLock { recordedMetadataReadRequests }
+    }
+    var adapter: FSEventWatcher.ReconciliationFileSystem {
+        FSEventWatcher.ReconciliationFileSystem(
+            inventory: { [self] roots in inventory(under: roots) },
+            metadata: { [self] urls in metadata(for: urls) }
+        )
+    }
+
+    func update(_ url: URL, state: FSEventWatcher.ReconciledFileState?) {
+        lock.withLock { files[url.standardizedFileURL] = state }
+    }
+
+    private func inventory(
+        under roots: [URL]
+    ) -> [URL: FSEventWatcher.ReconciledFileState] {
+        lock.withLock {
+            recordedInventoryReadCount += 1
+            return files.filter { url, _ in
+                roots.contains { url.pathComponents.starts(with: $0.pathComponents) }
+            }
+        }
+    }
+
+    private func metadata(
+        for urls: Set<URL>
+    ) -> [(URL, FSEventWatcher.ReconciledFileState?)] {
+        lock.withLock {
+            recordedMetadataReadRequests.append(urls)
+            return urls.map { ($0, files[$0]) }
+        }
+    }
+}
+
+private final class SourceBatchRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var batches: [SourceEventBatch] = []
+
+    var snapshot: [SourceEventBatch] { lock.withLock { batches } }
+    func append(_ batch: SourceEventBatch) { lock.withLock { batches.append(batch) } }
 }
 
 private final class LazyNativeEventSource {

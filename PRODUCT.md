@@ -31,7 +31,7 @@ Simple, clean, mean. Quietly confident and direct, with precise language and no 
 2. Make local behavior inspectable: source selection, import, pricing, recovery, and public Discord sharing actions are explicit and name their effects.
 3. Use the platform: prefer standard AppKit and SwiftUI controls, menus, shortcuts, focus behavior, and system appearance.
 4. Separate fact from estimate: exact token totals, API-equivalent estimates, and unpriced quantities remain visibly distinct.
-5. Stay quiet at rest: refresh from local events and user actions, with no decorative timers, polling, or hidden helpers.
+5. Stay quiet at rest: refresh from local events and user actions, with no decorative timers, broad high-frequency polling, or hidden helpers. A bounded metadata reconciliation may guard against missed local events without reading source content.
 6. Keep scope visible: the exact summary period and recent-trend range are independent controls and must always be clearly labeled.
 7. Make delight optional: ambient companion growth is a private visualization of usage, never a score, reward, streak, or prompt to spend more.
 
