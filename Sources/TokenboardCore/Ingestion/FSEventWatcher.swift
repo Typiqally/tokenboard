@@ -302,7 +302,6 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
         private let maximumRecentFileCount: Int
         private let roots: [URL]
         private var files: [URL: ReconciledFileState]
-        private var fileCountsByRoot: [Int: Int]
         private var recentFiles: [URL]
 
         init(
@@ -313,10 +312,6 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
             self.maximumRecentFileCount = maximumRecentFileCount
             self.roots = roots
             self.files = files
-            fileCountsByRoot = FSEventWatcher.fileCountsByRoot(
-                files.keys,
-                roots: roots
-            )
             recentFiles = FSEventWatcher.mostRecentFiles(
                 in: files,
                 roots: roots,
@@ -330,15 +325,20 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
 
         func recordNativeChanges(_ states: [(URL, ReconciledFileState?)]) {
             lock.withLock {
+                var shouldRefillRecentFiles = false
                 for (url, state) in states {
                     guard let state else {
                         removeFile(at: url)
+                        shouldRefillRecentFiles = recentFiles.contains(url)
+                            || shouldRefillRecentFiles
                         recentFiles.removeAll { $0 == url }
                         continue
                     }
-                    recordFileIfNeeded(at: url)
                     files[url] = state
                     promote(url)
+                }
+                if shouldRefillRecentFiles {
+                    refillRecentFiles()
                 }
             }
         }
@@ -350,21 +350,26 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
             lock.withLock {
                 var changed: Set<URL> = []
                 var removedFile = false
+                var shouldRefillRecentFiles = false
                 for (url, state) in states {
                     guard let state else {
                         if removeFile(at: url) {
                             removedFile = true
                         }
+                        shouldRefillRecentFiles = recentFiles.contains(url)
+                            || shouldRefillRecentFiles
                         recentFiles.removeAll { $0 == url }
                         continue
                     }
                     let previousState = files[url]
-                    recordFileIfNeeded(at: url)
                     if previousState != state {
                         changed.insert(url)
                         promote(url)
                     }
                     files[url] = state
+                }
+                if shouldRefillRecentFiles {
+                    refillRecentFiles()
                 }
                 return removedFile ? Set(roots) : changed
             }
@@ -381,15 +386,7 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
                     roots: roots
                 )
                 files = nextFiles
-                fileCountsByRoot = FSEventWatcher.fileCountsByRoot(
-                    nextFiles.keys,
-                    roots: roots
-                )
-                recentFiles = FSEventWatcher.mostRecentFiles(
-                    in: nextFiles,
-                    roots: roots,
-                    limit: maximumRecentFileCount
-                )
+                refillRecentFiles()
                 return changed
             }
         }
@@ -399,12 +396,6 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
             recentFiles.insert(url, at: 0)
             guard recentFiles.count > maximumRecentFileCount else { return }
 
-            let activeRootIndices = Set(fileCountsByRoot.compactMap { index, count in
-                count > 0 ? index : nil
-            })
-            let minimumPerRoot = activeRootIndices.isEmpty
-                ? 0
-                : maximumRecentFileCount / activeRootIndices.count
             var counts: [Int: Int] = [:]
             for recentFile in recentFiles {
                 guard let rootIndex = FSEventWatcher.rootIndex(
@@ -413,6 +404,10 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
                 ) else { continue }
                 counts[rootIndex, default: 0] += 1
             }
+            let activeRootIndices = Set(counts.keys)
+            let minimumPerRoot = activeRootIndices.isEmpty
+                ? 0
+                : maximumRecentFileCount / activeRootIndices.count
             let promotedRoot = FSEventWatcher.rootIndex(containing: url, roots: roots)
             let rootToTrim = promotedRoot.flatMap { index in
                 (counts[index, default: 0] > minimumPerRoot) ? index : nil
@@ -430,22 +425,17 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
             }
         }
 
-        private func recordFileIfNeeded(at url: URL) {
-            guard files[url] == nil,
-                  let rootIndex = FSEventWatcher.rootIndex(
-                      containing: url,
-                      roots: roots
-                  ) else { return }
-            fileCountsByRoot[rootIndex, default: 0] += 1
-        }
-
         @discardableResult
         private func removeFile(at url: URL) -> Bool {
-            guard files.removeValue(forKey: url) != nil else { return false }
-            if let rootIndex = FSEventWatcher.rootIndex(containing: url, roots: roots) {
-                fileCountsByRoot[rootIndex, default: 1] -= 1
-            }
-            return true
+            files.removeValue(forKey: url) != nil
+        }
+
+        private func refillRecentFiles() {
+            recentFiles = FSEventWatcher.mostRecentFiles(
+                in: files,
+                roots: roots,
+                limit: maximumRecentFileCount
+            )
         }
     }
 
@@ -848,18 +838,6 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
         roots.indices
             .filter { url.pathComponents.starts(with: roots[$0].pathComponents) }
             .max { roots[$0].pathComponents.count < roots[$1].pathComponents.count }
-    }
-
-    private static func fileCountsByRoot<S: Sequence>(
-        _ urls: S,
-        roots: [URL]
-    ) -> [Int: Int] where S.Element == URL {
-        var counts: [Int: Int] = [:]
-        for url in urls {
-            guard let rootIndex = rootIndex(containing: url, roots: roots) else { continue }
-            counts[rootIndex, default: 0] += 1
-        }
-        return counts
     }
 
     private static func changedReconciledURLs(

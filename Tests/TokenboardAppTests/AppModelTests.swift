@@ -217,6 +217,7 @@ final class AppModelTests: XCTestCase {
     }
 
     func testIncrementalUpdatesCoalesceHistoryQueriesUntilTheTrailingRefresh() async throws {
+        XCTAssertEqual(AppModel.productionHistoryRefreshInterval, .seconds(30))
         let clock = ManualHistoryRefreshClock()
         let setup = try makeSetup(
             approved: true,
@@ -284,8 +285,30 @@ final class AppModelTests: XCTestCase {
         let requestedDurations = await clock.requestedDurations
         XCTAssertEqual(
             requestedDurations,
-            Array(repeating: AppModel.productionHistoryRefreshInterval, count: 3)
+            Array(repeating: Duration.seconds(30), count: 3)
         )
+        await clock.resumeNext()
+        let refreshWindowBecameIdle = await waitUntil {
+            setup.model.historyRefreshWindowTask == nil
+        }
+        XCTAssertTrue(refreshWindowBecameIdle)
+
+        await setup.model.receiveIngestionResult(
+            incrementalResult(sequence: 5),
+            generation: setup.model.lifecycleGeneration
+        )
+        let rangesAfterIdleLeadingRefresh = await setup.query.queriedHistoryRanges()
+        XCTAssertEqual(
+            rangesAfterIdleLeadingRefresh.count,
+            initialRanges.count * 4,
+            "the first incremental batch after an idle window must refresh immediately"
+        )
+        let fourthWindowStarted = await waitUntil {
+            await clock.requestCount == 4
+        }
+        XCTAssertTrue(fourthWindowStarted)
+        let lastRequestedDuration = await clock.lastRequestedDuration()
+        XCTAssertEqual(lastRequestedDuration, .seconds(30))
         await clock.resumeNext()
     }
 
@@ -792,6 +815,10 @@ private actor ManualHistoryRefreshClock: IngestionClock {
     func resumeNext() {
         guard !continuations.isEmpty else { return }
         continuations.removeFirst().resume()
+    }
+
+    func lastRequestedDuration() -> Duration? {
+        requestedDurations.last
     }
 }
 

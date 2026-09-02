@@ -321,6 +321,69 @@ final class FSEventWatcherTests: XCTestCase {
         withExtendedLifetime(stream) {}
     }
 
+    func testDeletingARecentFileRefillsItsRootsReservedSlot() async throws {
+        let firstRoot = URL(fileURLWithPath: "/tmp/tokenboard-refill-first")
+            .standardizedFileURL
+        let secondRoot = URL(fileURLWithPath: "/tmp/tokenboard-refill-second")
+            .standardizedFileURL
+        let firstFile = firstRoot.appending(path: "session.jsonl")
+        let selectedSecondFile = secondRoot.appending(path: "selected.jsonl")
+        let replacementSecondFile = secondRoot.appending(path: "replacement.jsonl")
+        let fileSystem = RecordingReconciliationFileSystem(files: [
+            firstFile: FSEventWatcher.ReconciledFileState(
+                size: 1,
+                modificationDate: Date(timeIntervalSince1970: 200)
+            ),
+            selectedSecondFile: FSEventWatcher.ReconciledFileState(
+                size: 1,
+                modificationDate: Date(timeIntervalSince1970: 300)
+            ),
+            replacementSecondFile: FSEventWatcher.ReconciledFileState(
+                size: 1,
+                modificationDate: Date(timeIntervalSince1970: 100)
+            )
+        ])
+        let watcher = FSEventWatcher(
+            driver: RecordingFSEventStreamDriver(),
+            recentReconciliationInterval: .milliseconds(50),
+            fullReconciliationInterval: nil,
+            maximumRecentFileCount: 2,
+            reconciliationFileSystem: fileSystem.adapter
+        )
+        let stream = try watcher.start(roots: [firstRoot, secondRoot])
+        let batches = SourceBatchRecorder()
+        let consumer = Task {
+            for await batch in stream {
+                batches.append(batch)
+            }
+        }
+        defer {
+            watcher.stop()
+            consumer.cancel()
+        }
+
+        fileSystem.update(selectedSecondFile, state: nil)
+        let deletionWasDelivered = await waitUntil {
+            batches.snapshot.contains { $0.paths == [firstRoot, secondRoot] }
+        }
+        XCTAssertTrue(deletionWasDelivered)
+        XCTAssertEqual(fileSystem.inventoryReadCount, 1)
+
+        fileSystem.update(
+            replacementSecondFile,
+            state: FSEventWatcher.ReconciledFileState(
+                size: 2,
+                modificationDate: Date(timeIntervalSince1970: 400)
+            )
+        )
+        let replacementWasDelivered = await waitUntil {
+            batches.snapshot.contains { $0.paths == [replacementSecondFile] }
+        }
+
+        XCTAssertTrue(replacementWasDelivered)
+        XCTAssertEqual(fileSystem.inventoryReadCount, 1)
+    }
+
     func testProductionReconciliationUsesSlowFullInventoryAndBoundedRecentPolling() {
         XCTAssertEqual(
             FSEventWatcher.productionRecentReconciliationInterval,
