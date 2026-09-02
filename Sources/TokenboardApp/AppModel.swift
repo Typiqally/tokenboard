@@ -4,6 +4,8 @@ import TokenboardCore
 
 @MainActor
 final class AppModel: ObservableObject {
+    static let productionHistoryRefreshInterval = Duration.seconds(30)
+
     @Published private(set) var state: AppPublishedState
     @Published private(set) var settingsState: AppSettingsState
     @Published private(set) var discordPresenceEnabled: Bool
@@ -74,6 +76,8 @@ final class AppModel: ObservableObject {
     let pasteboard: any AppPlainTextCopying
     let localDataRevealer: any AppLocalDataRevealing
     let databaseRecovery: any AppDatabaseRecovering
+    let historyRefreshClock: any IngestionClock
+    let historyRefreshInterval: Duration
     let discordPresence: DiscordPresenceCoordinator
     var activeGrants: [Provider: ActiveSourceGrant] = [:]
     var lastSummary: UsageSummary?
@@ -85,6 +89,9 @@ final class AppModel: ObservableObject {
     var inFlightHistoryQueries: [
         UInt64: Task<Result<[UsageHistoryRange: UsageHistorySnapshot], Error>, Never>
     ] = [:]
+    var historyRefreshWindowTask: Task<Void, Never>?
+    var historyRefreshWindowGeneration: UInt64 = 0
+    var historyRefreshPending = false
     var activityGeneration: UInt64 = 0
     var sourceMutationGeneration: UInt64 = 0
     var settingsActivityGeneration: UInt64 = 0
@@ -127,7 +134,9 @@ final class AppModel: ObservableObject {
         sourcePicker: (any AppSourcePicking)? = nil,
         pasteboard: (any AppPlainTextCopying)? = nil,
         localDataRevealer: (any AppLocalDataRevealing)? = nil,
-        databaseRecovery: (any AppDatabaseRecovering)? = nil
+        databaseRecovery: (any AppDatabaseRecovering)? = nil,
+        historyRefreshClock: any IngestionClock = ContinuousIngestionClock(),
+        historyRefreshInterval: Duration = AppModel.productionHistoryRefreshInterval
     ) {
         self.ledger = ledger
         self.queryService = queryService
@@ -143,6 +152,8 @@ final class AppModel: ObservableObject {
         self.discovery = discovery
         self.pasteboard = pasteboard ?? GeneralPasteboardTextCopier()
         self.localDataRevealer = localDataRevealer ?? WorkspaceLocalDataRevealer()
+        self.historyRefreshClock = historyRefreshClock
+        self.historyRefreshInterval = historyRefreshInterval
         self.databaseRecovery = databaseRecovery ?? DatabaseRecoveryService(
             databaseURL: applicationPaths.ledger,
             backupDirectory: applicationPaths.backups
@@ -585,6 +596,8 @@ final class AppModel: ObservableObject {
         readyGeneration = nil
         queryGeneration &+= 1
         historyQueryGeneration &+= 1
+        historyRefreshWindowGeneration &+= 1
+        historyRefreshPending = false
         let startup = startupTask
         let currentActivity = activity?.task
         let currentSourceMutation = sourceMutation?.task
@@ -593,6 +606,7 @@ final class AppModel: ObservableObject {
         let currentPricingUpdateConsumer = pricingUpdateConsumerTask
         let currentQueries = Array(inFlightQueries.values)
         let currentHistoryQueries = Array(inFlightHistoryQueries.values)
+        let currentHistoryRefreshWindow = historyRefreshWindowTask
         startup?.cancel()
         currentActivity?.cancel()
         currentSourceMutation?.cancel()
@@ -600,6 +614,7 @@ final class AppModel: ObservableObject {
         currentPricingUpdateConsumer?.cancel()
         currentQueries.forEach { $0.cancel() }
         currentHistoryQueries.forEach { $0.cancel() }
+        currentHistoryRefreshWindow?.cancel()
         pendingIngestionResults.removeAll()
         knownIngestionResults.removeAll()
         settleAllIngestionWaiters()
@@ -619,6 +634,7 @@ final class AppModel: ObservableObject {
         await currentPricingUpdateConsumer?.value
         for query in currentQueries { _ = await query.value }
         for query in currentHistoryQueries { _ = await query.value }
+        await currentHistoryRefreshWindow?.value
 
         await coordinator.stop()
         let remainingQueries = Array(inFlightQueries.values)
@@ -642,6 +658,7 @@ final class AppModel: ObservableObject {
         isProcessingIngestionResults = false
         inFlightQueries.removeAll()
         inFlightHistoryQueries.removeAll()
+        historyRefreshWindowTask = nil
         closeActiveGrants()
         try await ledger.shutdown()
     }

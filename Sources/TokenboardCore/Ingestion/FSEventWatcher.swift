@@ -272,7 +272,9 @@ public enum FSEventWatcherError: Error, Equatable, Sendable {
 
 public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
     static let maximumChangedPaths = 64
-    private static let productionReconciliationInterval = DispatchTimeInterval.seconds(5)
+    static let productionRecentReconciliationInterval = DispatchTimeInterval.seconds(5)
+    static let productionFullReconciliationInterval = DispatchTimeInterval.seconds(15 * 60)
+    static let maximumRecentReconciliationFiles = 64
 
     private struct ReconciledFileState: Equatable, Sendable {
         let size: Int
@@ -280,23 +282,110 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
     }
 
     private final class ReconciliationSnapshot: @unchecked Sendable {
-        var files: [URL: ReconciledFileState]
+        private let lock = NSLock()
+        private let maximumRecentFileCount: Int
+        private var files: [URL: ReconciledFileState]
+        private var recentFiles: [URL]
 
-        init(files: [URL: ReconciledFileState]) {
+        init(
+            files: [URL: ReconciledFileState],
+            maximumRecentFileCount: Int
+        ) {
+            self.maximumRecentFileCount = maximumRecentFileCount
             self.files = files
+            recentFiles = FSEventWatcher.mostRecentFiles(
+                in: files,
+                limit: maximumRecentFileCount
+            )
+        }
+
+        func recentFileURLs() -> [URL] {
+            lock.withLock { recentFiles }
+        }
+
+        func recordNativeChanges(_ states: [(URL, ReconciledFileState?)]) {
+            lock.withLock {
+                for (url, state) in states {
+                    guard let state else {
+                        files.removeValue(forKey: url)
+                        recentFiles.removeAll { $0 == url }
+                        continue
+                    }
+                    files[url] = state
+                    promote(url)
+                }
+            }
+        }
+
+        func applyRecentStates(
+            _ states: [(URL, ReconciledFileState?)],
+            roots: [URL]
+        ) -> Set<URL> {
+            lock.withLock {
+                var changed: Set<URL> = []
+                var removedFile = false
+                for (url, state) in states {
+                    guard let state else {
+                        if files.removeValue(forKey: url) != nil {
+                            removedFile = true
+                        }
+                        recentFiles.removeAll { $0 == url }
+                        continue
+                    }
+                    if files[url] != state {
+                        changed.insert(url)
+                        promote(url)
+                    }
+                    files[url] = state
+                }
+                return removedFile ? Set(roots) : changed
+            }
+        }
+
+        func replaceAll(
+            with nextFiles: [URL: ReconciledFileState],
+            roots: [URL]
+        ) -> Set<URL> {
+            lock.withLock {
+                let changed = FSEventWatcher.changedReconciledURLs(
+                    from: files,
+                    to: nextFiles,
+                    roots: roots
+                )
+                files = nextFiles
+                recentFiles = FSEventWatcher.mostRecentFiles(
+                    in: nextFiles,
+                    limit: maximumRecentFileCount
+                )
+                return changed
+            }
+        }
+
+        private func promote(_ url: URL) {
+            recentFiles.removeAll { $0 == url }
+            recentFiles.insert(url, at: 0)
+            if recentFiles.count > maximumRecentFileCount {
+                recentFiles.removeLast(recentFiles.count - maximumRecentFileCount)
+            }
         }
     }
 
     private struct StreamState {
         let handle: FSEventStreamHandle
         let continuation: AsyncStream<SourceEventBatch>.Continuation
-        let reconciliationSource: (any DispatchSourceTimer)?
+        let reconciliationSources: [any DispatchSourceTimer]
     }
 
     private let lock = NSLock()
-    private let queue = DispatchQueue(label: "com.tokenboard.source-events")
+    private let queue = DispatchQueue(
+        label: "com.tokenboard.source-events",
+        qos: .utility,
+        autoreleaseFrequency: .workItem
+    )
     private let driver: any FSEventStreamDriving
-    private let reconciliationInterval: DispatchTimeInterval?
+    private let recentReconciliationInterval: DispatchTimeInterval?
+    private let fullReconciliationInterval: DispatchTimeInterval?
+    private let maximumRecentFileCount: Int
     private var state: StreamState?
     private var baselineEventID: UInt64?
     private var lastAcknowledgedEventID: UInt64?
@@ -305,20 +394,44 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
     public convenience init() {
         self.init(
             driver: NativeFSEventStreamDriver(),
-            reconciliationInterval: Self.productionReconciliationInterval
+            recentReconciliationInterval: Self.productionRecentReconciliationInterval,
+            fullReconciliationInterval: Self.productionFullReconciliationInterval,
+            maximumRecentFileCount: Self.maximumRecentReconciliationFiles
         )
     }
 
     convenience init(driver: any FSEventStreamDriving) {
-        self.init(driver: driver, reconciliationInterval: nil)
+        self.init(
+            driver: driver,
+            recentReconciliationInterval: nil,
+            fullReconciliationInterval: nil,
+            maximumRecentFileCount: Self.maximumRecentReconciliationFiles
+        )
+    }
+
+    convenience init(
+        driver: any FSEventStreamDriving,
+        reconciliationInterval: DispatchTimeInterval?
+    ) {
+        self.init(
+            driver: driver,
+            recentReconciliationInterval: nil,
+            fullReconciliationInterval: reconciliationInterval,
+            maximumRecentFileCount: Self.maximumRecentReconciliationFiles
+        )
     }
 
     init(
         driver: any FSEventStreamDriving,
-        reconciliationInterval: DispatchTimeInterval?
+        recentReconciliationInterval: DispatchTimeInterval?,
+        fullReconciliationInterval: DispatchTimeInterval?,
+        maximumRecentFileCount: Int
     ) {
+        precondition(maximumRecentFileCount > 0)
         self.driver = driver
-        self.reconciliationInterval = reconciliationInterval
+        self.recentReconciliationInterval = recentReconciliationInterval
+        self.fullReconciliationInterval = fullReconciliationInterval
+        self.maximumRecentFileCount = maximumRecentFileCount
     }
 
     deinit {
@@ -357,8 +470,14 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
             latency: 0.5,
             flags: createFlags
         )
-        let reconciliationSnapshot = reconciliationInterval.map { _ in
-            ReconciliationSnapshot(files: Self.reconciledFiles(under: resolvedRoots))
+        let reconciliationSnapshot: ReconciliationSnapshot? = if recentReconciliationInterval != nil
+            || fullReconciliationInterval != nil {
+            ReconciliationSnapshot(
+                files: Self.reconciledFiles(under: resolvedRoots),
+                maximumRecentFileCount: maximumRecentFileCount
+            )
+        } else {
+            nil
         }
         guard let handle = driver.create(configuration: configuration, callback: { [weak self] batch in
             guard let self else { return }
@@ -377,6 +496,9 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
                 ? Set(resolvedRoots)
                 : Self.changedURLs(from: batch.events, roots: resolvedRoots)
             if !changed.isEmpty {
+                reconciliationSnapshot?.recordNativeChanges(
+                    Self.reconciledStates(for: changed)
+                )
                 let terminalEventID = eventIDsWrapped
                     ? driver.currentEventID()
                     : batch.terminalEventID
@@ -402,24 +524,32 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
             throw FSEventWatcherError.couldNotCreateStream
         }
 
-        let reconciliationSource = reconciliationInterval.flatMap { interval in
-            reconciliationSnapshot.map { snapshot in
-                let source = DispatchSource.makeTimerSource(queue: queue)
-                source.schedule(
-                    deadline: .now() + interval,
-                    repeating: interval,
-                    leeway: .milliseconds(100)
+        var reconciliationSources: [any DispatchSourceTimer] = []
+        if let snapshot = reconciliationSnapshot,
+           let interval = recentReconciliationInterval {
+            let source = makeTimer(interval: interval)
+            source.setEventHandler { [weak self] in
+                self?.reconcileRecentChanges(
+                    roots: resolvedRoots,
+                    snapshot: snapshot,
+                    handle: handle,
+                    continuation: continuation
                 )
-                source.setEventHandler { [weak self] in
-                    self?.reconcileChanges(
-                        roots: resolvedRoots,
-                        snapshot: snapshot,
-                        handle: handle,
-                        continuation: continuation
-                    )
-                }
-                return source
             }
+            reconciliationSources.append(source)
+        }
+        if let snapshot = reconciliationSnapshot,
+           let interval = fullReconciliationInterval {
+            let source = makeTimer(interval: interval)
+            source.setEventHandler { [weak self] in
+                self?.reconcileAllChanges(
+                    roots: resolvedRoots,
+                    snapshot: snapshot,
+                    handle: handle,
+                    continuation: continuation
+                )
+            }
+            reconciliationSources.append(source)
         }
 
         let started = lock.withLock {
@@ -428,13 +558,13 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
             state = StreamState(
                 handle: handle,
                 continuation: continuation,
-                reconciliationSource: reconciliationSource
+                reconciliationSources: reconciliationSources
             )
-            reconciliationSource?.activate()
+            reconciliationSources.forEach { $0.activate() }
             return true
         }
         guard started else {
-            reconciliationSource?.cancel()
+            reconciliationSources.forEach { $0.cancel() }
             driver.invalidate(handle)
             driver.release(handle)
             handle.releaseCallbackContext()
@@ -470,7 +600,7 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
             return state
         }
         guard let priorState else { return }
-        priorState.reconciliationSource?.cancel()
+        priorState.reconciliationSources.forEach { $0.cancel() }
         driver.flushSync(priorState.handle)
         driver.stop(priorState.handle)
         driver.invalidate(priorState.handle)
@@ -479,7 +609,34 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
         priorState.continuation.finish()
     }
 
-    private func reconcileChanges(
+    private func makeTimer(interval: DispatchTimeInterval) -> any DispatchSourceTimer {
+        let source = DispatchSource.makeTimerSource(queue: queue)
+        source.schedule(
+            deadline: .now() + interval,
+            repeating: interval,
+            leeway: .milliseconds(100)
+        )
+        return source
+    }
+
+    private func reconcileRecentChanges(
+        roots: [URL],
+        snapshot: ReconciliationSnapshot,
+        handle: FSEventStreamHandle,
+        continuation: AsyncStream<SourceEventBatch>.Continuation
+    ) {
+        guard lock.withLock({ state?.handle === handle }) else { return }
+        let states = Self.reconciledStates(for: Set(snapshot.recentFileURLs()))
+        guard lock.withLock({ state?.handle === handle }) else { return }
+        let changed = snapshot.applyRecentStates(states, roots: roots)
+        yieldReconciledChanges(
+            changed,
+            roots: roots,
+            continuation: continuation
+        )
+    }
+
+    private func reconcileAllChanges(
         roots: [URL],
         snapshot: ReconciliationSnapshot,
         handle: FSEventStreamHandle,
@@ -488,12 +645,19 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
         guard lock.withLock({ state?.handle === handle }) else { return }
         let nextFiles = Self.reconciledFiles(under: roots)
         guard lock.withLock({ state?.handle === handle }) else { return }
-        let changed = Self.changedReconciledURLs(
-            from: snapshot.files,
-            to: nextFiles,
-            roots: roots
+        let changed = snapshot.replaceAll(with: nextFiles, roots: roots)
+        yieldReconciledChanges(
+            changed,
+            roots: roots,
+            continuation: continuation
         )
-        snapshot.files = nextFiles
+    }
+
+    private func yieldReconciledChanges(
+        _ changed: Set<URL>,
+        roots: [URL],
+        continuation: AsyncStream<SourceEventBatch>.Continuation
+    ) {
         guard !changed.isEmpty else { return }
         if case .dropped = continuation.yield(SourceEventBatch(
             paths: changed,
@@ -504,6 +668,33 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
                 checkpoint: nil
             ))
         }
+    }
+
+    private static func reconciledStates(
+        for urls: Set<URL>
+    ) -> [(URL, ReconciledFileState?)] {
+        urls.compactMap { url in
+            guard url.pathExtension.lowercased() == "jsonl" else { return nil }
+            return (url.standardizedFileURL, reconciledFileState(at: url))
+        }
+    }
+
+    private static func reconciledFileState(at url: URL) -> ReconciledFileState? {
+        let resourceKeys: Set<URLResourceKey> = [
+            .contentModificationDateKey,
+            .fileSizeKey,
+            .isRegularFileKey,
+            .isSymbolicLinkKey
+        ]
+        guard let values = try? url.resourceValues(forKeys: resourceKeys),
+              values.isSymbolicLink != true,
+              values.isRegularFile == true else {
+            return nil
+        }
+        return ReconciledFileState(
+            size: values.fileSize ?? 0,
+            modificationDate: values.contentModificationDate
+        )
     }
 
     private static func reconciledFiles(
@@ -527,18 +718,27 @@ public final class FSEventWatcher: SourceEventWatching, @unchecked Sendable {
             }
             while let url = enumerator.nextObject() as? URL {
                 guard url.pathExtension.lowercased() == "jsonl",
-                      let values = try? url.resourceValues(forKeys: resourceKeys),
-                      values.isSymbolicLink != true,
-                      values.isRegularFile == true else {
+                      let state = reconciledFileState(at: url) else {
                     continue
                 }
-                files[url.standardizedFileURL] = ReconciledFileState(
-                    size: values.fileSize ?? 0,
-                    modificationDate: values.contentModificationDate
-                )
+                files[url.standardizedFileURL] = state
             }
         }
         return files
+    }
+
+    private static func mostRecentFiles(
+        in files: [URL: ReconciledFileState],
+        limit: Int
+    ) -> [URL] {
+        files.sorted { lhs, rhs in
+            let lhsDate = lhs.value.modificationDate ?? .distantPast
+            let rhsDate = rhs.value.modificationDate ?? .distantPast
+            if lhsDate != rhsDate { return lhsDate > rhsDate }
+            return lhs.key.path < rhs.key.path
+        }
+        .prefix(limit)
+        .map(\.key)
     }
 
     private static func changedReconciledURLs(

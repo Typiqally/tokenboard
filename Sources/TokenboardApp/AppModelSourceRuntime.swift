@@ -463,7 +463,7 @@ extension AppModel {
             }
         }
         commitState(next)
-        await queryUsageHistory()
+        await refreshUsageHistoryAfterIngestion(scope: result.scope)
     }
 
     func launchReplacement(
@@ -682,6 +682,48 @@ extension AppModel {
 
     func queryUsagePresentations() async {
         await querySelectedSummary()
+        await queryUsageHistory()
+    }
+
+    func refreshUsageHistoryAfterIngestion(scope: IngestionBatchScope) async {
+        if scope != .incremental {
+            historyRefreshPending = false
+            startHistoryRefreshWindow()
+            await queryUsageHistory()
+            return
+        }
+
+        guard historyRefreshWindowTask == nil else {
+            historyRefreshPending = true
+            return
+        }
+        startHistoryRefreshWindow()
+        await queryUsageHistory()
+    }
+
+    func startHistoryRefreshWindow() {
+        historyRefreshWindowGeneration &+= 1
+        let generation = historyRefreshWindowGeneration
+        historyRefreshWindowTask?.cancel()
+        let clock = historyRefreshClock
+        let interval = historyRefreshInterval
+        historyRefreshWindowTask = Task { @MainActor [weak self] in
+            do {
+                try await clock.sleep(for: interval)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            await self?.historyRefreshWindowElapsed(generation: generation)
+        }
+    }
+
+    func historyRefreshWindowElapsed(generation: UInt64) async {
+        guard generation == historyRefreshWindowGeneration else { return }
+        historyRefreshWindowTask = nil
+        guard historyRefreshPending else { return }
+        historyRefreshPending = false
+        startHistoryRefreshWindow()
         await queryUsageHistory()
     }
 
