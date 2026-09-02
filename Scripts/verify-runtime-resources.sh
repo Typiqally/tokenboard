@@ -29,6 +29,8 @@ repository_root=${script_dir:h}
 probe_root=$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/tokenboard-resource-gate.XXXXXX")
 probe_app="$probe_root/Tokenboard.app"
 probe_executable="$probe_app/Contents/MacOS/TokenboardApp"
+probe_home="$probe_root/home"
+real_application_support="$HOME/Library/Application Support"
 sample_file="$probe_root/samples.tsv"
 probe_identifier=com.tokenboard.Tokenboard.ResourceGate
 probe_pid=-1
@@ -44,15 +46,16 @@ cleanup() {
 trap cleanup EXIT
 
 /usr/bin/ditto "$app_path" "$probe_app"
+/bin/mkdir -p "$probe_home"
+probe_home=${probe_home:A}
 /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $probe_identifier" \
   "$probe_app/Contents/Info.plist"
 /usr/bin/codesign --force --sign - "$probe_app" >/dev/null
 
-# Command-line defaults live in NSArgumentDomain and therefore outrank any
-# values retained by macOS in the fixed ResourceGate sandbox. In particular,
-# stale security-scoped bookmarks must never turn an idle-resource probe into
-# an import benchmark over a developer's real source folders.
-"$probe_executable" \
+# A private Core Foundation home isolates Application Support and preferences;
+# command-line defaults additionally prevent stale bookmarks from turning an
+# idle-resource probe into an import benchmark over real source folders.
+CFFIXED_USER_HOME="$probe_home" HOME="$probe_home" "$probe_executable" \
   -sourceBookmark.claude_code "" \
   -sourceBookmark.codex "" \
   -historicalImportApproved NO \
@@ -65,6 +68,19 @@ probe_pid=$!
 if ! /bin/kill -0 "$probe_pid" 2>/dev/null; then
   /bin/cat "$probe_root/stderr" >&2
   print -u2 "isolated Tokenboard process exited during warmup"
+  exit 1
+fi
+
+open_file_names=$(/usr/sbin/lsof -Fn -p "$probe_pid" 2>/dev/null \
+  | /usr/bin/sed -n 's/^n//p')
+if print -r -- "$open_file_names" \
+    | /usr/bin/grep -Fqx -- "$real_application_support/ledger.sqlite"; then
+  print -u2 "isolated Tokenboard process opened the real user ledger"
+  exit 1
+fi
+if ! print -r -- "$open_file_names" \
+    | /usr/bin/grep -Fqx -- "$probe_home/Library/Application Support/ledger.sqlite"; then
+  print -u2 "isolated Tokenboard process did not open its private ledger"
   exit 1
 fi
 
