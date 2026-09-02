@@ -274,6 +274,10 @@ public struct WorkPatternCalculator: Sendable {
         let hours = try hourSummaries(buckets, activeDayCount: activeDays.count)
         let weekdays = try weekdaySummaries(days, calendar: calendar)
         let activityBackedMinutes = focus.activitySliceCount * Self.activitySliceMinutes
+        let schedule = try scheduleActivity(
+            slices: focus.slices,
+            calendarDayCount: days.count
+        )
 
         return WorkPatternSnapshot(
             coverageStart: coverageHour,
@@ -309,8 +313,14 @@ public struct WorkPatternCalculator: Sendable {
                 .filter { $0.activeOccurrenceCount > 0 }
                 .sorted(by: consistentWeekdayOrder)
                 .first,
-            typicalFirstActivityHour: median(activeDays.compactMap(\.firstActivityHour)),
-            typicalLastActivityHour: median(activeDays.compactMap(\.lastActivityHour)),
+            typicalFirstActivityHour: medianScheduleMinute(
+                schedule.firstMinutes,
+                scheduleStartMinute: schedule.startMinute
+            ).map { $0 / 60 },
+            typicalLastActivityHour: medianScheduleMinute(
+                schedule.lastMinutes,
+                scheduleStartMinute: schedule.startMinute
+            ).map { $0 / 60 },
             longestFocusSessionMinutes: activeDays
                 .map(\.longestFocusSessionMinutes)
                 .max() ?? 0,
@@ -334,14 +344,8 @@ public struct WorkPatternCalculator: Sendable {
                 hours: hours,
                 totalFocusMinutes: totalFocusMinutes
             ),
-            firstActivityMinuteRange: activityMinuteRange(
-                slices: focus.slices,
-                select: { $0.first }
-            ),
-            lastActivityMinuteRange: activityMinuteRange(
-                slices: focus.slices,
-                select: { $0.last }
-            ),
+            firstActivityMinuteRange: activityMinuteRange(schedule.firstMinutes),
+            lastActivityMinuteRange: activityMinuteRange(schedule.lastMinutes),
             medianInteractionGapMinutes: median(focus.interactionGapMinutes),
             interactionGapCount: focus.interactionGapMinutes.count
         )
@@ -684,27 +688,90 @@ public struct WorkPatternCalculator: Sendable {
         )
     }
 
-    private func activityMinuteRange(
+    private func scheduleActivity(
         slices: [ActivitySlice],
-        select: ([Int]) -> Int?
-    ) -> WorkPatternMinuteRange? {
-        let byDay = Dictionary(grouping: slices) {
-            FocusDayKey(
-                localDayValue: $0.localDay.value,
-                timeZoneIdentifier: $0.localDay.timeZoneIdentifier
+        calendarDayCount: Int
+    ) throws -> ScheduleActivity {
+        let observations = slices.map { slice in
+            ScheduleActivityObservation(
+                slice: slice,
+                minuteOfDay: minuteOfDay(for: slice)
             )
         }
-        let values = byDay.values.compactMap { daySlices -> Int? in
-            let minutes = daySlices.map { slice in
-                let localCalendar = calendar(for: slice.localDay)
-                let components = localCalendar.dateComponents(
-                    [.hour, .minute],
-                    from: slice.sliceStart
-                )
-                return (components.hour ?? 0) * 60 + (components.minute ?? 0)
-            }.sorted()
-            return select(minutes)
-        }.sorted()
+        let circularMinutes = circularlySortedMinutes(
+            observations.map(\.minuteOfDay).sorted()
+        )
+        guard let firstCircularMinute = circularMinutes.first else {
+            return ScheduleActivity(startMinute: nil, firstMinutes: [], lastMinutes: [])
+        }
+        let scheduleStartMinute = clockMinute(firstCircularMinute)
+
+        if calendarDayCount == 1 {
+            let ordered = observations.sorted {
+                scheduleMinute($0.minuteOfDay, relativeTo: scheduleStartMinute)
+                    < scheduleMinute($1.minuteOfDay, relativeTo: scheduleStartMinute)
+            }
+            return ScheduleActivity(
+                startMinute: scheduleStartMinute,
+                firstMinutes: ordered.first.map { [$0.minuteOfDay] } ?? [],
+                lastMinutes: ordered.last.map { [$0.minuteOfDay] } ?? []
+            )
+        }
+
+        var byWorkday: [FocusDayKey: [ScheduleActivityObservation]] = [:]
+        for observation in observations {
+            let localCalendar = calendar(for: observation.slice.localDay)
+            guard let shiftedDate = localCalendar.date(
+                byAdding: .minute,
+                value: -scheduleStartMinute,
+                to: observation.slice.sliceStart
+            ) else {
+                throw UsageHistoryError.calendarArithmeticFailure
+            }
+            let shiftedDay = LocalDay(date: shiftedDate, calendar: localCalendar)
+            let key = FocusDayKey(
+                localDayValue: shiftedDay.value,
+                timeZoneIdentifier: shiftedDay.timeZoneIdentifier
+            )
+            byWorkday[key, default: []].append(observation)
+        }
+
+        let workdays = byWorkday.values.map { observations in
+            observations.sorted {
+                scheduleMinute($0.minuteOfDay, relativeTo: scheduleStartMinute)
+                    < scheduleMinute($1.minuteOfDay, relativeTo: scheduleStartMinute)
+            }
+        }
+        return ScheduleActivity(
+            startMinute: scheduleStartMinute,
+            firstMinutes: workdays.compactMap { $0.first?.minuteOfDay },
+            lastMinutes: workdays.compactMap { $0.last?.minuteOfDay }
+        )
+    }
+
+    private func minuteOfDay(for slice: ActivitySlice) -> Int {
+        let localCalendar = calendar(for: slice.localDay)
+        let components = localCalendar.dateComponents([.hour, .minute], from: slice.sliceStart)
+        return (components.hour ?? 0) * 60 + (components.minute ?? 0)
+    }
+
+    private func scheduleMinute(_ minute: Int, relativeTo startMinute: Int) -> Int {
+        minute >= startMinute ? minute : minute + 1_440
+    }
+
+    private func medianScheduleMinute(
+        _ minutes: [Int],
+        scheduleStartMinute: Int?
+    ) -> Int? {
+        guard let scheduleStartMinute, !minutes.isEmpty else { return nil }
+        let ordered = minutes
+            .map { scheduleMinute($0, relativeTo: scheduleStartMinute) }
+            .sorted()
+        return clockMinute(ordered[ordered.count / 2])
+    }
+
+    private func activityMinuteRange(_ values: [Int]) -> WorkPatternMinuteRange? {
+        let values = values.sorted()
         guard !values.isEmpty else { return nil }
         let circularValues = circularlySortedMinutes(values)
         return WorkPatternMinuteRange(
@@ -883,6 +950,17 @@ private struct ActivitySlice {
     let sliceStart: Date
     let localDay: LocalDay
     let providers: Set<Provider>
+}
+
+private struct ScheduleActivityObservation {
+    let slice: ActivitySlice
+    let minuteOfDay: Int
+}
+
+private struct ScheduleActivity {
+    let startMinute: Int?
+    let firstMinutes: [Int]
+    let lastMinutes: [Int]
 }
 
 private struct FocusDayKey: Hashable {
