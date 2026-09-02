@@ -216,6 +216,49 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(rangesAfterSelection, queriedRanges)
     }
 
+    func testIncrementalUpdatesCoalesceHistoryQueriesUntilTheTrailingRefresh() async throws {
+        let clock = ManualHistoryRefreshClock()
+        let setup = try makeSetup(
+            approved: true,
+            grantedProviders: Set(Provider.allCases),
+            historyRefreshClock: clock
+        )
+        defer { setup.cleanup() }
+        await setup.model.start()
+        let initialRanges = await setup.query.queriedHistoryRanges()
+        XCTAssertEqual(initialRanges, UsageHistoryRange.allCases)
+        let initialWindowStarted = await waitUntil {
+            await clock.requestCount == 1
+        }
+        XCTAssertTrue(initialWindowStarted)
+
+        await setup.model.receiveIngestionResult(
+            incrementalResult(sequence: 2),
+            generation: setup.model.lifecycleGeneration
+        )
+        await setup.model.receiveIngestionResult(
+            incrementalResult(sequence: 3),
+            generation: setup.model.lifecycleGeneration
+        )
+
+        XCTAssertEqual(
+            await setup.query.queriedHistoryRanges(),
+            initialRanges,
+            "incremental bursts must not recompute all history ranges per batch"
+        )
+
+        await clock.resumeNext()
+        let trailingRefreshCompleted = await waitUntil {
+            await setup.query.queriedHistoryRanges().count == initialRanges.count * 2
+        }
+        XCTAssertTrue(trailingRefreshCompleted)
+        let nextWindowStarted = await waitUntil {
+            await clock.requestCount == 2
+        }
+        XCTAssertTrue(nextWindowStarted)
+        await clock.resumeNext()
+    }
+
     func testCompanionUsesTodayHistoryWithoutPersistingASecondTokenTotal() async throws {
         let setup = try makeSetup(approved: true, grantedProviders: Set(Provider.allCases))
         defer { setup.cleanup() }
@@ -448,7 +491,8 @@ final class AppModelTests: XCTestCase {
         discordEnabled: Bool = false,
         discordConsentVersion: Int = 0,
         calendar: Calendar = Calendar(identifier: .gregorian),
-        companionSeed: UInt64? = nil
+        companionSeed: UInt64? = nil,
+        historyRefreshClock: any IngestionClock = ContinuousIngestionClock()
     ) throws -> ModelSetup {
         let suiteName = "AppModelTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -492,7 +536,8 @@ final class AppModelTests: XCTestCase {
             ),
             discordPresence: discordPresence,
             now: { Date(timeIntervalSince1970: 1_775_000_000) },
-            calendar: calendar
+            calendar: calendar,
+            historyRefreshClock: historyRefreshClock
         )
         return ModelSetup(
             model: model,
@@ -536,6 +581,29 @@ final class AppModelTests: XCTestCase {
         }
         object["origin"] = origin
         return try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+    }
+
+    private func incrementalResult(sequence: UInt64) -> IngestionBatchResult {
+        IngestionBatchResult(
+            runID: 1,
+            sequence: sequence,
+            scope: .incremental,
+            providers: [
+                .codex: .success(discoveredFiles: 0, scannedFiles: 1)
+            ]
+        )
+    }
+
+    private func waitUntil(
+        timeout: Duration = .seconds(1),
+        condition: @escaping () async -> Bool
+    ) async -> Bool {
+        let deadline = ContinuousClock().now.advanced(by: timeout)
+        while ContinuousClock().now < deadline {
+            if await condition() { return true }
+            try? await Task.sleep(for: .milliseconds(1))
+        }
+        return await condition()
     }
 }
 
@@ -677,6 +745,23 @@ private actor RuntimeQuery: AppUsageQuerying {
 
     func queriedHistoryRanges() -> [UsageHistoryRange] { historyRanges }
     func setHistoryTokenTotal(_ value: Int64) { historyTokenTotal = value }
+}
+
+private actor ManualHistoryRefreshClock: IngestionClock {
+    private var continuations: [CheckedContinuation<Void, any Error>] = []
+    private(set) var requestCount = 0
+
+    func sleep(for duration: Duration) async throws {
+        requestCount += 1
+        try await withCheckedThrowingContinuation { continuation in
+            continuations.append(continuation)
+        }
+    }
+
+    func resumeNext() {
+        guard !continuations.isEmpty else { return }
+        continuations.removeFirst().resume()
+    }
 }
 
 private actor RuntimeCoordinator: AppIngestionCoordinating {

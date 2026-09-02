@@ -90,6 +90,79 @@ final class FSEventWatcherTests: XCTestCase {
         XCTAssertEqual(driver.operations.prefix(2), [.schedule, .start(true)])
     }
 
+    func testFrequentReconciliationPollsOnlyTheBoundedMostRecentFiles() async throws {
+        let root = canonicalTestTemporaryDirectory
+            .appending(path: "tokenboard-bounded-reconciliation-\(UUID().uuidString)")
+            .standardizedFileURL
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        let olderFile = root.appending(path: "older.jsonl")
+        let recentFile = root.appending(path: "recent.jsonl")
+        try Data("{\"type\":\"session_meta\"}\n".utf8).write(to: olderFile)
+        try Data("{\"type\":\"session_meta\"}\n".utf8).write(to: recentFile)
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSinceNow: -3_600)],
+            ofItemAtPath: olderFile.path
+        )
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date()],
+            ofItemAtPath: recentFile.path
+        )
+
+        let driver = RecordingFSEventStreamDriver()
+        let watcher = FSEventWatcher(
+            driver: driver,
+            recentReconciliationInterval: .milliseconds(50),
+            fullReconciliationInterval: nil,
+            maximumRecentFileCount: 1
+        )
+        let stream = try watcher.start(roots: [root])
+        defer {
+            watcher.stop()
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        for fileURL in [olderFile, recentFile] {
+            let file = try FileHandle(forWritingTo: fileURL)
+            try file.seekToEnd()
+            try file.write(contentsOf: Data("{\"type\":\"event_msg\"}\n".utf8))
+            try file.close()
+        }
+
+        let received = await withTaskGroup(of: SourceEventBatch?.self) { group in
+            group.addTask {
+                for await batch in stream where batch.paths.contains(recentFile) {
+                    return batch
+                }
+                return nil
+            }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(2))
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+
+        XCTAssertEqual(received?.paths, [recentFile])
+        XCTAssertFalse(received?.paths.contains(olderFile) == true)
+    }
+
+    func testProductionReconciliationUsesSlowFullInventoryAndBoundedRecentPolling() {
+        XCTAssertEqual(
+            FSEventWatcher.productionRecentReconciliationInterval,
+            .seconds(5)
+        )
+        XCTAssertEqual(
+            FSEventWatcher.productionFullReconciliationInterval,
+            .seconds(15 * 60)
+        )
+        XCTAssertEqual(FSEventWatcher.maximumRecentReconciliationFiles, 64)
+    }
+
     func testLazyNativeConversionReadsAndRetainsOnlyBoundedPrefixOnOverflow() {
         let source = LazyNativeEventSource(logicalCount: 1_000_000)
 
