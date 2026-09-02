@@ -216,15 +216,37 @@ final class WorkPatternAnalyticsTests: XCTestCase {
             totalFocusMinuteCount: 35
         ))
         XCTAssertEqual(snapshot.firstActivityMinuteRange, WorkPatternMinuteRange(
+            lowerMinuteOfDay: 1_380,
+            medianMinuteOfDay: 1_390,
+            upperMinuteOfDay: 1_410
+        ))
+        XCTAssertEqual(snapshot.lastActivityMinuteRange, WorkPatternMinuteRange(
             lowerMinuteOfDay: 0,
             medianMinuteOfDay: 0,
             upperMinuteOfDay: 10
         ))
-        XCTAssertEqual(snapshot.lastActivityMinuteRange, WorkPatternMinuteRange(
-            lowerMinuteOfDay: 1_390,
-            medianMinuteOfDay: 1_410,
-            upperMinuteOfDay: 0
-        ))
+    }
+
+    func testTodayTreatsAfterMidnightWorkAsTheEndOfTheWorkday() throws {
+        let calendar = amsterdamCalendar()
+        let current = interval("2026-08-02T22:00:00Z", "2026-08-03T22:00:00Z")
+
+        let snapshot = try WorkPatternCalculator().make(
+            currentRows: [],
+            currentActivity: [
+                slice("2026-08-02T22:00:00Z"),
+                slice("2026-08-03T11:00:00Z"),
+            ],
+            previousActivity: [],
+            currentInterval: current,
+            previousInterval: interval("2026-08-01T22:00:00Z", "2026-08-02T22:00:00Z"),
+            coverageStart: date("2026-07-01T00:00:00Z"),
+            now: date("2026-08-03T11:05:00Z"),
+            calendar: calendar
+        )
+
+        XCTAssertEqual(snapshot.typicalFirstActivityHour, 13)
+        XCTAssertEqual(snapshot.typicalLastActivityHour, 0)
     }
 
     func testEmptyActivityProducesZeroedDerivedInsightMetrics() throws {
