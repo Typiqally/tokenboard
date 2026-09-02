@@ -56,6 +56,13 @@ for isolated_default in \
     || fail "runtime resource gate inherits $isolated_default from its test container"
 done
 
+benchmark_gate="$repository_root/Scripts/benchmark-import.sh"
+/usr/bin/grep -q -- 'xcrun xctest' "$benchmark_gate" \
+  || fail "import benchmark includes SwiftPM orchestration in its timed interval"
+if /usr/bin/grep -q -- 'swift test --skip-build' "$benchmark_gate"; then
+  fail "import benchmark includes SwiftPM orchestration in its timed interval"
+fi
+
 claude_root="$test_root/claude"
 codex_root="$test_root/codex"
 ledger_path="$test_root/ledger.sqlite"
