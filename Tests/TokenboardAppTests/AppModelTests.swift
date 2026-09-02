@@ -241,8 +241,9 @@ final class AppModelTests: XCTestCase {
             generation: setup.model.lifecycleGeneration
         )
 
+        let coalescedRanges = await setup.query.queriedHistoryRanges()
         XCTAssertEqual(
-            await setup.query.queriedHistoryRanges(),
+            coalescedRanges,
             initialRanges,
             "incremental bursts must not recompute all history ranges per batch"
         )
