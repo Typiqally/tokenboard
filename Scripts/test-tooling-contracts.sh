@@ -39,6 +39,11 @@ if /usr/bin/grep -R -q -- '--clobber' \
   "$repository_root/.github/workflows/release.yml"; then
   fail "release tooling permits mutable artifact replacement"
 fi
+release_checkout_count=$(/usr/bin/grep -c -- 'uses: actions/checkout@v4' \
+  "$repository_root/.github/workflows/release.yml")
+if (( release_checkout_count < 2 )); then
+  fail "release publish job cannot verify its tag without a checkout"
+fi
 
 runtime_gate="$repository_root/Scripts/verify-runtime-resources.sh"
 /usr/bin/grep -q -- 'CFFIXED_USER_HOME=' "$runtime_gate" \
