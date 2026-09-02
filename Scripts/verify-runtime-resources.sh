@@ -32,7 +32,10 @@ probe_executable="$probe_app/Contents/MacOS/TokenboardApp"
 probe_home="$probe_root/home"
 real_application_support="$HOME/Library/Application Support"
 sample_file="$probe_root/samples.tsv"
-probe_identifier=com.tokenboard.Tokenboard.ResourceGate
+probe_name=${probe_root:t}
+probe_suffix=${probe_name//[^[:alnum:]]/}
+probe_identifier="com.tokenboard.Tokenboard.ResourceGate.$probe_suffix"
+probe_preferences="$HOME/Library/Preferences/$probe_identifier.plist"
 probe_pid=-1
 
 cleanup() {
@@ -41,6 +44,8 @@ cleanup() {
     /bin/sleep 1
     /bin/kill -KILL "$probe_pid" 2>/dev/null || true
   fi
+  /usr/bin/defaults delete "$probe_identifier" >/dev/null 2>&1 || true
+  /bin/rm -f -- "$probe_preferences"
   /bin/rm -rf -- "$probe_root"
 }
 trap cleanup EXIT
