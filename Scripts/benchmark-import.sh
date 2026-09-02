@@ -13,8 +13,16 @@ trap '/bin/rm -f -- "$metrics_file"' EXIT
 # Build once outside the measurement so the gate measures import behavior,
 # not an incidental compiler cache miss.
 swift test --filter ImportBenchmarkTests >/dev/null
+binary_directory=$(swift build --show-bin-path)
+test_bundle="$binary_directory/TokenboardPackageTests.xctest"
+if [[ ! -d "$test_bundle" ]]; then
+  print -u2 "unable to locate the built Tokenboard test bundle"
+  exit 65
+fi
 TOKENBOARD_RUN_BENCHMARK=1 /usr/bin/time -l -o "$metrics_file" \
-  swift test --skip-build --filter ImportBenchmarkTests
+  /usr/bin/xcrun xctest \
+    -XCTest TokenboardCoreTests.ImportBenchmarkTests/testImportsFiveThousandOneHundredFilesIdempotently \
+    "$test_bundle"
 
 elapsed_seconds=$(/usr/bin/awk '$2 == "real" { print $1; exit }' "$metrics_file")
 maximum_rss=$(/usr/bin/awk '
