@@ -31,9 +31,9 @@ CI and tagged releases read the same public ID from the `TOKENBOARD_DISCORD_APPL
 
 `Scripts/package-release.sh <version>` builds the universal app, verifies its entitlements, and publishes a new zip plus SHA-256 sidecar without overwriting an existing artifact. Asset-manifest coverage remains part of development builds and CI. Run `Scripts/verify-asset-rights.sh release` explicitly when a strict rights-clearance check is needed; tagged release packaging does not invoke it automatically.
 
-## Manual native release acceptance
+## Native release acceptance
 
-These checks are interactive and must be recorded for a tagged release; merely building the app does not satisfy them.
+These checks are interactive and must be recorded for a tagged release; merely building the app does not satisfy them. A person may perform them directly, or an agent may perform them through UI automation when it launches a separately identified copy of the release app and grants access only to task-created synthetic roots. Agent acceptance must preserve the same observable evidence and resource measurements as human acceptance.
 
 1. Open the release app, explicitly select test Claude Code and Codex roots, and start a local import.
 2. Leave both roots unchanged for five minutes.
@@ -42,7 +42,7 @@ These checks are interactive and must be recorded for a tagged release; merely b
 5. Copy one synthetic fixture into a temporary granted root, import it, delete only that synthetic copy, refresh, and confirm the committed aggregate remains. Never delete or modify real source logs.
 6. With synthetic usage only, enable Discord Activity, confirm the alert matches the Settings preview, verify the activity in Discord, then disable it and confirm it clears. Repeat with Discord closed to verify the recoverable status and Retry path.
 
-Do not claim this five-minute acceptance check was run unless a person completed it in the native UI.
+Do not claim this five-minute acceptance check was run unless a person or agent completed it in the native UI. Record who performed it, whether the app identity and roots were isolated, and the measured results in the release notes.
 
 ## Explicit local aggregate audit
 
@@ -59,4 +59,4 @@ The script never mutates source logs or the ledger. It opens each discovered pat
 
 Parser bookkeeping lives in a private temporary directory and is removed on exit. A mismatch prints only content-safe provider/model/metric aggregates. `No differences found by the bounded live-source diagnostic` means only that this deliberately narrower comparison found no difference. It is not proof of Tokenboard equivalence: the script does not reproduce full discovery, source probing, checkpoint, replacement, deletion, or already-ingested-history semantics. Deleted or replaced logs and durable history can legitimately produce a mismatch. Never use the result as authorization to rewrite source logs or the Tokenboard ledger.
 
-Agents and automated contributors must not run this audit against real Claude Code or Codex roots, self-grant sandbox access, or open the app for a user. Automated verification must use only its checked-in synthetic fixtures and isolated app identity.
+Agents and automated contributors must not run this audit against real Claude Code or Codex roots, self-grant access to real paths, or open the installed app for a user. For native release acceptance only, an agent may launch a separately identified release bundle, grant only task-created synthetic roots, and operate that isolated app through UI automation. It must not read, grant, modify, or delete the user's real source logs or Tokenboard ledger, and it must remove the temporary app data and synthetic roots afterward. All other automated verification must likewise use only checked-in or generated synthetic fixtures and an isolated app identity.
