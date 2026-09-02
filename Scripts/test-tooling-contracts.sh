@@ -41,6 +41,8 @@ if /usr/bin/grep -R -q -- '--clobber' \
 fi
 
 runtime_gate="$repository_root/Scripts/verify-runtime-resources.sh"
+/usr/bin/grep -q -- 'CFFIXED_USER_HOME=' "$runtime_gate" \
+  || fail "runtime resource gate does not isolate Application Support from the real user home"
 for isolated_default in \
   'sourceBookmark.claude_code' \
   'sourceBookmark.codex' \
