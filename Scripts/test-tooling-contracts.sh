@@ -43,6 +43,10 @@ fi
 runtime_gate="$repository_root/Scripts/verify-runtime-resources.sh"
 /usr/bin/grep -q -- 'CFFIXED_USER_HOME=' "$runtime_gate" \
   || fail "runtime resource gate does not isolate Application Support from the real user home"
+/usr/bin/grep -q -- 'ResourceGate.$probe_suffix' "$runtime_gate" \
+  || fail "runtime resource gate reuses a persistent preferences identity"
+/usr/bin/grep -q -- 'defaults delete "$probe_identifier"' "$runtime_gate" \
+  || fail "runtime resource gate does not remove its isolated preferences"
 for isolated_default in \
   'sourceBookmark.claude_code' \
   'sourceBookmark.codex' \
