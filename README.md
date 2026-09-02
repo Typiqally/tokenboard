@@ -30,17 +30,17 @@
 
 <p align="center"><em>One glance in the menu bar, one click for the complete local picture.</em></p>
 
-## Current release — 0.9.0
+## Current release — 0.9.1
 
-Tokenboard 0.9.0 adds local Work Patterns with conservative focus-time estimates, recurring rhythm and AI-interaction observations, focus-block profiles, schedule ranges, and estimate composition. Existing installations can safely backfill older focus timing from still-available granted logs without duplicating token totals or changing import checkpoints. This release also improves source-log reconciliation and companion popover stability.
+Tokenboard 0.9.1 sharply reduces idle energy use. Native filesystem events are now the fast path, five-second metadata reconciliation is bounded to a fair set of 64 recent files, full safety inventories run every 15 minutes, and bursty ingestion refreshes are coalesced. The release also preserves committed aggregates and reconciliation coverage after source-log deletion, and correctly orders work-pattern activity across midnight.
 
 <p align="center">
-  <strong><a href="https://github.com/Typiqally/tokenboard/releases/download/v0.9.0/Tokenboard-0.9.0.zip">Download Tokenboard 0.9.0</a></strong>
+  <strong><a href="https://github.com/Typiqally/tokenboard/releases/download/v0.9.1/Tokenboard-0.9.1.zip">Download Tokenboard 0.9.1</a></strong>
   ·
-  <a href="https://github.com/Typiqally/tokenboard/releases/tag/v0.9.0">Release notes</a>
+  <a href="https://github.com/Typiqally/tokenboard/releases/tag/v0.9.1">Release notes</a>
 </p>
 
-The archive contains a universal Apple silicon and Intel app for macOS 14 or newer. SHA-256: `03c2c5ecc43694802636ab40c475ca0dab76ce9be08273449e5c336de57044e2`.
+The archive contains a universal Apple silicon and Intel app for macOS 14 or newer. SHA-256: `62180f7450a75f227435fd6fe0e74eab7bbf544cf21b030eb4eae9fdf68da7ee`.
 
 ## Why Tokenboard
 
