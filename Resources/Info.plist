@@ -8,8 +8,8 @@
   <key>CFBundleName</key><string>Tokenboard</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleIconFile</key><string>Tokenboard.icns</string>
-  <key>CFBundleShortVersionString</key><string>0.9.1</string>
-  <key>CFBundleVersion</key><string>16</string>
+  <key>CFBundleShortVersionString</key><string>0.9.2</string>
+  <key>CFBundleVersion</key><string>17</string>
   <key>TokenboardDiscordApplicationID</key><string>__TOKENBOARD_DISCORD_APPLICATION_ID__</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
