@@ -214,6 +214,22 @@ final class NativePresentationTests: XCTestCase {
         XCTAssertEqual(viewModel.snapshot?.breakdown.tokenTotal, 20)
     }
 
+    func testHistoryWindowRegistersVisibilityOnceUntilItCloses() throws {
+        let setup = try makeModel()
+        defer { setup.cleanup() }
+        let controller = HistoryWindowController(model: setup.model)
+        let request = HistoryOpenRequest(provider: nil, range: .today)
+
+        controller.show(request)
+        XCTAssertEqual(setup.model.historyPresentationConsumerCount, 1)
+
+        controller.show(request)
+        XCTAssertEqual(setup.model.historyPresentationConsumerCount, 1)
+
+        controller.windowWillClose(Notification(name: NSWindow.willCloseNotification))
+        XCTAssertEqual(setup.model.historyPresentationConsumerCount, 0)
+    }
+
     func testOnboardingCopyAndVisibilityRemainExplicitAndConsentNeutral() throws {
         XCTAssertEqual(
             OnboardingCopy.privacy,
