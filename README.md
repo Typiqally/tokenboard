@@ -30,17 +30,17 @@
 
 <p align="center"><em>One glance in the menu bar, one click for the complete local picture.</em></p>
 
-## Current release — 0.9.1
+## Current release — 0.9.2
 
-Tokenboard 0.9.1 sharply reduces idle energy use. Native filesystem events are now the fast path, five-second metadata reconciliation is bounded to a fair set of 64 recent files, full safety inventories run every 15 minutes, and bursty ingestion refreshes are coalesced. The release also preserves committed aggregates and reconciliation coverage after source-log deletion, and correctly orders work-pattern activity across midnight.
+Tokenboard 0.9.2 further reduces energy use during active Claude Code and Codex sessions. Native filesystem events keep ingestion and the menu-bar total responsive, while history and Work Patterns refresh at most once per minute while visible and every five minutes while hidden. Opening dirty history still refreshes it immediately.
 
 <p align="center">
-  <strong><a href="https://github.com/Typiqally/tokenboard/releases/download/v0.9.1/Tokenboard-0.9.1.zip">Download Tokenboard 0.9.1</a></strong>
+  <strong><a href="https://github.com/Typiqally/tokenboard/releases/download/v0.9.2/Tokenboard-0.9.2.zip">Download Tokenboard 0.9.2</a></strong>
   ·
-  <a href="https://github.com/Typiqally/tokenboard/releases/tag/v0.9.1">Release notes</a>
+  <a href="https://github.com/Typiqally/tokenboard/releases/tag/v0.9.2">Release notes</a>
 </p>
 
-The archive contains a universal Apple silicon and Intel app for macOS 14 or newer. SHA-256: `62180f7450a75f227435fd6fe0e74eab7bbf544cf21b030eb4eae9fdf68da7ee`.
+The archive contains a universal Apple silicon and Intel app for macOS 14 or newer. SHA-256: `67c8875901a874e775e3e5f49be7bf5290fc45499df1343ee3cc22c5877ec8cb`.
 
 ## Why Tokenboard
 
