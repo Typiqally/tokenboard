@@ -216,8 +216,9 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(rangesAfterSelection, queriedRanges)
     }
 
-    func testIncrementalUpdatesCoalesceHistoryQueriesUntilTheTrailingRefresh() async throws {
-        XCTAssertEqual(AppModel.productionHistoryRefreshInterval, .seconds(30))
+    func testHiddenIncrementalUpdatesWaitForTheFiveMinuteSafetyRefresh() async throws {
+        XCTAssertEqual(AppModel.productionVisibleHistoryRefreshInterval, .seconds(60))
+        XCTAssertEqual(AppModel.productionHiddenHistoryRefreshInterval, .seconds(5 * 60))
         let clock = ManualHistoryRefreshClock()
         let setup = try makeSetup(
             approved: true,
@@ -228,15 +229,8 @@ final class AppModelTests: XCTestCase {
         await setup.model.start()
         let initialRanges = await setup.query.queriedHistoryRanges()
         XCTAssertEqual(initialRanges, UsageHistoryRange.allCases)
-        let initialWindowStarted = await waitUntil {
-            await clock.requestCount == 1
-        }
-        XCTAssertTrue(initialWindowStarted)
-        let initialRequestedDurations = await clock.requestedDurations
-        XCTAssertEqual(
-            initialRequestedDurations,
-            [AppModel.productionHistoryRefreshInterval]
-        )
+        let initialTimerCount = await clock.requestCount
+        XCTAssertEqual(initialTimerCount, 0)
 
         await setup.model.receiveIngestionResult(
             incrementalResult(sequence: 2),
@@ -247,69 +241,145 @@ final class AppModelTests: XCTestCase {
             generation: setup.model.lifecycleGeneration
         )
 
-        let coalescedRanges = await setup.query.queriedHistoryRanges()
+        let safetyRefreshScheduled = await waitUntil {
+            await clock.requestCount == 1
+        }
+        XCTAssertTrue(safetyRefreshScheduled)
+        let hiddenRequestedDurations = await clock.requestedDurations
         XCTAssertEqual(
-            coalescedRanges,
+            hiddenRequestedDurations,
+            [AppModel.productionHiddenHistoryRefreshInterval]
+        )
+        let deferredRanges = await setup.query.queriedHistoryRanges()
+        XCTAssertEqual(
+            deferredRanges,
             initialRanges,
-            "incremental bursts must not recompute all history ranges per batch"
+            "hidden incremental updates must not recompute history before the safety deadline"
         )
 
         await clock.resumeNext()
-        let trailingRefreshCompleted = await waitUntil {
+        let safetyRefreshCompleted = await waitUntil {
             await setup.query.queriedHistoryRanges().count == initialRanges.count * 2
         }
-        XCTAssertTrue(trailingRefreshCompleted)
-        let nextWindowStarted = await waitUntil {
+        XCTAssertTrue(safetyRefreshCompleted)
+        let cooldownStarted = await waitUntil {
             await clock.requestCount == 2
         }
-        XCTAssertTrue(nextWindowStarted)
-        await setup.model.receiveIngestionResult(
-            incrementalResult(sequence: 4),
-            generation: setup.model.lifecycleGeneration
-        )
-        let rangesDuringNextWindow = await setup.query.queriedHistoryRanges()
+        XCTAssertTrue(cooldownStarted)
+        let hiddenCooldownDuration = await clock.lastRequestedDuration()
         XCTAssertEqual(
-            rangesDuringNextWindow.count,
-            initialRanges.count * 2,
-            "a new active window must continue coalescing incremental batches"
-        )
-        await clock.resumeNext()
-        let nextTrailingRefreshCompleted = await waitUntil {
-            await setup.query.queriedHistoryRanges().count == initialRanges.count * 3
-        }
-        XCTAssertTrue(nextTrailingRefreshCompleted)
-        let thirdWindowStarted = await waitUntil {
-            await clock.requestCount == 3
-        }
-        XCTAssertTrue(thirdWindowStarted)
-        let requestedDurations = await clock.requestedDurations
-        XCTAssertEqual(
-            requestedDurations,
-            Array(repeating: Duration.seconds(30), count: 3)
+            hiddenCooldownDuration,
+            AppModel.productionHiddenHistoryRefreshInterval
         )
         await clock.resumeNext()
         let refreshWindowBecameIdle = await waitUntil {
             setup.model.historyRefreshWindowTask == nil
         }
         XCTAssertTrue(refreshWindowBecameIdle)
+    }
+
+    func testVisibleIncrementalUpdatesRefreshImmediatelyThenCoalesceForOneMinute() async throws {
+        let clock = ManualHistoryRefreshClock()
+        let setup = try makeSetup(
+            approved: true,
+            grantedProviders: Set(Provider.allCases),
+            historyRefreshClock: clock
+        )
+        defer { setup.cleanup() }
+        await setup.model.start()
+        setup.model.historyPresentationDidAppear()
+        let initialRanges = await setup.query.queriedHistoryRanges()
 
         await setup.model.receiveIngestionResult(
-            incrementalResult(sequence: 5),
+            incrementalResult(sequence: 2),
             generation: setup.model.lifecycleGeneration
         )
-        let rangesAfterIdleLeadingRefresh = await setup.query.queriedHistoryRanges()
-        XCTAssertEqual(
-            rangesAfterIdleLeadingRefresh.count,
-            initialRanges.count * 4,
-            "the first incremental batch after an idle window must refresh immediately"
-        )
-        let fourthWindowStarted = await waitUntil {
-            await clock.requestCount == 4
+
+        let leadingRefreshCompleted = await waitUntil {
+            await setup.query.queriedHistoryRanges().count == initialRanges.count * 2
         }
-        XCTAssertTrue(fourthWindowStarted)
-        let lastRequestedDuration = await clock.lastRequestedDuration()
-        XCTAssertEqual(lastRequestedDuration, .seconds(30))
+        XCTAssertTrue(leadingRefreshCompleted)
+        let visibleWindowStarted = await waitUntil {
+            await clock.requestCount == 1
+        }
+        XCTAssertTrue(visibleWindowStarted)
+        let visibleRequestedDurations = await clock.requestedDurations
+        XCTAssertEqual(
+            visibleRequestedDurations,
+            [AppModel.productionVisibleHistoryRefreshInterval]
+        )
+
+        await setup.model.receiveIngestionResult(
+            incrementalResult(sequence: 3),
+            generation: setup.model.lifecycleGeneration
+        )
+        let rangesDuringVisibleWindow = await setup.query.queriedHistoryRanges()
+        XCTAssertEqual(
+            rangesDuringVisibleWindow.count,
+            initialRanges.count * 2,
+            "visible incremental bursts must coalesce until the one-minute deadline"
+        )
+
         await clock.resumeNext()
+        let trailingRefreshCompleted = await waitUntil {
+            await setup.query.queriedHistoryRanges().count == initialRanges.count * 3
+        }
+        XCTAssertTrue(trailingRefreshCompleted)
+        let visibleCooldownDuration = await clock.lastRequestedDuration()
+        XCTAssertEqual(visibleCooldownDuration, .seconds(60))
+        await clock.resumeNext()
+        let refreshWindowBecameIdle = await waitUntil {
+            setup.model.historyRefreshWindowTask == nil
+        }
+        XCTAssertTrue(refreshWindowBecameIdle)
+        setup.model.historyPresentationDidDisappear()
+    }
+
+    func testOpeningHistoryPresentationImmediatelyFlushesHiddenDirtyHistory() async throws {
+        let clock = ManualHistoryRefreshClock()
+        let setup = try makeSetup(
+            approved: true,
+            grantedProviders: Set(Provider.allCases),
+            historyRefreshClock: clock
+        )
+        defer { setup.cleanup() }
+        await setup.model.start()
+        let initialRanges = await setup.query.queriedHistoryRanges()
+
+        await setup.model.receiveIngestionResult(
+            incrementalResult(sequence: 2),
+            generation: setup.model.lifecycleGeneration
+        )
+        let hiddenWindowStarted = await waitUntil {
+            await clock.requestCount == 1
+        }
+        XCTAssertTrue(hiddenWindowStarted)
+        let rangesBeforeOpening = await setup.query.queriedHistoryRanges()
+        XCTAssertEqual(rangesBeforeOpening, initialRanges)
+
+        setup.model.historyPresentationDidAppear()
+
+        let openingRefreshCompleted = await waitUntil {
+            await setup.query.queriedHistoryRanges().count == initialRanges.count * 2
+        }
+        XCTAssertTrue(openingRefreshCompleted)
+        let visibleWindowStarted = await waitUntil {
+            await clock.requestCount == 2
+        }
+        XCTAssertTrue(visibleWindowStarted)
+        let openingRequestedDurations = await clock.requestedDurations
+        XCTAssertEqual(
+            openingRequestedDurations,
+            [
+                AppModel.productionHiddenHistoryRefreshInterval,
+                AppModel.productionVisibleHistoryRefreshInterval,
+            ]
+        )
+
+        // Release the cancelled hidden timer followed by the active visible timer.
+        await clock.resumeNext()
+        await clock.resumeNext()
+        setup.model.historyPresentationDidDisappear()
     }
 
     func testCompanionUsesTodayHistoryWithoutPersistingASecondTokenTotal() async throws {

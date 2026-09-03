@@ -26,9 +26,11 @@ final class NativePresentationTests: XCTestCase {
 
         controller.popoverDidShow(Notification(name: NSPopover.didShowNotification))
         XCTAssertTrue(controller.renderedAmbientMotionActive)
+        XCTAssertEqual(setup.model.historyPresentationConsumerCount, 1)
 
         controller.popoverDidClose(Notification(name: NSPopover.didCloseNotification))
         XCTAssertFalse(controller.renderedAmbientMotionActive)
+        XCTAssertEqual(setup.model.historyPresentationConsumerCount, 0)
     }
 
     func testRichPopoverExpandsOnlyForACompanionAndMenuIconIsOptIn() async throws {
