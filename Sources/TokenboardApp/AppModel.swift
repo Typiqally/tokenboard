@@ -4,7 +4,8 @@ import TokenboardCore
 
 @MainActor
 final class AppModel: ObservableObject {
-    static let productionHistoryRefreshInterval = Duration.seconds(30)
+    static let productionVisibleHistoryRefreshInterval = Duration.seconds(60)
+    static let productionHiddenHistoryRefreshInterval = Duration.seconds(5 * 60)
 
     @Published private(set) var state: AppPublishedState
     @Published private(set) var settingsState: AppSettingsState
@@ -77,7 +78,8 @@ final class AppModel: ObservableObject {
     let localDataRevealer: any AppLocalDataRevealing
     let databaseRecovery: any AppDatabaseRecovering
     let historyRefreshClock: any IngestionClock
-    let historyRefreshInterval: Duration
+    let visibleHistoryRefreshInterval: Duration
+    let hiddenHistoryRefreshInterval: Duration
     let discordPresence: DiscordPresenceCoordinator
     var activeGrants: [Provider: ActiveSourceGrant] = [:]
     var lastSummary: UsageSummary?
@@ -92,6 +94,8 @@ final class AppModel: ObservableObject {
     var historyRefreshWindowTask: Task<Void, Never>?
     var historyRefreshWindowGeneration: UInt64 = 0
     var historyRefreshPending = false
+    var historyPresentationConsumerCount = 0
+    var isHistoryPresentationVisible: Bool { historyPresentationConsumerCount > 0 }
     var activityGeneration: UInt64 = 0
     var sourceMutationGeneration: UInt64 = 0
     var settingsActivityGeneration: UInt64 = 0
@@ -136,7 +140,8 @@ final class AppModel: ObservableObject {
         localDataRevealer: (any AppLocalDataRevealing)? = nil,
         databaseRecovery: (any AppDatabaseRecovering)? = nil,
         historyRefreshClock: any IngestionClock = ContinuousIngestionClock(),
-        historyRefreshInterval: Duration = AppModel.productionHistoryRefreshInterval
+        visibleHistoryRefreshInterval: Duration = AppModel.productionVisibleHistoryRefreshInterval,
+        hiddenHistoryRefreshInterval: Duration = AppModel.productionHiddenHistoryRefreshInterval
     ) {
         self.ledger = ledger
         self.queryService = queryService
@@ -153,7 +158,8 @@ final class AppModel: ObservableObject {
         self.pasteboard = pasteboard ?? GeneralPasteboardTextCopier()
         self.localDataRevealer = localDataRevealer ?? WorkspaceLocalDataRevealer()
         self.historyRefreshClock = historyRefreshClock
-        self.historyRefreshInterval = historyRefreshInterval
+        self.visibleHistoryRefreshInterval = visibleHistoryRefreshInterval
+        self.hiddenHistoryRefreshInterval = hiddenHistoryRefreshInterval
         self.databaseRecovery = databaseRecovery ?? DatabaseRecoveryService(
             databaseURL: applicationPaths.ledger,
             backupDirectory: applicationPaths.backups
@@ -598,6 +604,7 @@ final class AppModel: ObservableObject {
         historyQueryGeneration &+= 1
         historyRefreshWindowGeneration &+= 1
         historyRefreshPending = false
+        historyPresentationConsumerCount = 0
         let startup = startupTask
         let currentActivity = activity?.task
         let currentSourceMutation = sourceMutation?.task

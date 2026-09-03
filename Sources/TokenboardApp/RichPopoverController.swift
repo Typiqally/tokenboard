@@ -166,11 +166,13 @@ final class RichPopoverController: NSObject, NSPopoverDelegate {
 
     func popoverDidShow(_ notification: Notification) {
         visibility.isPresented = true
+        model?.historyPresentationDidAppear()
         clickAwayDismissal.popoverDidShow()
     }
 
     func popoverDidClose(_ notification: Notification) {
         visibility.isPresented = false
+        model?.historyPresentationDidDisappear()
         clickAwayDismissal.popoverDidClose()
     }
 

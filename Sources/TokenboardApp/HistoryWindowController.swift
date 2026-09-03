@@ -419,6 +419,7 @@ final class HistoryWindowController: NSWindowController, NSWindowDelegate {
     }
 
     func show(_ request: HistoryOpenRequest) {
+        let wasVisible = window?.isVisible == true
         if let viewModel {
             viewModel.load(request)
         } else {
@@ -427,9 +428,13 @@ final class HistoryWindowController: NSWindowController, NSWindowDelegate {
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        if !wasVisible {
+            model.historyPresentationDidAppear()
+        }
     }
 
     func windowWillClose(_ notification: Notification) {
+        model.historyPresentationDidDisappear()
         releaseHistoryWindow()
     }
 

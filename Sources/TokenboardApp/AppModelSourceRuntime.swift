@@ -688,17 +688,52 @@ extension AppModel {
     func refreshUsageHistoryAfterIngestion(scope: IngestionBatchScope) async {
         if scope != .incremental {
             historyRefreshPending = false
-            startHistoryRefreshWindow()
+            cancelHistoryRefreshWindow()
+            if isHistoryPresentationVisible {
+                startHistoryRefreshWindow()
+            }
             await queryUsageHistory()
             return
         }
 
+        historyRefreshPending = true
         guard historyRefreshWindowTask == nil else {
-            historyRefreshPending = true
             return
         }
         startHistoryRefreshWindow()
+        guard isHistoryPresentationVisible else { return }
+        historyRefreshPending = false
         await queryUsageHistory()
+    }
+
+    func historyPresentationDidAppear() {
+        historyPresentationConsumerCount += 1
+        guard historyPresentationConsumerCount == 1 else { return }
+        rescheduleHistoryRefreshForPresentationVisibility()
+    }
+
+    func historyPresentationDidDisappear() {
+        guard historyPresentationConsumerCount > 0 else { return }
+        historyPresentationConsumerCount -= 1
+        guard historyPresentationConsumerCount == 0 else { return }
+        rescheduleHistoryRefreshForPresentationVisibility()
+    }
+
+    func rescheduleHistoryRefreshForPresentationVisibility() {
+        cancelHistoryRefreshWindow()
+        guard historyRefreshPending else { return }
+        startHistoryRefreshWindow()
+        guard isHistoryPresentationVisible else { return }
+        historyRefreshPending = false
+        Task { @MainActor [weak self] in
+            await self?.queryUsageHistory()
+        }
+    }
+
+    func cancelHistoryRefreshWindow() {
+        historyRefreshWindowGeneration &+= 1
+        historyRefreshWindowTask?.cancel()
+        historyRefreshWindowTask = nil
     }
 
     func startHistoryRefreshWindow() {
@@ -706,7 +741,9 @@ extension AppModel {
         let generation = historyRefreshWindowGeneration
         historyRefreshWindowTask?.cancel()
         let clock = historyRefreshClock
-        let interval = historyRefreshInterval
+        let interval = isHistoryPresentationVisible
+            ? visibleHistoryRefreshInterval
+            : hiddenHistoryRefreshInterval
         historyRefreshWindowTask = Task { @MainActor [weak self] in
             do {
                 try await clock.sleep(for: interval)
