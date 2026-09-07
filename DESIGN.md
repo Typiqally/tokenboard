@@ -20,9 +20,10 @@ The approved visual direction is the **rich popover**. Its companion History win
 - Native transient `NSPopover`, `350 × 560`; opens without an entrance animation and dismisses when clicking outside or pressing Escape.
 - The quiet header menu controls the exact summary period: Today, This Week, This Month, This Year, or All Time.
 - The headline and API-equivalent subtitle always use that summary period.
+- When the summary contains unpriced tokens, show a warning triangle beside the API-equivalent subtitle, with and without a companion. Its native hover tooltip and VoiceOver label list the affected models and providers, explain that those tokens are excluded, and point to Settings → Pricing. Use the cached summary's coverage; opening or hovering the popover must not query the ledger.
 - The segmented `TODAY / 7D / 30D / 90D` control is independent. It controls the chart, comparison, work-pattern preview, and provider shares, defaults to 30D on launch, and changes instantly from cached local snapshots. Today uses hourly points; longer ranges use daily points.
 - Hover or scrub a chart point to show its local hour/day, exact tokens, and API-equivalent value in a clamped overlay. Click to pin it. Inspection never changes the range-level headline, comparison, preview, or provider shares, and resets when the range, snapshot, or popover visibility changes.
-- Insert one compact, divider-bound Work Patterns strip between comparison and provider shares. Its three values summarize the selected trend range and the whole strip opens History directly on Work Patterns.
+- Insert one compact, divider-bound metrics row between comparison and provider shares, without a Work Patterns heading or chevron. Its three values summarize the selected trend range and the whole row opens History directly on Work Patterns.
 - Provider rows open History filtered to that provider and preserve the selected trend range.
 - The footer contains direct History and Settings navigation. Pricing remains in Settings.
 - The range control spans the full 310-point content column with four equal native segments.

@@ -124,7 +124,7 @@ public struct PriceResolver: Sendable {
         try analyze(rows: rows).unpricedUsage
     }
 
-    private func analyze(
+    func analyze(
         rows: [DailyUsageRow]
     ) throws -> (resolution: PriceResolution, unpricedUsage: [UnpricedUsageGroup]) {
         var tokenTotal: Int64 = 0

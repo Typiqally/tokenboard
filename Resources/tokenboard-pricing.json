@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "catalogID": "tokenboard-2026-08-10-3",
-  "generatedAt": "2026-08-10T17:05:32Z",
+  "catalogID": "tokenboard-2026-09-07-2",
+  "generatedAt": "2026-09-07T14:31:04Z",
   "origin": {
     "kind": "tokenboard_repository",
     "url": "https://raw.githubusercontent.com/Typiqally/tokenboard/main/Resources/tokenboard-pricing.json"
@@ -273,6 +273,28 @@
     },
     {
       "provider": "claude_code",
+      "canonicalModelID": "claude-fable-5-1",
+      "aliases": [
+        {"observedModelID":"claude-fable-5-1","effectiveFrom":"2026-09-01","effectiveTo":null}
+      ],
+      "rates": [
+        {
+          "effectiveFrom":"2026-09-01",
+          "effectiveTo":null,
+          "prices": {
+            "input_uncached":"10.00",
+            "input_cache_read":"0.25",
+            "input_cache_write_5m":"12.50",
+            "input_cache_write_1h":"20.00",
+            "output":"50.00"
+          },
+          "provenanceURL":"https://platform.claude.com/docs/en/models/fable-5-1/overview",
+          "verifiedAt":"2026-09-07"
+        }
+      ]
+    },
+    {
+      "provider": "claude_code",
       "canonicalModelID": "claude-haiku-4-5-20251001",
       "aliases": [
         {"observedModelID":"claude-haiku-4-5","effectiveFrom":"2025-10-15","effectiveTo":null},
@@ -313,6 +335,28 @@
           },
           "provenanceURL":"https://platform.claude.com/docs/en/about-claude/pricing",
           "verifiedAt":"2026-08-10"
+        }
+      ]
+    },
+    {
+      "provider": "claude_code",
+      "canonicalModelID": "claude-mythos-5-1",
+      "aliases": [
+        {"observedModelID":"claude-mythos-5-1","effectiveFrom":"2026-09-01","effectiveTo":null}
+      ],
+      "rates": [
+        {
+          "effectiveFrom":"2026-09-01",
+          "effectiveTo":null,
+          "prices": {
+            "input_uncached":"10.00",
+            "input_cache_read":"0.25",
+            "input_cache_write_5m":"12.50",
+            "input_cache_write_1h":"20.00",
+            "output":"50.00"
+          },
+          "provenanceURL":"https://platform.claude.com/docs/en/models/mythos-5-1/overview",
+          "verifiedAt":"2026-09-07"
         }
       ]
     },
@@ -369,7 +413,7 @@
       "rates": [
         {
           "effectiveFrom":"2026-06-30",
-          "effectiveTo":"2026-08-31",
+          "effectiveTo":null,
           "prices": {
             "input_uncached":"2.00",
             "input_cache_read":"0.20",
@@ -378,20 +422,7 @@
             "output":"10.00"
           },
           "provenanceURL":"https://platform.claude.com/docs/en/about-claude/pricing",
-          "verifiedAt":"2026-08-10"
-        },
-        {
-          "effectiveFrom":"2026-09-01",
-          "effectiveTo":null,
-          "prices": {
-            "input_uncached":"3.00",
-            "input_cache_read":"0.30",
-            "input_cache_write_5m":"3.75",
-            "input_cache_write_1h":"6.00",
-            "output":"15.00"
-          },
-          "provenanceURL":"https://platform.claude.com/docs/en/about-claude/pricing",
-          "verifiedAt":"2026-08-10"
+          "verifiedAt":"2026-09-07"
         }
       ]
     },
@@ -598,13 +629,14 @@
       "provider": "codex",
       "canonicalModelID": "gpt-5.6-sol",
       "aliases": [
+        {"observedModelID":"gpt-daybreak-blue-latest","effectiveFrom":"2026-08-07","effectiveTo":null},
         {"observedModelID":"gpt-5.6","effectiveFrom":"2026-07-09","effectiveTo":null},
         {"observedModelID":"gpt-5.6-sol","effectiveFrom":"2026-07-09","effectiveTo":null}
       ],
       "rates": [
         {
           "effectiveFrom":"2026-07-09",
-          "effectiveTo":null,
+          "effectiveTo":"2026-08-21",
           "prices": {
             "input_uncached":"5.00",
             "input_cache_read":"0.50",
@@ -613,6 +645,18 @@
           },
           "provenanceURL":"https://developers.openai.com/api/docs/pricing",
           "verifiedAt":"2026-08-10"
+        },
+        {
+          "effectiveFrom":"2026-08-21",
+          "effectiveTo":null,
+          "prices": {
+            "input_uncached":"4.00",
+            "input_cache_read":"0.40",
+            "input_cache_write":"5.00",
+            "output":"20.00"
+          },
+          "provenanceURL":"https://developers.openai.com/api/docs/changelog",
+          "verifiedAt":"2026-09-07"
         }
       ]
     },
@@ -646,6 +690,49 @@
           },
           "provenanceURL":"https://developers.openai.com/api/docs/pricing",
           "verifiedAt":"2026-08-10"
+        }
+      ]
+    },
+    {
+      "provider": "codex",
+      "canonicalModelID": "gpt-5.6-cyber",
+      "aliases": [
+        {"observedModelID":"gpt-5.6-cyber","effectiveFrom":"2026-08-07","effectiveTo":null},
+        {"observedModelID":"gpt-daybreak-red-latest","effectiveFrom":"2026-08-07","effectiveTo":null}
+      ],
+      "rates": [
+        {
+          "effectiveFrom":"2026-08-07",
+          "effectiveTo":null,
+          "prices": {
+            "input_uncached":"12.50",
+            "input_cache_read":"1.25",
+            "input_cache_write":"15.625",
+            "output":"75.00"
+          },
+          "provenanceURL":"https://developers.openai.com/api/docs/pricing",
+          "verifiedAt":"2026-09-07"
+        }
+      ]
+    },
+    {
+      "provider": "codex",
+      "canonicalModelID": "gpt-6-astra",
+      "aliases": [
+        {"observedModelID":"gpt-6-astra","effectiveFrom":"2026-09-03","effectiveTo":null}
+      ],
+      "rates": [
+        {
+          "effectiveFrom":"2026-09-03",
+          "effectiveTo":null,
+          "prices": {
+            "input_uncached":"10.00",
+            "input_cache_read":"1.00",
+            "input_cache_write":"12.50",
+            "output":"50.00"
+          },
+          "provenanceURL":"https://developers.openai.com/api/docs/models/gpt-6-astra",
+          "verifiedAt":"2026-09-07"
         }
       ]
     }

@@ -6,6 +6,49 @@ import TokenboardCore
 
 @MainActor
 final class RichUsagePresentationTests: XCTestCase {
+    func testPricingWarningListsSummaryModelsOnceAndIgnoresChartRange() throws {
+        var state = AppPublishedState.initial(period: .thisMonth, displayMetric: .tokens)
+        state.lifecycle = .ready
+        let groups = [
+            unpriced(model: "gpt-missing", reason: .missingAlias),
+            unpriced(model: "gpt-missing", reason: .missingRate),
+            unpriced(model: "claude-missing", provider: .claudeCode, reason: .missingAlias),
+            unpriced(model: "unknown-" + String(repeating: "a", count: 64), reason: .opaqueModel)
+        ]
+        state.presentation = MenuPresentation(
+            summary: UsageSummary(
+                period: .thisMonth,
+                tokenTotal: 1_000,
+                knownAPIEquivalentUSD: 2,
+                unpricedTokens: 400,
+                unpricedUsage: groups
+            ),
+            displayMetric: .tokens
+        )
+        state.historyState = .loaded([.sevenDays: snapshot(tokenTotal: 0)])
+        state.selectedHistoryRange = .sevenDays
+
+        let warning = try XCTUnwrap(RichPopoverPresentation.make(
+            state: state, startupError: nil, relativeTo: .now
+        ).pricingWarning)
+
+        XCTAssertTrue(warning.contains("400 unpriced tokens"))
+        XCTAssertTrue(warning.contains("Claude Code: claude-missing"))
+        XCTAssertEqual(warning.components(separatedBy: "Codex: gpt-missing").count, 2)
+        XCTAssertTrue(warning.contains("Codex: Unidentified model"))
+        XCTAssertFalse(warning.contains("unknown-"))
+        XCTAssertTrue(warning.contains("Settings → Pricing"))
+
+        state.selectedHistoryRange = .ninetyDays
+        XCTAssertEqual(RichPopoverPresentation.make(
+            state: state, startupError: nil, relativeTo: .now
+        ).pricingWarning, warning)
+        state.lifecycle = .failed(message: "Synthetic failure")
+        XCTAssertNil(RichPopoverPresentation.make(
+            state: state, startupError: nil, relativeTo: .now
+        ).pricingWarning)
+    }
+
     func testFirstImportUsesActivityInsteadOfAZeroHeadline() {
         var state = AppPublishedState.initial(period: .thisMonth, displayMetric: .tokens)
         state.lifecycle = .ready
@@ -22,6 +65,7 @@ final class RichUsagePresentationTests: XCTestCase {
         XCTAssertEqual(presentation.statusSystemImageName, "hourglass")
         XCTAssertEqual(presentation.headline, "Importing usage…")
         XCTAssertFalse(presentation.headline.contains("0"))
+        XCTAssertNil(presentation.pricingWarning)
     }
 
     func testRefreshControlDisablesImmediatelyForPendingAndActiveRefreshes() {
@@ -84,6 +128,7 @@ final class RichUsagePresentationTests: XCTestCase {
         XCTAssertEqual(presentation.statusTitle, "0")
         XCTAssertEqual(presentation.headline, "0 tokens")
         XCTAssertEqual(presentation.emptyMessage, "No usage recorded in this range")
+        XCTAssertNil(presentation.pricingWarning)
     }
 
     func testComparisonFormatsExtremePercentWithoutIntegerConversion() {
@@ -143,7 +188,6 @@ final class RichUsagePresentationTests: XCTestCase {
         )
 
         XCTAssertEqual(presentation.periodTitle, "This Month")
-        XCTAssertEqual(presentation.trendRangeTitle, "7D")
         XCTAssertEqual(presentation.comparison, UsageComparisonPresentation(
             title: "+25% vs previous 7 days",
             systemImageName: "arrow.up.right",
@@ -319,7 +363,6 @@ final class RichUsagePresentationTests: XCTestCase {
         XCTAssertEqual(
             WorkPatternPreviewPresentation.make(workPatterns, range: .thirtyDays),
             WorkPatternPreviewPresentation(
-                title: "WORK PATTERNS · 30D",
                 metrics: [
                     WorkPatternPreviewMetric(title: "FOCUS / DAY", value: "9m"),
                     WorkPatternPreviewMetric(title: "AVG BLOCK", value: "7m"),
@@ -405,6 +448,22 @@ final class RichUsagePresentationTests: XCTestCase {
             XCTAssertGreaterThan(image.size.width, 0)
             XCTAssertGreaterThan(image.size.height, 0)
         }
+    }
+
+    private func unpriced(
+        model: String,
+        provider: Provider = .codex,
+        reason: UnpricedUsageReason
+    ) -> UnpricedUsageGroup {
+        UnpricedUsageGroup(
+            provider: provider,
+            observedModelID: model,
+            canonicalModelID: nil,
+            reason: reason,
+            tokenCount: 100,
+            firstObservedDay: "2026-08-05",
+            lastObservedDay: "2026-08-05"
+        )
     }
 
     private func snapshot(tokenTotal: Int64) -> UsageHistorySnapshot {

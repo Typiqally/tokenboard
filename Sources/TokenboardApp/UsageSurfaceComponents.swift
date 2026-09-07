@@ -38,6 +38,28 @@ struct SurfaceEyebrow: View {
     }
 }
 
+struct APIValueLabel: View {
+    let title: String
+    let pricingWarning: String?
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+            Text(title)
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
+            if let pricingWarning {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .frame(width: 20, height: 20)
+                    .contentShape(Rectangle())
+                    .help(pricingWarning)
+                    .accessibilityLabel("Incomplete API estimate. \(pricingWarning)")
+            }
+        }
+    }
+}
+
 struct ProviderGlyph: View {
     let provider: Provider
     var size: CGFloat = 34

@@ -171,7 +171,7 @@ struct RichUsagePopoverView: View {
                 .monospacedDigit()
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-            Text(presentation.apiValueTitle)
+            APIValueLabel(title: presentation.apiValueTitle, pricingWarning: presentation.pricingWarning)
                 .font(.system(size: TokenboardSurfaceMetrics.companionSubtitleFontSize))
                 .foregroundStyle(.white.opacity(0.82))
         }
@@ -382,7 +382,7 @@ struct RichUsagePopoverView: View {
                     .monospacedDigit()
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
-                Text(presentation.apiValueTitle)
+                APIValueLabel(title: presentation.apiValueTitle, pricingWarning: presentation.pricingWarning)
                     .font(.system(size: 14))
                     .foregroundStyle(.secondary)
             }
@@ -554,18 +554,7 @@ struct RichUsagePopoverView: View {
             )
             dismiss()
         } label: {
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 4) {
-                    Text(presentation.workPatternPreview?.title
-                        ?? "WORK PATTERNS · \(presentation.trendRangeTitle)")
-                        .font(.caption.weight(.semibold))
-                        .tracking(0.35)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.tertiary)
-                }
+            Group {
                 if let preview = presentation.workPatternPreview {
                     HStack(spacing: 0) {
                         ForEach(Array(preview.metrics.enumerated()), id: \.offset) { index, metric in

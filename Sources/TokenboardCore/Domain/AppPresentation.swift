@@ -18,6 +18,7 @@ public struct MenuPresentation: Equatable, Sendable {
     public let tokenTitle: String
     public let apiValueTitle: String
     public let unpricedTitle: String?
+    public let unpricedUsage: [UnpricedUsageGroup]
 
     public init(
         summary: UsageSummary,
@@ -25,6 +26,7 @@ public struct MenuPresentation: Equatable, Sendable {
         displayCurrency: DisplayCurrency = .usd
     ) {
         tokenTotal = summary.tokenTotal
+        unpricedUsage = summary.unpricedUsage
         let compactTokens = ValueFormatter.compactTokens(summary.tokenTotal)
         tokenTitle = "\(ValueFormatter.exactTokens(summary.tokenTotal)) tokens"
         let converted = CurrencyConverter.convert(

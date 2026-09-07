@@ -158,7 +158,6 @@ struct WorkPatternPreviewMetric: Equatable, Sendable {
 }
 
 struct WorkPatternPreviewPresentation: Equatable, Sendable {
-    let title: String
     let metrics: [WorkPatternPreviewMetric]
     let accessibilityTitle: String
 
@@ -169,7 +168,6 @@ struct WorkPatternPreviewPresentation: Equatable, Sendable {
         guard let snapshot else { return nil }
         let peakHour = snapshot.volumePeakHour.map { UsageHistoryPresentation.hourTitle($0.hour) }
             ?? "—"
-        let title = "WORK PATTERNS · \(UsageHistoryPresentation.rangeTitle(range))"
         if range == .today {
             let metrics = [
                 WorkPatternPreviewMetric(
@@ -188,7 +186,6 @@ struct WorkPatternPreviewPresentation: Equatable, Sendable {
                 ),
             ]
             return WorkPatternPreviewPresentation(
-                title: title,
                 metrics: metrics,
                 accessibilityTitle: "Work patterns for today. Estimated focus time \(spokenDuration(snapshot.totalFocusMinutes)). \(snapshot.focusSessionCount) focus blocks. Longest focus block \(spokenDuration(snapshot.longestFocusSessionMinutes)). Open Work Patterns."
             )
@@ -201,7 +198,6 @@ struct WorkPatternPreviewPresentation: Equatable, Sendable {
             WorkPatternPreviewMetric(title: "PEAK HOUR", value: peakHour),
         ]
         return WorkPatternPreviewPresentation(
-            title: title,
             metrics: metrics,
             accessibilityTitle: "Work patterns for the \(UsageHistoryPresentation.rangeDescription(range).lowercased()). Estimated focus time \(spokenDuration(snapshot.averageFocusMinutesPerActiveDay)) per active day. Average focus block \(spokenDuration(snapshot.averageFocusSessionMinutes)). Peak hour \(peakHour). Open Work Patterns."
         )
@@ -479,7 +475,7 @@ struct RichPopoverPresentation: Equatable, Sendable {
     let recencyAccessibilityTitle: String
     let headline: String
     let apiValueTitle: String
-    let trendRangeTitle: String
+    let pricingWarning: String?
     let snapshot: UsageHistorySnapshot?
     let comparison: UsageComparisonPresentation?
     let providerRows: [ProviderSharePresentation]
@@ -546,7 +542,7 @@ struct RichPopoverPresentation: Equatable, Sendable {
             recencyAccessibilityTitle: recency.accessibilityTitle,
             headline: headline,
             apiValueTitle: apiValueTitle,
-            trendRangeTitle: UsageHistoryPresentation.rangeTitle(state.selectedHistoryRange),
+            pricingWarning: contentState == .ready ? pricingWarning(for: state.presentation) : nil,
             snapshot: snapshot,
             comparison: snapshot.map {
                 UsageHistoryPresentation.comparison($0.comparison, range: $0.range)
@@ -560,6 +556,17 @@ struct RichPopoverPresentation: Equatable, Sendable {
                 ? "No usage recorded in this range"
                 : nil
         )
+    }
+
+    private static func pricingWarning(for presentation: MenuPresentation?) -> String? {
+        guard let presentation, let unpricedTitle = presentation.unpricedTitle else { return nil }
+        let models = Set(presentation.unpricedUsage.map { usage in
+            let model = usage.reason == .opaqueModel ? "Unidentified model" : usage.observedModelID
+            return "\(usage.provider.displayName): \(model)"
+        }).sorted()
+        let details = models.isEmpty ? "" : "\n\nMissing or incomplete pricing for:\n"
+            + models.map { "• \($0)" }.joined(separator: "\n")
+        return "This estimate excludes \(unpricedTitle) tokens.\(details)\n\nUpdate pricing in Settings → Pricing."
     }
 
     private static func providerRows(

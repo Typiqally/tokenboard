@@ -15,12 +15,14 @@ public struct UsageQueryService: Sendable {
         let interval = period.interval(containing: now, calendar: calendar)
         let rows = try await ledger.usageRows(in: interval, calendar: calendar)
         let pricing = try await ledger.pricingSnapshot()
-        let resolution = try PriceResolver().resolve(rows: rows, pricing: pricing)
+        let analysis = try PriceResolver(pricing: pricing).analyze(rows: rows)
+        let resolution = analysis.resolution
         return UsageSummary(
             period: period,
             tokenTotal: resolution.tokenTotal,
             knownAPIEquivalentUSD: resolution.knownUSD,
             unpricedTokens: resolution.unpricedTokens,
+            unpricedUsage: analysis.unpricedUsage,
             exchangeRates: pricing.latestExchangeRates
         )
     }

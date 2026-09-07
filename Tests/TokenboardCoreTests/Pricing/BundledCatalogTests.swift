@@ -8,20 +8,26 @@ final class BundledCatalogTests: XCTestCase {
         let catalog = try PricingCatalogValidator().validate(PricingCatalogLoader().load(data))
 
         XCTAssertEqual(catalog.schemaVersion, 2)
-        XCTAssertEqual(catalog.catalogID, "tokenboard-2026-08-10-3")
+        XCTAssertEqual(catalog.catalogID, "tokenboard-2026-09-07-2")
         let latestAliases: Set<String> = [
                 "claude-fable-5",
+                "claude-fable-5-1",
                 "claude-haiku-4-5",
                 "claude-haiku-4-5-20251001",
                 "claude-mythos-5",
+                "claude-mythos-5-1",
                 "claude-opus-4-8",
                 "claude-opus-5",
                 "claude-sonnet-5",
                 "codex-auto-review",
                 "gpt-5.6",
+                "gpt-5.6-cyber",
                 "gpt-5.6-luna",
                 "gpt-5.6-sol",
-                "gpt-5.6-terra"
+                "gpt-5.6-terra",
+                "gpt-6-astra",
+                "gpt-daybreak-blue-latest",
+                "gpt-daybreak-red-latest"
         ]
         XCTAssertTrue(latestAliases.isSubset(of: Set(catalog.models.flatMap(\.aliases).map(\.observedModelID))))
 
@@ -57,16 +63,9 @@ final class BundledCatalogTests: XCTestCase {
             in: catalog,
             modelID: "claude-sonnet-5",
             from: "2026-06-30",
-            to: "2026-08-31",
             prices: claudePrices(input: "2", cacheRead: "0.2", cacheWrite5m: "2.5", cacheWrite1h: "4", output: "10"),
-            provenance: anthropicPricing
-        )
-        try assertRate(
-            in: catalog,
-            modelID: "claude-sonnet-5",
-            from: "2026-09-01",
-            prices: claudePrices(input: "3", cacheRead: "0.3", cacheWrite5m: "3.75", cacheWrite1h: "6", output: "15"),
-            provenance: anthropicPricing
+            provenance: anthropicPricing,
+            verifiedAt: "2026-09-07"
         )
         try assertRate(
             in: catalog,
@@ -82,11 +81,20 @@ final class BundledCatalogTests: XCTestCase {
             in: catalog,
             modelID: "gpt-5.6-sol",
             from: "2026-07-09",
+            to: "2026-08-21",
             prices: openAIPrices(input: "5", cacheRead: "0.5", cacheWrite: "6.25", output: "30"),
             provenance: openAIPricing
         )
+        try assertRate(
+            in: catalog,
+            modelID: "gpt-5.6-sol",
+            from: "2026-08-21",
+            prices: openAIPrices(input: "4", cacheRead: "0.4", cacheWrite: "5", output: "20"),
+            provenance: openAIChangelog,
+            verifiedAt: "2026-09-07"
+        )
         let sol = try model(in: catalog, named: "gpt-5.6-sol")
-        XCTAssertEqual(Set(sol.aliases.map(\.observedModelID)), ["gpt-5.6", "gpt-5.6-sol"])
+        XCTAssertEqual(Set(sol.aliases.map(\.observedModelID)), ["gpt-5.6", "gpt-5.6-sol", "gpt-daybreak-blue-latest"])
 
         try assertRate(
             in: catalog,
@@ -231,6 +239,7 @@ final class BundledCatalogTests: XCTestCase {
         to effectiveTo: String? = nil,
         prices: [UsageMetric: Decimal],
         provenance: String,
+        verifiedAt: String = "2026-08-10",
         file: StaticString = #filePath,
         line: UInt = #line
     ) throws {
@@ -244,7 +253,7 @@ final class BundledCatalogTests: XCTestCase {
         XCTAssertEqual(rate.effectiveTo, effectiveTo, file: file, line: line)
         XCTAssertEqual(rate.prices, prices, file: file, line: line)
         XCTAssertEqual(rate.provenanceURL.absoluteString, provenance, file: file, line: line)
-        XCTAssertEqual(rate.verifiedAt, "2026-08-10", file: file, line: line)
+        XCTAssertEqual(rate.verifiedAt, verifiedAt, file: file, line: line)
     }
 
     private func claudePrices(

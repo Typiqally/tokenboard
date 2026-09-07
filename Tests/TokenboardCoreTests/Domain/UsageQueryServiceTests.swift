@@ -3,6 +3,30 @@ import XCTest
 @testable import TokenboardCore
 
 final class UsageQueryServiceTests: XCTestCase {
+    func testSummaryIncludesOnlyUnpricedModelsInTheSelectedPeriod() async throws {
+        let ledger = QueryTestLedger(rows: [
+            row(day: "2026-08-04", quantity: 900, model: "gpt-older-missing"),
+            row(day: "2026-08-05", quantity: 200),
+            row(day: "2026-08-05", quantity: 300, model: "gpt-missing"),
+            row(day: "2026-08-05", quantity: 100, metric: .output)
+        ])
+        let result = try await UsageQueryService(ledger: ledger).summary(
+            period: .today,
+            now: date("2026-08-05T12:00:00Z"),
+            calendar: amsterdamCalendar()
+        )
+
+        XCTAssertEqual(result.tokenTotal, 600)
+        XCTAssertEqual(result.unpricedTokens, 400)
+        XCTAssertEqual(result.unpricedUsage.map(\.observedModelID), ["gpt-missing", "gpt-observed"])
+        XCTAssertEqual(result.unpricedUsage.map(\.reason), [.missingAlias, .missingRate])
+        XCTAssertEqual(result.unpricedUsage.map(\.tokenCount), [300, 100])
+        let pricingCalls = await ledger.pricingSnapshotCallCount()
+        let queryCount = await ledger.usageQueryCount()
+        XCTAssertEqual(pricingCalls, 1)
+        XCTAssertEqual(queryCount, 1)
+    }
+
     func testThisWeekUsesMondayBoundaryAndPreservesPeriod() async throws {
         let calendar = amsterdamCalendar(firstWeekday: 1)
         let ledger = QueryTestLedger(rows: [
@@ -85,13 +109,15 @@ final class UsageQueryServiceTests: XCTestCase {
     private func row(
         day value: String,
         quantity: Int64,
+        model: String = "gpt-observed",
+        metric: UsageMetric = .inputUncached,
         calendar: Calendar? = nil
     ) -> DailyUsageRow {
         DailyUsageRow(
             localDay: localDay(value, calendar: calendar ?? amsterdamCalendar()),
             provider: .codex,
-            observedModelID: "gpt-observed",
-            metric: .inputUncached,
+            observedModelID: model,
+            metric: metric,
             aggregation: .additive,
             quantity: quantity
         )
