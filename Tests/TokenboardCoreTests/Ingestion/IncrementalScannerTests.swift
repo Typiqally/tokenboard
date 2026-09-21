@@ -630,6 +630,26 @@ final class IncrementalScannerTests: XCTestCase {
         XCTAssertEqual(commits.first?.usage.first?.stableSourceID, expectedFingerprint)
     }
 
+    func testScanCountsEachDeduplicatedRequestAndItsContextOnce() async throws {
+        let setup = try await makeSetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        try Data([
+            claudeLine(requestID: "request-a", messageID: "message-a"),
+            claudeLine(requestID: "request-a", messageID: "message-a"),
+            claudeLine(requestID: "request-b", messageID: "message-b")
+        ].joined(separator: "\n").appending("\n").utf8).write(to: setup.file)
+
+        _ = try await setup.scanner.scan(file: setup.file, provider: .claudeCode, calendar: calendar)
+
+        let rows = try await setup.ledger.agentActivityRows(in: nil, calendar: calendar)
+        let quantities = rows.reduce(into: [AgentActivityCounter: Int64]()) { result, row in
+            result[row.counter, default: 0] += row.quantity
+        }
+        // Each request reads 100 uncached + 40 cached + 30 cache-write tokens and writes 20.
+        XCTAssertEqual(quantities, [.requests: 2, .contextTokens: 340, .contextPeak: 170, .activityTokens: 380])
+        XCTAssertEqual(Set(rows.map(\.observedModelID)), ["claude-opus-test"])
+    }
+
     private func claudeLine(
         sessionID: String = "session-a",
         requestID: String,

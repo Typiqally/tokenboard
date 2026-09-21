@@ -22,20 +22,27 @@ public struct ParsedUsageRecord: Equatable, Sendable {
     public let usage: NormalizedUsage
     public let cumulativeMetrics: [UsageMetric: Int64]
     public let diagnostics: [AdapterDiagnostic]
+    /// Agent activity on the same line, attributed to this record's provider, model, and timestamp. It is
+    /// counted even when the usage itself repeats the previous record.
+    public let activity: AgentActivityDelta
 
     public init(
         usage: NormalizedUsage,
         cumulativeMetrics: [UsageMetric: Int64],
-        diagnostics: [AdapterDiagnostic]
+        diagnostics: [AdapterDiagnostic],
+        activity: AgentActivityDelta = .zero
     ) {
         self.usage = usage
         self.cumulativeMetrics = cumulativeMetrics
         self.diagnostics = diagnostics
+        self.activity = activity
     }
 }
 
 public enum AdapterResult: Equatable, Sendable {
     case usage(ParsedUsageRecord)
+    /// Agent activity on a line that carries no billed usage, such as a tool result or an applied patch.
+    case activity(AgentActivityObservation)
     case ignored
     case skipped(AdapterDiagnostic)
 }
