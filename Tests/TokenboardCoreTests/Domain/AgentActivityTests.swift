@@ -107,6 +107,55 @@ final class AgentActivityTests: XCTestCase {
         )
     }
 
+    func testCoverageTellsARealZeroFromUncountedUsage() {
+        XCTAssertEqual(AgentActivityCoverage(tokenTotal: 0, activityTokens: 0).state, .noUsage)
+        XCTAssertEqual(AgentActivityCoverage(tokenTotal: 100, activityTokens: 100).state, .complete)
+        XCTAssertEqual(AgentActivityCoverage(tokenTotal: 100, activityTokens: 40).state, .partial)
+        XCTAssertEqual(AgentActivityCoverage(tokenTotal: 100, activityTokens: 0).state, .notCovered)
+        XCTAssertEqual(AgentActivityCoverage(tokenTotal: 100, activityTokens: 40).fraction, 0.4)
+        XCTAssertNil(AgentActivityCoverage(tokenTotal: 0, activityTokens: 0).fraction)
+    }
+
+    func testTotalsSumCountersTakeThePeakAndLeaveRatiosUndefinedWithoutADenominator() throws {
+        let day = LocalDay(date: date(day: 11, hour: 10), calendar: calendar)
+        func row(_ counter: AgentActivityCounter, _ quantity: Int64, model: String = "gpt-test") -> AgentActivityRow {
+            AgentActivityRow(localDay: day, provider: .codex, observedModelID: model, counter: counter, quantity: quantity)
+        }
+
+        let totals = try AgentActivityTotals(rows: [
+            row(.contextPeak, 900), row(.contextPeak, 1_200, model: "gpt-other"),
+            row(.requests, 4), row(.contextTokens, 2_000), row(.tasks, 2), row(.activityTokens, 5_000)
+        ])
+
+        XCTAssertEqual(totals.contextPeak, 1_200)
+        XCTAssertEqual(totals.averageContext, 500)
+        XCTAssertEqual(totals.tokensPerTask, 2_500)
+        XCTAssertNil(AgentActivityTotals.zero.tokensPerTask)
+        XCTAssertNil(AgentActivityTotals.zero.averageContext)
+        XCTAssertThrowsError(try AgentActivityTotals(rows: [row(.tasks, .max), row(.tasks, 1)]))
+    }
+
+    func testSummaryListsModelsWithTokensOrActivityInTokenOrder() throws {
+        let day = LocalDay(date: date(day: 11, hour: 10), calendar: calendar)
+        let summary = try AgentActivitySummary(
+            activityRows: [
+                AgentActivityRow(localDay: day, provider: .codex, observedModelID: "gpt-small", counter: .tasks, quantity: 5)
+            ],
+            usageRows: [
+                DailyUsageRow(localDay: day, provider: .claudeCode, observedModelID: "claude-big",
+                              metric: .inputCacheRead, aggregation: .additive, quantity: 900),
+                DailyUsageRow(localDay: day, provider: .claudeCode, observedModelID: "claude-big",
+                              metric: .detailReasoningOutput, aggregation: .informationalSubset, quantity: 50_000)
+            ]
+        )
+
+        XCTAssertEqual(summary.models.map(\.observedModelID), ["claude-big", "gpt-small"])
+        XCTAssertEqual(summary.models.first?.coverage.tokenTotal, 900)
+        XCTAssertEqual(summary.models.last?.coverage.state, .noUsage)
+        XCTAssertEqual(summary.coverage.tokenTotal, 900)
+        XCTAssertEqual(summary.totals.tasks, 5)
+    }
+
     private var calendar: Calendar {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "Europe/Amsterdam")!
