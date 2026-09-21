@@ -163,9 +163,22 @@ private actor QueryTestLedger: LedgerStore {
 
     func commit(
         _ usage: [NormalizedUsage],
+        agentActivity: [AgentActivityObservation],
         skipped: [SkippedRecord],
         checkpoint: SourceCheckpoint,
         calendar: Calendar
+    ) throws {
+        throw QueryTestLedgerError.unsupported
+    }
+
+    func agentActivityBackfillOffset(for fingerprint: String) throws -> Int64? {
+        throw QueryTestLedgerError.unsupported
+    }
+
+    func commitAgentActivityBackfill(
+        _ rows: [AgentActivityRow],
+        fingerprint: String,
+        expectedOffset: Int64
     ) throws {
         throw QueryTestLedgerError.unsupported
     }

@@ -248,9 +248,16 @@ private actor PricingCatalogTestLedger: LedgerStore {
     func migrate() {}
     func commit(
         _ usage: [NormalizedUsage],
+        agentActivity: [AgentActivityObservation],
         skipped: [SkippedRecord],
         checkpoint: SourceCheckpoint,
         calendar: Calendar
+    ) {}
+    func agentActivityBackfillOffset(for fingerprint: String) -> Int64? { nil }
+    func commitAgentActivityBackfill(
+        _ rows: [AgentActivityRow],
+        fingerprint: String,
+        expectedOffset: Int64
     ) {}
     func backfillActivitySlices(
         _ observations: [ActivityObservation],

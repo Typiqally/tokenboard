@@ -285,9 +285,22 @@ private actor HistoryQueryTestLedger: LedgerStore {
 
     func commit(
         _ usage: [NormalizedUsage],
+        agentActivity: [AgentActivityObservation],
         skipped: [SkippedRecord],
         checkpoint: SourceCheckpoint,
         calendar: Calendar
+    ) throws {
+        throw HistoryQueryTestLedgerError.unsupported
+    }
+
+    func agentActivityBackfillOffset(for fingerprint: String) throws -> Int64? {
+        throw HistoryQueryTestLedgerError.unsupported
+    }
+
+    func commitAgentActivityBackfill(
+        _ rows: [AgentActivityRow],
+        fingerprint: String,
+        expectedOffset: Int64
     ) throws {
         throw HistoryQueryTestLedgerError.unsupported
     }

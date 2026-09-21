@@ -217,5 +217,31 @@ public enum Migrations {
         """
     )
 
-    public static let all = [v1, v2, v3, v4, v5, v6]
+    /// Daily per-model agent activity counters. Existing sources record how far they were already imported, so
+    /// history before the upgrade can be counted exactly once by a separate backfill while new lines are
+    /// counted as they are scanned.
+    public static let v7 = Migration(
+        version: 7,
+        name: "store daily agent activity counters",
+        sql: """
+        CREATE TABLE daily_agent_activity(
+          local_day TEXT NOT NULL,
+          time_zone TEXT NOT NULL,
+          provider TEXT NOT NULL,
+          observed_model_id TEXT NOT NULL,
+          counter TEXT NOT NULL,
+          quantity INTEGER NOT NULL CHECK(typeof(quantity) = 'integer' AND quantity >= 0),
+          PRIMARY KEY(local_day, time_zone, provider, observed_model_id, counter)
+        );
+        CREATE INDEX daily_agent_activity_day_idx
+          ON daily_agent_activity(local_day, provider);
+        ALTER TABLE source_checkpoints
+          ADD COLUMN agent_activity_counted_from_offset INTEGER NOT NULL DEFAULT 0
+          CHECK(typeof(agent_activity_counted_from_offset) = 'integer'
+                AND agent_activity_counted_from_offset >= 0);
+        UPDATE source_checkpoints SET agent_activity_counted_from_offset = byte_offset;
+        """
+    )
+
+    public static let all = [v1, v2, v3, v4, v5, v6, v7]
 }
