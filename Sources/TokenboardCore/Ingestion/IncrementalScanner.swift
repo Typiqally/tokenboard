@@ -56,25 +56,18 @@ public actor IncrementalScanner {
         let metadata = FileMetadata(size: source.size, modificationTime: source.modificationTime)
         var checkpoint = storedCheckpoint
             ?? emptyCheckpoint(fingerprint: fingerprint, provider: provider, metadata: metadata)
-
-        guard metadata.size >= checkpoint.byteOffset else {
-            return attention(.truncated, offset: checkpoint.byteOffset)
-        }
-        if checkpoint.byteOffset > 0 {
-            guard let previousLine = try reader.lineEnding(at: checkpoint.byteOffset, in: source),
-                  let expectedHash = checkpoint.lastCommittedLineHash else {
-                return attention(.replaced, offset: checkpoint.byteOffset)
-            }
-            let observedHash = try await hash(previousLine)
-            guard observedHash == expectedHash else {
-                return attention(.replaced, offset: checkpoint.byteOffset)
-            }
+        if let reason = try await preflightAttention(for: checkpoint, in: source, size: metadata.size) {
+            return attention(reason, offset: checkpoint.byteOffset)
         }
 
         var adapter = ScannerAdapter(
             provider: provider,
             stableSourceID: stableSourceID,
             currentModel: checkpoint.adapterState["current_model"]
+        )
+        var deduplicator = UsageDeduplicator(
+            lastUsageIdentity: checkpoint.lastUsageIdentityHash,
+            cumulativeMetrics: checkpoint.cumulativeMetrics
         )
         var usageCount = 0
         var skippedCount = 0
@@ -113,27 +106,21 @@ public actor IncrementalScanner {
                     : adapter.consume(line: line.data)
                 switch adapterResult {
                 case let .usage(parsed):
-                    let repeatsCumulativeSnapshot = !parsed.cumulativeMetrics.isEmpty
-                        && parsed.cumulativeMetrics == checkpoint.cumulativeMetrics
                     let usageIdentityHash: String?
                     if let stableUsageID = parsed.usage.stableUsageID {
                         usageIdentityHash = try await ledger.recordIdentityHash(stableUsageID)
                     } else {
                         usageIdentityHash = nil
                     }
-                    if !repeatsCumulativeSnapshot,
-                       usageIdentityHash == nil || usageIdentityHash != checkpoint.lastUsageIdentityHash {
+                    if deduplicator.admit(
+                        identity: usageIdentityHash,
+                        cumulativeMetrics: parsed.cumulativeMetrics
+                    ) {
                         usageBatch.append(try await storageSafeUsage(
                             parsed.usage,
                             sourceFingerprint: fingerprint,
                             usageIdentityHash: usageIdentityHash
                         ))
-                    }
-                    if !parsed.cumulativeMetrics.isEmpty {
-                        checkpoint.cumulativeMetrics = parsed.cumulativeMetrics
-                    }
-                    if let usageIdentityHash {
-                        checkpoint.lastUsageIdentityHash = usageIdentityHash
                     }
                 case let .skipped(diagnostic):
                     skippedBatch.append(SkippedRecord(
@@ -151,6 +138,8 @@ public actor IncrementalScanner {
                 checkpoint.lastCommittedLineHash = lineHash
             }
 
+            checkpoint.lastUsageIdentityHash = deduplicator.lastUsageIdentity
+            checkpoint.cumulativeMetrics = deduplicator.cumulativeMetrics
             checkpoint.parserVersion = adapter.parserVersion
             checkpoint.fileSize = metadata.size
             checkpoint.modificationTime = metadata.modificationTime
@@ -202,8 +191,7 @@ public actor IncrementalScanner {
             stableSourceID: stableSourceID,
             currentModel: nil
         )
-        var cumulativeMetrics: [UsageMetric: Int64] = [:]
-        var lastUsageIdentity: String?
+        var deduplicator = UsageDeduplicator()
         var offset: Int64 = 0
         var activityCount = 0
         var skippedCount = 0
@@ -238,25 +226,16 @@ public actor IncrementalScanner {
                     : adapter.consume(line: line.data)
                 switch adapterResult {
                 case let .usage(parsed):
-                    let repeatsCumulativeSnapshot = !parsed.cumulativeMetrics.isEmpty
-                        && parsed.cumulativeMetrics == cumulativeMetrics
-                    let repeatsUsageIdentity = parsed.usage.stableUsageID != nil
-                        && parsed.usage.stableUsageID == lastUsageIdentity
-                    if !repeatsCumulativeSnapshot,
-                       !repeatsUsageIdentity,
-                       parsed.usage.metrics.contains(where: { metric, quantity in
-                           metric.aggregation == .additive && quantity > 0
-                       }) {
+                    if deduplicator.admit(
+                        identity: parsed.usage.stableUsageID,
+                        cumulativeMetrics: parsed.cumulativeMetrics
+                    ), parsed.usage.metrics.contains(where: { metric, quantity in
+                        metric.aggregation == .additive && quantity > 0
+                    }) {
                         observations.append(ActivityObservation(
                             timestamp: parsed.usage.timestamp,
                             provider: parsed.usage.provider
                         ))
-                    }
-                    if !parsed.cumulativeMetrics.isEmpty {
-                        cumulativeMetrics = parsed.cumulativeMetrics
-                    }
-                    if let stableUsageID = parsed.usage.stableUsageID {
-                        lastUsageIdentity = stableUsageID
                     }
                 case .skipped:
                     skippedCount += 1
@@ -304,6 +283,21 @@ public actor IncrementalScanner {
         )
     }
 
+    /// Confirms the source still contains the bytes a checkpoint was taken from before reading past it.
+    private func preflightAttention(
+        for checkpoint: SourceCheckpoint,
+        in source: RetainedSourceFile,
+        size: Int64
+    ) async throws -> ScanOutcome.Attention? {
+        guard size >= checkpoint.byteOffset else { return .truncated }
+        guard checkpoint.byteOffset > 0 else { return nil }
+        guard let previousLine = try reader.lineEnding(at: checkpoint.byteOffset, in: source),
+              let expectedHash = checkpoint.lastCommittedLineHash else {
+            return .replaced
+        }
+        return try await hash(previousLine) == expectedHash ? nil : .replaced
+    }
+
     private func attention(_ reason: ScanOutcome.Attention, offset: Int64) -> ScanOutcome {
         ScanOutcome(
             committedUsageRecords: 0,
@@ -348,6 +342,31 @@ public actor IncrementalScanner {
 private struct FileMetadata {
     let size: Int64
     let modificationTime: Date?
+}
+
+/// Drops a usage record that repeats the previous one: Claude Code writes one line per content block with the
+/// same message usage, and Codex can repeat an unchanged cumulative snapshot.
+struct UsageDeduplicator {
+    private(set) var lastUsageIdentity: String?
+    private(set) var cumulativeMetrics: [UsageMetric: Int64]
+
+    init(lastUsageIdentity: String? = nil, cumulativeMetrics: [UsageMetric: Int64] = [:]) {
+        self.lastUsageIdentity = lastUsageIdentity
+        self.cumulativeMetrics = cumulativeMetrics
+    }
+
+    /// Returns whether the record is new, and remembers it either way.
+    mutating func admit(identity: String?, cumulativeMetrics snapshot: [UsageMetric: Int64]) -> Bool {
+        let repeatsSnapshot = !snapshot.isEmpty && snapshot == cumulativeMetrics
+        let repeatsIdentity = identity != nil && identity == lastUsageIdentity
+        if !snapshot.isEmpty {
+            cumulativeMetrics = snapshot
+        }
+        if let identity {
+            lastUsageIdentity = identity
+        }
+        return !repeatsSnapshot && !repeatsIdentity
+    }
 }
 
 private enum ScannerAdapter {
