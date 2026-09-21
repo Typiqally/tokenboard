@@ -131,11 +131,40 @@ extension AppModel {
                 generation: generation,
                 completesInventoryRequest: true
             )
+            await backfillAgentActivityIfPending(generation: generation)
         } catch {
             guard readyGeneration == generation, accepts(generation) else { return }
             coordinatorStatus = .inactive
             publishWarning(.importFailure, message: "Historical import paused: \(Self.errorDescription(error))")
         }
+    }
+
+    /// Counts agent activity in history imported before activity counting existed. It runs after an import, in
+    /// the same runtime activity, only while some source still has an uncounted prefix, so it never competes with
+    /// other source work and stops asking once every source is counted.
+    func backfillAgentActivityIfPending(generation: UInt64) async {
+        guard readyGeneration == generation,
+              accepts(generation),
+              case let .active(runID) = coordinatorStatus,
+              let pending = try? await ledger.agentActivityBackfillPendingCountsByProvider(),
+              pending.values.contains(where: { $0 > 0 }),
+              readyGeneration == generation,
+              accepts(generation),
+              coordinatorStatus == .active(runID: runID) else { return }
+
+        beginCoordinatorInventoryRequest()
+        let result = await coordinator.backfillAgentActivity()
+        guard readyGeneration == generation,
+              accepts(generation),
+              result.runID == runID else {
+            completeCoordinatorInventoryRequest()
+            return
+        }
+        await submitAndWaitForIngestionResult(
+            result,
+            generation: generation,
+            completesInventoryRequest: true
+        )
     }
 
     func launchActivityBackfill() async {

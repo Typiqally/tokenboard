@@ -395,6 +395,9 @@ private actor PresentationCoordinator: AppIngestionCoordinating {
     func backfillActivityHistory() -> IngestionBatchResult {
         IngestionBatchResult(runID: 1, sequence: 2, scope: .activityBackfill, providers: [:])
     }
+    func backfillAgentActivity() -> IngestionBatchResult {
+        IngestionBatchResult(runID: 1, sequence: 2, scope: .agentActivityBackfill, providers: [:])
+    }
     func replaceSource(
         _ provider: Provider,
         with root: URL,

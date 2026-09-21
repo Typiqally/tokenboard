@@ -940,6 +940,10 @@ private actor RuntimeCoordinator: AppIngestionCoordinating {
         }
         return result(scope: .activityBackfill)
     }
+    func backfillAgentActivity() -> IngestionBatchResult {
+        recorder.append("coordinator.agentActivityBackfill")
+        return result(scope: .agentActivityBackfill)
+    }
     func replaceSource(
         _ provider: Provider,
         with root: URL,

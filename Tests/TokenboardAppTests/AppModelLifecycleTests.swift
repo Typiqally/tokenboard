@@ -842,6 +842,36 @@ final class AppModelLifecycleTests: XCTestCase {
         XCTAssertEqual(counts, [1, 1, 0])
     }
 
+    func testImportBackfillsAgentActivityOnlyWhileHistoryIsUncounted() async throws {
+        let setup = try makeSetup(approved: true, pendingAgentActivity: [.codex: 2])
+        defer { setup.cleanup() }
+
+        await setup.model.start()
+
+        var backfills = await setup.coordinator.agentActivityBackfillCount()
+        XCTAssertEqual(backfills, 1)
+        XCTAssertFalse(setup.model.state.isImporting)
+
+        await setup.ledger.markAgentActivityCounted()
+        await setup.model.refresh()
+
+        backfills = await setup.coordinator.agentActivityBackfillCount()
+        let counts = await setup.coordinator.counts()
+        XCTAssertEqual(backfills, 1)
+        XCTAssertEqual(counts, [1, 1, 0])
+    }
+
+    func testImportWithFullyCountedHistoryNeverStartsTheAgentActivityBackfill() async throws {
+        let setup = try makeSetup(approved: true)
+        defer { setup.cleanup() }
+
+        await setup.model.start()
+        await setup.model.refresh()
+
+        let backfills = await setup.coordinator.agentActivityBackfillCount()
+        XCTAssertEqual(backfills, 0)
+    }
+
     func testApprovedTwoToOneRevokeRelaunchRestoresRemainingRuntime() async throws {
         let setup = try makeSetup(approved: true)
         defer { setup.cleanup() }
@@ -1250,6 +1280,7 @@ final class AppModelLifecycleTests: XCTestCase {
         skippedCountGateCall: Int? = nil,
         skippedCountGate: AsyncTestGate? = nil,
         catalogCommitBeforeFailure: Bool = false,
+        pendingAgentActivity: [Provider: Int] = [:],
         now: @escaping @Sendable () -> Date = { Date(timeIntervalSince1970: 1_775_000_000) }
     ) throws -> LifecycleSetup {
         let suite = "AppModelLifecycleTests.\(UUID().uuidString)"
@@ -1272,7 +1303,8 @@ final class AppModelLifecycleTests: XCTestCase {
             startupGate: startupGate,
             durableSkipped: durableSkipped,
             skippedCountGateCall: skippedCountGateCall,
-            skippedCountGate: skippedCountGate
+            skippedCountGate: skippedCountGate,
+            pendingAgentActivity: pendingAgentActivity
         )
         let inbox = LifecycleInbox(
             failure: failure == .inbox,
@@ -1456,6 +1488,7 @@ private actor LifecycleLedger: AppLedgerRuntime {
     private let skippedCountGateCall: Int?
     private let skippedCountGate: AsyncTestGate?
     private var skippedCountCalls = 0
+    private var pendingAgentActivity: [Provider: Int]
 
     init(
         failure: StartupFailurePoint?,
@@ -1465,7 +1498,8 @@ private actor LifecycleLedger: AppLedgerRuntime {
         startupGate: AsyncTestGate?,
         durableSkipped: [Provider: Int],
         skippedCountGateCall: Int?,
-        skippedCountGate: AsyncTestGate?
+        skippedCountGate: AsyncTestGate?,
+        pendingAgentActivity: [Provider: Int] = [:]
     ) {
         self.failure = failure
         self.failureIsOneShot = failureIsOneShot
@@ -1475,7 +1509,11 @@ private actor LifecycleLedger: AppLedgerRuntime {
         self.skippedCountGateCall = skippedCountGateCall
         self.skippedCountGate = skippedCountGate
         self.appliedCatalog = appliedCatalog
+        self.pendingAgentActivity = pendingAgentActivity
     }
+
+    func agentActivityBackfillPendingCountsByProvider() async -> [Provider: Int] { pendingAgentActivity }
+    func markAgentActivityCounted() { pendingAgentActivity = [:] }
 
     func migrate() async throws {
         migrations += 1
@@ -1568,6 +1606,7 @@ private actor LifecycleCoordinator: AppIngestionCoordinating {
     private var starts = 0
     private var refreshes = 0
     private var stops = 0
+    private var agentActivityBackfills = 0
     private(set) var currentRunID: UInt64 = 0
     private var currentSequence: UInt64 = 0
     private var roots: [Provider: URL] = [:]
@@ -1643,6 +1682,11 @@ private actor LifecycleCoordinator: AppIngestionCoordinating {
     func backfillActivityHistory() -> IngestionBatchResult {
         successResult(scope: .activityBackfill)
     }
+    func backfillAgentActivity() -> IngestionBatchResult {
+        agentActivityBackfills += 1
+        return successResult(scope: .agentActivityBackfill)
+    }
+    func agentActivityBackfillCount() -> Int { agentActivityBackfills }
     func replaceSource(
         _ provider: Provider,
         with root: URL,

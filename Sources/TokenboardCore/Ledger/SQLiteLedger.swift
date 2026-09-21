@@ -287,7 +287,7 @@ public actor SQLiteLedger: LedgerStore {
     }
 
     /// Number of sources per provider whose history from before the activity upgrade is not counted yet.
-    public func agentActivityBackfillPendingCountsByProvider() throws -> [Provider: Int] {
+    public func agentActivityBackfillPendingCountsByProvider() async throws -> [Provider: Int] {
         let connection = try requiredConnection()
         let statement = try prepare(
             """
