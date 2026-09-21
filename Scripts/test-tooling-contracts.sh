@@ -130,4 +130,53 @@ if /usr/bin/grep -R -q 'unsafe/model' "$test_root/stdout" "$test_root/stderr"; t
   fail "unsafe model identifier leaked into audit output"
 fi
 
+probe="$repository_root/Scripts/probe-log-structure.sh"
+probe_claude_root="$test_root/probe-claude"
+probe_codex_root="$test_root/probe-codex"
+/bin/mkdir -p "$probe_claude_root/project/sentinel-session/subagents" "$probe_codex_root"
+/bin/chmod -R 0700 "$probe_claude_root" "$probe_codex_root"
+probe_claude_log="$probe_claude_root/project/sentinel-session.jsonl"
+probe_subagent_log="$probe_claude_root/project/sentinel-session/subagents/agent-a.jsonl"
+probe_codex_log="$probe_codex_root/rollout.jsonl"
+print -r -- '{"type":"user","sessionId":"sentinel-session","message":{"content":"SENTINEL_PROMPT"}}' > "$probe_claude_log"
+print -r -- '{"type":"assistant","sessionId":"sentinel-session","requestId":"sentinel-request","message":{"id":"sentinel-message","model":"sentinel-model","content":[{"type":"text","text":"SENTINEL_RESPONSE"}],"usage":{"input_tokens":1,"output_tokens":1}}}' >> "$probe_claude_log"
+print -r -- '{"type":"assistant","sessionId":"sentinel-session","requestId":"sentinel-request","message":{"id":"sentinel-message","model":"sentinel-model","content":[{"type":"tool_use","id":"sentinel-tool","name":"Edit","input":{"file_path":"/SENTINEL_PATH"}}],"usage":{"input_tokens":1,"output_tokens":1}}}' >> "$probe_claude_log"
+print -r -- '{"type":"user","sessionId":"sentinel-session","message":{"content":[{"type":"tool_result","tool_use_id":"sentinel-tool","content":"SENTINEL_OUTPUT"}]},"toolUseResult":{"filePath":"/SENTINEL_PATH","structuredPatch":[{"lines":["+SENTINEL_ADDED","-SENTINEL_REMOVED"]}]}}' >> "$probe_claude_log"
+print -r -- '{"type":"user","isSidechain":true,"agentId":"sentinel-agent","sessionId":"sentinel-session","message":{"content":"SENTINEL_SUBAGENT_PROMPT"}}' > "$probe_subagent_log"
+print -r -- '{"type":"session_meta","payload":{"id":"sentinel-codex-session","source":"cli","cli_version":"0.99.0","cwd":"/SENTINEL_CWD"}}' > "$probe_codex_log"
+print -r -- '{"type":"turn_context","payload":{"model":"sentinel-codex-model"}}' >> "$probe_codex_log"
+print -r -- '{"type":"event_msg","payload":{"type":"task_started","turn_id":"sentinel-turn"}}' >> "$probe_codex_log"
+print -r -- '{"type":"event_msg","timestamp":"2026-08-26T12:00:00Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1,"total_tokens":2}}}}' >> "$probe_codex_log"
+/bin/chmod 0600 "$probe_claude_log" "$probe_subagent_log" "$probe_codex_log"
+
+probe_hash_before=$(/bin/cat "$probe_claude_log" "$probe_subagent_log" "$probe_codex_log" \
+  | /usr/bin/shasum -a 256 | /usr/bin/awk '{print $1}')
+TOKENBOARD_CLAUDE_PROBE_ROOT="$probe_claude_root" \
+TOKENBOARD_CODEX_PROBE_ROOT="$probe_codex_root" \
+  "$probe" >"$test_root/probe-report" 2>"$test_root/probe-stderr"
+for expected_line in \
+  '1  claude.task.counted' \
+  '1  claude.tool_use.on_duplicate_usage_line' \
+  '1  claude.lines.added' \
+  '1  claude.lines.removed' \
+  '1  claude.subagent_files_sharing_a_top_level_session_id' \
+  '1  codex.task.counted'; do
+  /usr/bin/grep -q -- "$expected_line" "$test_root/probe-report" \
+    || fail "structure probe did not report $expected_line"
+done
+if /usr/bin/grep -i -q -E 'sentinel' "$test_root/probe-report" "$test_root/probe-stderr"; then
+  fail "structure probe leaked source content or identifiers"
+fi
+[[ "$probe_hash_before" == $(/bin/cat "$probe_claude_log" "$probe_subagent_log" "$probe_codex_log" \
+  | /usr/bin/shasum -a 256 | /usr/bin/awk '{print $1}') ]] \
+  || fail "structure probe modified a source log"
+
+expect_status 64 /usr/bin/env \
+  -u TOKENBOARD_CLAUDE_PROBE_ROOT \
+  -u TOKENBOARD_CODEX_PROBE_ROOT \
+  "$probe"
+/usr/bin/grep -q 'set TOKENBOARD_CLAUDE_PROBE_ROOT' "$test_root/stderr" \
+  || fail "missing-input probe refusal was not actionable"
+expect_status 64 /usr/bin/env TOKENBOARD_CLAUDE_PROBE_ROOT=relative/root "$probe"
+
 print "Tooling contracts verified"

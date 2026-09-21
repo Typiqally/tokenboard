@@ -61,4 +61,16 @@ The script never mutates source logs or the ledger. It opens each discovered pat
 
 Parser bookkeeping lives in a private temporary directory and is removed on exit. A mismatch prints only content-safe provider/model/metric aggregates. `No differences found by the bounded live-source diagnostic` means only that this deliberately narrower comparison found no difference. It is not proof of Tokenboard equivalence: the script does not reproduce full discovery, source probing, checkpoint, replacement, deletion, or already-ingested-history semantics. Deleted or replaced logs and durable history can legitimately produce a mismatch. Never use the result as authorization to rewrite source logs or the Tokenboard ledger.
 
-Agents and automated contributors must not run this audit against real Claude Code or Codex roots, self-grant access to real paths, or open the installed app for a user. Release acceptance may launch only the separately identified bundle created by the runtime gate, with its private data directory and synthetic or empty inputs. It must not read, grant, modify, or delete the user's real source logs or Tokenboard ledger, and it must remove temporary app data and synthetic roots afterward. All automated verification must use only checked-in or generated synthetic fixtures and an isolated app identity.
+## Explicit log structure probe
+
+`Scripts/probe-log-structure.sh` is an optional, read-only, bounded diagnostic that checks the record-shape assumptions behind the parsers (prompt, tool, edit, turn, and subagent records) against real logs without revealing them. It requires `jq`. A user explicitly invokes it with one or both roots:
+
+```zsh
+TOKENBOARD_CLAUDE_PROBE_ROOT="/absolute/claude/root" \
+TOKENBOARD_CODEX_PROBE_ROOT="/absolute/codex/root" \
+Scripts/probe-log-structure.sh
+```
+
+It opens each discovered path with `nofollow` and `nonblock` and refuses more than 50,000 files, any file over 256 MiB, or more than 8 GiB of source data. It prints only counts next to names taken from its own allowlists, plus digits-only CLI minor versions. Prompts, responses, tool content, paths, session, message, and model identifiers never reach its output. Identifiers it compares across files stay in a private temporary directory that is removed on exit. The report is shareable, but it is a narrower simulation than the app's parsers and is not proof of ledger equivalence.
+
+Agents and automated contributors must not run this audit or the structure probe against real Claude Code or Codex roots, self-grant access to real paths, or open the installed app for a user. Release acceptance may launch only the separately identified bundle created by the runtime gate, with its private data directory and synthetic or empty inputs. It must not read, grant, modify, or delete the user's real source logs or Tokenboard ledger, and it must remove temporary app data and synthetic roots afterward. All automated verification must use only checked-in or generated synthetic fixtures and an isolated app identity.
