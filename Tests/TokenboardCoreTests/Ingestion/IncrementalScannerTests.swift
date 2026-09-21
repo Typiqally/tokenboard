@@ -56,6 +56,142 @@ final class IncrementalScannerTests: XCTestCase {
         XCTAssertEqual(activity.first?.provider, .claudeCode)
     }
 
+    /// Imports `lines`, then makes the ledger look like it was imported before activity counting existed.
+    private func importBeforeAgentActivityUpgrade(
+        _ lines: [String],
+        setup: (directory: URL, file: URL, ledger: SQLiteLedger, scanner: IncrementalScanner)
+    ) async throws -> Int64 {
+        try Data(lines.map { "\($0)\n" }.joined().utf8).write(to: setup.file)
+        let outcome = try await setup.scanner.scan(file: setup.file, provider: .claudeCode, calendar: calendar)
+        let connection = try SQLiteConnection(url: setup.directory.appending(path: "ledger.sqlite"))
+        try connection.execute(
+            """
+            DELETE FROM daily_agent_activity;
+            UPDATE source_checkpoints SET agent_activity_counted_from_offset = byte_offset;
+            """
+        )
+        try connection.close()
+        return outcome.finalOffset
+    }
+
+    private func agentActivityTotals(
+        _ ledger: SQLiteLedger
+    ) async throws -> [AgentActivityCounter: Int64] {
+        try await ledger.agentActivityRows(in: nil, calendar: calendar).reduce(into: [:]) { result, row in
+            result[row.counter, default: 0] += row.quantity
+        }
+    }
+
+    func testAgentActivityBackfillCountsThePreUpgradePrefixExactlyOnce() async throws {
+        let setup = try await makeSetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let upgradeOffset = try await importBeforeAgentActivityUpgrade([
+            claudeLine(requestID: "request-a", messageID: "message-a"),
+            claudeLine(requestID: "request-a", messageID: "message-a")
+        ], setup: setup)
+        let handle = try FileHandle(forWritingTo: setup.file)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data("\(claudeLine(requestID: "request-b", messageID: "message-b"))\n".utf8))
+        try handle.close()
+        _ = try await setup.scanner.scan(file: setup.file, provider: .claudeCode, calendar: calendar)
+        let afterUpgradeOnly = try await agentActivityTotals(setup.ledger)
+        XCTAssertEqual(afterUpgradeOnly[.requests], 1)
+        let usageBefore = try await setup.ledger.usageRows(in: nil, calendar: calendar)
+        let fingerprint = try await setup.ledger.sourceFingerprint(provider: .claudeCode, stableID: "session-a")
+        let checkpointBefore = try await setup.ledger.checkpoint(for: fingerprint)
+
+        let first = try await setup.scanner.backfillAgentActivity(
+            file: setup.file,
+            provider: .claudeCode,
+            calendar: calendar
+        )
+        let second = try await setup.scanner.backfillAgentActivity(
+            file: setup.file,
+            provider: .claudeCode,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(first, ScanOutcome(committedUsageRecords: 1, skippedRecords: 0, finalOffset: upgradeOffset))
+        XCTAssertEqual(second, ScanOutcome(committedUsageRecords: 0, skippedRecords: 0, finalOffset: 0))
+        let totals = try await agentActivityTotals(setup.ledger)
+        XCTAssertEqual(totals, [.requests: 2, .contextTokens: 340, .contextPeak: 170, .activityTokens: 380])
+        let usageAfter = try await setup.ledger.usageRows(in: nil, calendar: calendar)
+        let checkpointAfter = try await setup.ledger.checkpoint(for: fingerprint)
+        XCTAssertEqual(usageAfter, usageBefore)
+        XCTAssertEqual(checkpointAfter, checkpointBefore)
+        let pending = try await setup.ledger.agentActivityBackfillPendingCountsByProvider()
+        XCTAssertEqual(pending, [:])
+    }
+
+    func testAgentActivityBackfillLeavesAReplacedSourcePendingWithoutCounting() async throws {
+        let setup = try await makeSetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        _ = try await importBeforeAgentActivityUpgrade([
+            claudeLine(requestID: "request-a", messageID: "message-a")
+        ], setup: setup)
+        try Data("\(claudeLine(requestID: "request-z", messageID: "message-z"))\n".utf8).write(to: setup.file)
+
+        let outcome = try await setup.scanner.backfillAgentActivity(
+            file: setup.file,
+            provider: .claudeCode,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(outcome.attention, .replaced)
+        let totals = try await agentActivityTotals(setup.ledger)
+        XCTAssertEqual(totals, [:])
+        let pending = try await setup.ledger.agentActivityBackfillPendingCountsByProvider()
+        XCTAssertEqual(pending, [.claudeCode: 1])
+    }
+
+    func testAgentActivityBackfillRefusesAnUncountedPrefixThatEndsMidLine() async throws {
+        let setup = try await makeSetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let finalOffset = try await importBeforeAgentActivityUpgrade([
+            claudeLine(requestID: "request-a", messageID: "message-a"),
+            claudeLine(requestID: "request-b", messageID: "message-b")
+        ], setup: setup)
+        let connection = try SQLiteConnection(url: setup.directory.appending(path: "ledger.sqlite"))
+        try connection.execute(
+            "UPDATE source_checkpoints SET agent_activity_counted_from_offset = \(finalOffset - 10);"
+        )
+        try connection.close()
+
+        let outcome = try await setup.scanner.backfillAgentActivity(
+            file: setup.file,
+            provider: .claudeCode,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(outcome.attention, .replaced)
+        let totals = try await agentActivityTotals(setup.ledger)
+        XCTAssertEqual(totals, [:])
+    }
+
+    func testAgentActivityBackfillSkipsSourcesThatNeedNothing() async throws {
+        let setup = try await makeSetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        try Data("\(claudeLine(requestID: "request-a", messageID: "message-a"))\n".utf8).write(to: setup.file)
+
+        let unknown = try await setup.scanner.backfillAgentActivity(
+            file: setup.file,
+            provider: .claudeCode,
+            calendar: calendar
+        )
+        _ = try await setup.scanner.scan(file: setup.file, provider: .claudeCode, calendar: calendar)
+        let countedFromTheStart = try await setup.scanner.backfillAgentActivity(
+            file: setup.file,
+            provider: .claudeCode,
+            calendar: calendar
+        )
+
+        let nothing = ScanOutcome(committedUsageRecords: 0, skippedRecords: 0, finalOffset: 0)
+        XCTAssertEqual(unknown, nothing)
+        XCTAssertEqual(countedFromTheStart, nothing)
+        let totals = try await agentActivityTotals(setup.ledger)
+        XCTAssertEqual(totals[.requests], 1)
+    }
+
     func testRepeatedAndRecreatedClaudeRecordsAreIdempotent() async throws {
         let directory = canonicalTestTemporaryDirectory.appending(path: UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

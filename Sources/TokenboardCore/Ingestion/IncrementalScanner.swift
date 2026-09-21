@@ -267,6 +267,95 @@ public actor IncrementalScanner {
         )
     }
 
+    /// Counts agent activity in the part of a source that was imported before activity counting existed.
+    ///
+    /// The prefix is re-read from its first byte with a fresh adapter and deduplicator, which reproduces the
+    /// original import, and is committed in one compare-and-swap. A crash, cancellation, or repeat therefore
+    /// never counts it twice, and a source whose bytes changed is left for attention instead of guessed at.
+    public func backfillAgentActivity(
+        file: URL,
+        provider: Provider,
+        calendar: Calendar
+    ) async throws -> ScanOutcome {
+        let source: RetainedSourceFile
+        do {
+            source = try RetainedSourceFile(url: file)
+        } catch RetainedSourceFileError.unsafeSource {
+            return attention(.unsafeSource, offset: 0)
+        }
+        try sourceOperation(.didOpenSource)
+        try Task.checkCancellation()
+        let stableSourceID: String
+        do {
+            stableSourceID = try sourceProbe.stableID(in: source, provider: provider)
+        } catch SourceProbeError.missingStableIdentity {
+            return attention(.missingStableIdentity, offset: 0)
+        }
+
+        let fingerprint = try await ledger.sourceFingerprint(provider: provider, stableID: stableSourceID)
+        guard let countedFrom = try await ledger.agentActivityBackfillOffset(for: fingerprint),
+              countedFrom > 0,
+              let checkpoint = try await ledger.checkpoint(for: fingerprint) else {
+            return ScanOutcome(committedUsageRecords: 0, skippedRecords: 0, finalOffset: 0)
+        }
+        if let reason = try await preflightAttention(for: checkpoint, in: source, size: source.size) {
+            return attention(reason, offset: countedFrom)
+        }
+        guard countedFrom <= checkpoint.byteOffset else {
+            return attention(.replaced, offset: countedFrom)
+        }
+
+        var adapter = ScannerAdapter(provider: provider, stableSourceID: stableSourceID, currentModel: nil)
+        var deduplicator = UsageDeduplicator()
+        var aggregator = AgentActivityAggregator(calendar: calendar)
+        var requestCount = 0
+        var offset: Int64 = 0
+        while offset < countedFrom {
+            try Task.checkCancellation()
+            let result = try reader.batch(
+                from: source,
+                startingAt: offset,
+                maxLines: Self.maximumBatchLines
+            )
+            for line in result.lines where offset < countedFrom {
+                try Task.checkCancellation()
+                guard line.endOffset <= countedFrom else {
+                    return attention(.replaced, offset: offset)
+                }
+                let adapterResult: AdapterResult = line.data.isEmpty
+                    ? .ignored
+                    : adapter.consume(line: line.data)
+                let contribution = try await contribution(
+                    of: adapterResult,
+                    deduplicator: &deduplicator,
+                    sourceFingerprint: fingerprint
+                )
+                if let usage = contribution.usage {
+                    try aggregator.add(usage)
+                    requestCount += 1
+                }
+                if let observation = contribution.agentActivity {
+                    try aggregator.add(observation)
+                }
+                offset = line.endOffset
+            }
+            guard offset < countedFrom else { break }
+            if result.oversizedRecordOffset != nil {
+                return attention(.oversizedRecord, offset: offset)
+            }
+            if result.lines.isEmpty || result.reachedEndOfFile {
+                return attention(.replaced, offset: offset)
+            }
+        }
+
+        try await ledger.commitAgentActivityBackfill(
+            aggregator.rows,
+            fingerprint: fingerprint,
+            expectedOffset: countedFrom
+        )
+        return ScanOutcome(committedUsageRecords: requestCount, skippedRecords: 0, finalOffset: countedFrom)
+    }
+
     private func emptyCheckpoint(
         fingerprint: String,
         provider: Provider,

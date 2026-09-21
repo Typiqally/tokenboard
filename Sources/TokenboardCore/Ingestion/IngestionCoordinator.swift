@@ -7,6 +7,11 @@ public protocol IngestionScanning: Sendable {
         provider: Provider,
         calendar: Calendar
     ) async throws -> ScanOutcome
+    func backfillAgentActivity(
+        file: URL,
+        provider: Provider,
+        calendar: Calendar
+    ) async throws -> ScanOutcome
 }
 
 extension IncrementalScanner: IngestionScanning {}
@@ -40,6 +45,7 @@ public enum IngestionBatchScope: Equatable, Sendable {
     case inventory
     case incremental
     case activityBackfill
+    case agentActivityBackfill
 }
 
 public struct ProviderIngestionDiagnostics: Equatable, Sendable {
@@ -419,11 +425,20 @@ public actor IngestionCoordinator {
     }
 
     public func backfillActivityHistory() async -> IngestionBatchResult {
+        await enqueueRootBatchAndWait(scope: .activityBackfill)
+    }
+
+    /// Counts agent activity in history imported before activity counting existed, once per source.
+    public func backfillAgentActivity() async -> IngestionBatchResult {
+        await enqueueRootBatchAndWait(scope: .agentActivityBackfill)
+    }
+
+    private func enqueueRootBatchAndWait(scope: IngestionBatchScope) async -> IngestionBatchResult {
         guard let runID = activeRunID else {
             return IngestionBatchResult(
                 runID: runGeneration,
                 sequence: 0,
-                scope: .activityBackfill,
+                scope: scope,
                 providers: Dictionary(uniqueKeysWithValues: Provider.allCases.map {
                     ($0, .failure(discoveredFiles: 0, scannedFiles: 0))
                 })
@@ -432,7 +447,7 @@ public actor IngestionCoordinator {
         return await enqueueInventoryAndWait(
             runID: runID,
             providers: Set(roots.keys),
-            scope: .activityBackfill
+            scope: scope
         )
     }
 
@@ -988,15 +1003,21 @@ public actor IngestionCoordinator {
         for file in files {
             try Task.checkCancellation()
             do {
-                let outcome: ScanOutcome
-                if scope == .activityBackfill {
-                    outcome = try await scanner.backfillActivityHistory(
+                let outcome: ScanOutcome = switch scope {
+                case .activityBackfill:
+                    try await scanner.backfillActivityHistory(
                         file: file,
                         provider: provider,
                         calendar: calendar
                     )
-                } else {
-                    outcome = try await scanner.scan(
+                case .agentActivityBackfill:
+                    try await scanner.backfillAgentActivity(
+                        file: file,
+                        provider: provider,
+                        calendar: calendar
+                    )
+                case .inventory, .incremental:
+                    try await scanner.scan(
                         file: file,
                         provider: provider,
                         calendar: calendar
