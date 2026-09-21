@@ -875,6 +875,31 @@ final class SQLiteLedgerTests: XCTestCase {
         XCTAssertEqual(remaining, [.claudeCode: 1])
     }
 
+    func testReleasingUncountableHistoryClearsOnlyThatProviderAndKeepsStoredRows() async throws {
+        let (ledger, directory) = try makeLedger()
+        try await ledger.migrate()
+        try await ledger.commit([try usage()], skipped: [], checkpoint: checkpoint(), calendar: calendar)
+        try await ledger.commit(
+            [try usage()],
+            skipped: [],
+            checkpoint: checkpoint(fingerprint: fingerprintB, provider: .claudeCode),
+            calendar: calendar
+        )
+        let connection = try SQLiteConnection(url: directory.appending(path: "ledger.sqlite"))
+        try connection.execute("UPDATE source_checkpoints SET agent_activity_counted_from_offset = 120;")
+        let rowsBefore = try await ledger.agentActivityRows(in: nil, calendar: calendar)
+
+        let released = try await ledger.releaseUncountedAgentActivity(provider: .codex)
+        let releasedAgain = try await ledger.releaseUncountedAgentActivity(provider: .codex)
+
+        XCTAssertEqual(released, 1)
+        XCTAssertEqual(releasedAgain, 0)
+        let pending = try await ledger.agentActivityBackfillPendingCountsByProvider()
+        XCTAssertEqual(pending, [.claudeCode: 1])
+        let rowsAfter = try await ledger.agentActivityRows(in: nil, calendar: calendar)
+        XCTAssertEqual(rowsAfter, rowsBefore)
+    }
+
     func testUnknownAgentActivityCounterIsReportedAsCorruptData() async throws {
         let (ledger, directory) = try makeLedger()
         try await ledger.migrate()

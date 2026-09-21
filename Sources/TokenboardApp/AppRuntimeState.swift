@@ -19,6 +19,8 @@ protocol AppLedgerRuntime: Sendable {
     func skippedRecordCount() async throws -> Int
     func skippedRecordCountsByProvider() async throws -> [Provider: Int]
     func agentActivityBackfillPendingCountsByProvider() async throws -> [Provider: Int]
+    @discardableResult
+    func releaseUncountedAgentActivity(provider: Provider) async throws -> Int
     func shutdown() async throws
 }
 
@@ -28,6 +30,9 @@ extension AppLedgerRuntime {
     func skippedRecordCountsByProvider() async throws -> [Provider: Int] { [:] }
 
     func agentActivityBackfillPendingCountsByProvider() async throws -> [Provider: Int] { [:] }
+
+    @discardableResult
+    func releaseUncountedAgentActivity(provider: Provider) async throws -> Int { 0 }
 }
 
 protocol AppUsageQuerying: Sendable {

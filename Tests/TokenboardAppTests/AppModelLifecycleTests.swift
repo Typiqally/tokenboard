@@ -842,23 +842,53 @@ final class AppModelLifecycleTests: XCTestCase {
         XCTAssertEqual(counts, [1, 1, 0])
     }
 
-    func testImportBackfillsAgentActivityOnlyWhileHistoryIsUncounted() async throws {
+    func testCompleteBackfillPassReleasesUncountableHistorySoLaterImportsStopAsking() async throws {
         let setup = try makeSetup(approved: true, pendingAgentActivity: [.codex: 2])
         defer { setup.cleanup() }
 
         await setup.model.start()
 
         var backfills = await setup.coordinator.agentActivityBackfillCount()
+        let released = await setup.ledger.releasedProviders()
         XCTAssertEqual(backfills, 1)
+        XCTAssertEqual(Set(released), Set(Provider.allCases))
         XCTAssertFalse(setup.model.state.isImporting)
 
-        await setup.ledger.markAgentActivityCounted()
         await setup.model.refresh()
 
         backfills = await setup.coordinator.agentActivityBackfillCount()
         let counts = await setup.coordinator.counts()
         XCTAssertEqual(backfills, 1)
         XCTAssertEqual(counts, [1, 1, 0])
+    }
+
+    func testBackfillPassThatStoppedEarlyKeepsHistoryPendingForTheNextImport() async throws {
+        let setup = try makeSetup(approved: true, pendingAgentActivity: [.claudeCode: 1])
+        defer { setup.cleanup() }
+        await setup.coordinator.stopAgentActivityBackfillsEarly()
+
+        await setup.model.start()
+        await setup.model.refresh()
+
+        let backfills = await setup.coordinator.agentActivityBackfillCount()
+        let released = await setup.ledger.releasedProviders()
+        XCTAssertEqual(backfills, 2)
+        XCTAssertEqual(released, [])
+    }
+
+    func testUncountedHistoryOfARevokedProviderDoesNotStartABackfill() async throws {
+        let setup = try makeSetup(
+            approved: true,
+            grantedProviders: [.codex],
+            pendingAgentActivity: [.claudeCode: 3]
+        )
+        defer { setup.cleanup() }
+
+        await setup.model.start()
+        await setup.model.refresh()
+
+        let backfills = await setup.coordinator.agentActivityBackfillCount()
+        XCTAssertEqual(backfills, 0)
     }
 
     func testImportWithFullyCountedHistoryNeverStartsTheAgentActivityBackfill() async throws {
@@ -1489,6 +1519,7 @@ private actor LifecycleLedger: AppLedgerRuntime {
     private let skippedCountGate: AsyncTestGate?
     private var skippedCountCalls = 0
     private var pendingAgentActivity: [Provider: Int]
+    private var releasedAgentActivityProviders: [Provider] = []
 
     init(
         failure: StartupFailurePoint?,
@@ -1513,7 +1544,12 @@ private actor LifecycleLedger: AppLedgerRuntime {
     }
 
     func agentActivityBackfillPendingCountsByProvider() async -> [Provider: Int] { pendingAgentActivity }
-    func markAgentActivityCounted() { pendingAgentActivity = [:] }
+    func releaseUncountedAgentActivity(provider: Provider) async -> Int {
+        let released = pendingAgentActivity.removeValue(forKey: provider) ?? 0
+        releasedAgentActivityProviders.append(provider)
+        return released
+    }
+    func releasedProviders() -> [Provider] { releasedAgentActivityProviders }
 
     func migrate() async throws {
         migrations += 1
@@ -1607,6 +1643,7 @@ private actor LifecycleCoordinator: AppIngestionCoordinating {
     private var refreshes = 0
     private var stops = 0
     private var agentActivityBackfills = 0
+    private var stopsAgentActivityBackfillEarly = false
     private(set) var currentRunID: UInt64 = 0
     private var currentSequence: UInt64 = 0
     private var roots: [Provider: URL] = [:]
@@ -1684,9 +1721,21 @@ private actor LifecycleCoordinator: AppIngestionCoordinating {
     }
     func backfillAgentActivity() -> IngestionBatchResult {
         agentActivityBackfills += 1
-        return successResult(scope: .agentActivityBackfill)
+        guard stopsAgentActivityBackfillEarly else {
+            return successResult(scope: .agentActivityBackfill)
+        }
+        currentSequence += 1
+        return IngestionBatchResult(
+            runID: currentRunID,
+            sequence: currentSequence,
+            scope: .agentActivityBackfill,
+            providers: Dictionary(uniqueKeysWithValues: roots.keys.map {
+                ($0, .success(discoveredFiles: 2, scannedFiles: 1))
+            })
+        )
     }
     func agentActivityBackfillCount() -> Int { agentActivityBackfills }
+    func stopAgentActivityBackfillsEarly() { stopsAgentActivityBackfillEarly = true }
     func replaceSource(
         _ provider: Provider,
         with root: URL,

@@ -286,6 +286,26 @@ public actor SQLiteLedger: LedgerStore {
         }
     }
 
+    /// Stops waiting for a provider's pre-upgrade history that a complete backfill pass could not count, such as
+    /// logs deleted since they were imported. Their usage keeps its tokens and simply reads as not covered.
+    /// Returns the number of sources released.
+    @discardableResult
+    public func releaseUncountedAgentActivity(provider: Provider) async throws -> Int {
+        let connection = try requiredConnection()
+        let statement = try prepare(
+            """
+            UPDATE source_checkpoints
+            SET agent_activity_counted_from_offset = 0
+            WHERE provider = ? AND agent_activity_counted_from_offset > 0;
+            """,
+            using: connection
+        )
+        defer { sqlite3_finalize(statement) }
+        try bind(provider.rawValue, to: statement, at: 1, using: connection)
+        try stepDone(statement, using: connection)
+        return Int(sqlite3_changes(connection.handle))
+    }
+
     /// Number of sources per provider whose history from before the activity upgrade is not counted yet.
     public func agentActivityBackfillPendingCountsByProvider() async throws -> [Provider: Int] {
         let connection = try requiredConnection()
