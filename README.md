@@ -30,17 +30,17 @@
 
 <p align="center"><em>One glance in the menu bar, one click for the complete local picture.</em></p>
 
-## Current release — 0.9.4
+## Current release — 0.9.5
 
-Tokenboard 0.9.4 adds All, Input, and Output token selection across the menu bar, history, and API-equivalent calculations. Pricing now includes GPT-6 Sol, GPT-6 Luna, and Claude Opus 5.5. Discord Activity can show your companion's daily stage, with an exact preview and renewed sharing consent.
+Tokenboard 0.9.5 fixes startup for databases already upgraded by the activity-metrics development build, preserving their usage, pricing, and activity records. It includes daily activity storage and backfill, and retains All/Input/Output token selection, the refreshed model prices, and Discord companion artwork.
 
 <p align="center">
-  <strong><a href="https://github.com/Typiqally/tokenboard/releases/download/v0.9.4/Tokenboard-0.9.4.zip">Download Tokenboard 0.9.4</a></strong>
+  <strong><a href="https://github.com/Typiqally/tokenboard/releases/download/v0.9.5/Tokenboard-0.9.5.zip">Download Tokenboard 0.9.5</a></strong>
   ·
-  <a href="https://github.com/Typiqally/tokenboard/releases/tag/v0.9.4">Release notes</a>
+  <a href="https://github.com/Typiqally/tokenboard/releases/tag/v0.9.5">Release notes</a>
 </p>
 
-The archive contains a universal Apple silicon and Intel app for macOS 14 or newer. SHA-256: `da011e4343c60c8898b6e932d20466ee1658e6c1efd11bcf51ac91d51ea2fb9b`.
+The archive contains a universal Apple silicon and Intel app for macOS 14 or newer. SHA-256: `4b477509b32243b867af7adadf54620a84c18330b16ef00ff7793e01597754b9`.
 
 ## Why Tokenboard
 
