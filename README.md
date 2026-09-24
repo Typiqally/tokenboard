@@ -30,17 +30,17 @@
 
 <p align="center"><em>One glance in the menu bar, one click for the complete local picture.</em></p>
 
-## Current release — 0.9.3
+## Current release — 0.9.4
 
-Tokenboard 0.9.3 updates pricing for Fable 5.1, Astra, and other models, and adds a warning beside incomplete API-equivalent estimates. Hover over the warning to see which models are missing pricing. The popover now shows a compact row of focus metrics without the Work Patterns heading.
+Tokenboard 0.9.4 adds All, Input, and Output token selection across the menu bar, history, and API-equivalent calculations. Pricing now includes GPT-6 Sol, GPT-6 Luna, and Claude Opus 5.5. Discord Activity can show your companion's daily stage, with an exact preview and renewed sharing consent.
 
 <p align="center">
-  <strong><a href="https://github.com/Typiqally/tokenboard/releases/download/v0.9.3/Tokenboard-0.9.3.zip">Download Tokenboard 0.9.3</a></strong>
+  <strong><a href="https://github.com/Typiqally/tokenboard/releases/download/v0.9.4/Tokenboard-0.9.4.zip">Download Tokenboard 0.9.4</a></strong>
   ·
-  <a href="https://github.com/Typiqally/tokenboard/releases/tag/v0.9.3">Release notes</a>
+  <a href="https://github.com/Typiqally/tokenboard/releases/tag/v0.9.4">Release notes</a>
 </p>
 
-The archive contains a universal Apple silicon and Intel app for macOS 14 or newer. SHA-256: `f78d5dde1fb34e3fd581a9f5355a2efdbb351a85cdd138c301762cae139b7aa7`.
+The archive contains a universal Apple silicon and Intel app for macOS 14 or newer. SHA-256: `da011e4343c60c8898b6e932d20466ee1658e6c1efd11bcf51ac91d51ea2fb9b`.
 
 ## Why Tokenboard
 
