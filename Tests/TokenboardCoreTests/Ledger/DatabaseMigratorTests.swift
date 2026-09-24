@@ -148,6 +148,10 @@ final class DatabaseMigratorTests: XCTestCase {
                   '2026-08-01', 'Europe/Amsterdam', 'codex', 'gpt-test',
                   'input_uncached', 'additive', 17
                 );
+                INSERT INTO price_rates VALUES(
+                  'codex', 'gpt-test', 'input_uncached', '5', '2026-01-01', NULL,
+                  'https://openai.com/api/pricing/', '2026-08-01', 'synthetic-catalog'
+                );
                 INSERT INTO source_checkpoints VALUES(
                   '\(String(repeating: "a", count: 64))', 'codex', 1, 4096, 4096, NULL,
                   NULL, NULL, '{}', '{}'
@@ -188,6 +192,11 @@ final class DatabaseMigratorTests: XCTestCase {
             XCTAssertEqual(
                 try connection.queryStrings("SELECT COUNT(*) FROM daily_agent_activity;"),
                 ["0"],
+                "starting at v\(startingVersion)"
+            )
+            XCTAssertEqual(
+                try connection.queryStrings("SELECT usd_per_million FROM price_rates;"),
+                ["5"],
                 "starting at v\(startingVersion)"
             )
             try connection.close()
