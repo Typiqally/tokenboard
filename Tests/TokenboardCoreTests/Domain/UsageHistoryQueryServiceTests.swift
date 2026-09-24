@@ -220,6 +220,33 @@ final class UsageHistoryQueryServiceTests: XCTestCase {
         XCTAssertEqual(pricingQueries, 1)
     }
 
+    func testTokenScopeDoesNotChangeAgentActivityCoverage() async throws {
+        let ledger = HistoryQueryTestLedger(
+            rows: [
+                row(day: "2026-08-11", provider: .codex, model: "gpt-5", metric: .inputUncached, quantity: 200),
+                row(day: "2026-08-11", provider: .codex, model: "gpt-5", metric: .output, quantity: 100),
+                row(day: "2026-08-11", provider: .claudeCode, model: "claude-test", metric: .output, quantity: 900)
+            ],
+            agentActivity: [
+                agentActivity(day: "2026-08-11", provider: .codex, model: "gpt-5", counter: .tasks, quantity: 2),
+                agentActivity(day: "2026-08-11", provider: .codex, model: "gpt-5", counter: .activityTokens, quantity: 150)
+            ]
+        )
+        let service = UsageQueryService(ledger: ledger)
+        for scope in UsageTokenScope.allCases {
+            let history = try await service.history(
+                range: .sevenDays, now: date("2026-08-11T20:00:00Z"),
+                calendar: amsterdamCalendar(), provider: .codex, tokenScope: scope
+            )
+            let expected = AgentActivityCoverage(tokenTotal: 300, activityTokens: 150)
+            XCTAssertEqual(history.agentActivity.coverage, expected, "scope \(scope)")
+            XCTAssertEqual(history.agentActivity.totals.tasks, 2)
+            XCTAssertEqual(history.agentActivity.coverage.state, .partial)
+            XCTAssertEqual(history.points.last?.agentActivity?.coverage, expected)
+            XCTAssertEqual(history.breakdown.tokenTotal, scope == .all ? 300 : scope == .input ? 200 : 100)
+        }
+    }
+
     func testHistoryCarriesAgentActivityForTheRangeAndEachDailyPoint() async throws {
         let calendar = amsterdamCalendar()
         let ledger = HistoryQueryTestLedger(
