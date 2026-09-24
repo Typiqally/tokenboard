@@ -3,6 +3,49 @@ import XCTest
 @testable import TokenboardCore
 
 final class UsageQueryServiceTests: XCTestCase {
+    func testTokenScopesPartitionCountsCostsAndUnpricedUsage() async throws {
+        let metrics: [UsageMetric] = [.inputUncached, .inputCacheRead, .inputCacheWrite,
+                                     .inputCacheWrite5m, .inputCacheWrite1h, .inputUnclassified, .output]
+        let ledger = QueryTestLedger(rows: metrics.map {
+            row(day: "2026-08-05", quantity: 100, metric: $0)
+        } + [row(day: "2026-08-05", quantity: 999, metric: .detailReasoningOutput)])
+        let service = UsageQueryService(ledger: ledger)
+        var summaries: [UsageTokenScope: UsageSummary] = [:]
+        for scope in UsageTokenScope.allCases {
+            summaries[scope] = try await service.summary(
+                period: .today, now: date("2026-08-05T12:00:00Z"),
+                calendar: amsterdamCalendar(), tokenScope: scope
+            )
+            XCTAssertEqual(summaries[scope]?.tokenScope, scope)
+        }
+        let all = try XCTUnwrap(summaries[.all])
+        let input = try XCTUnwrap(summaries[.input])
+        let output = try XCTUnwrap(summaries[.output])
+        XCTAssertEqual(input.tokenTotal, 600)
+        XCTAssertEqual(output.tokenTotal, 100)
+        XCTAssertEqual(all.tokenTotal, input.tokenTotal + output.tokenTotal)
+        XCTAssertEqual(all.knownAPIEquivalentUSD, input.knownAPIEquivalentUSD + output.knownAPIEquivalentUSD)
+        XCTAssertEqual(input.unpricedTokens, 500)
+        XCTAssertEqual(output.unpricedTokens, 100)
+        XCTAssertEqual(output.unpricedUsage.map(\.tokenCount), [100])
+        XCTAssertEqual(all.allTokenUnpricedTokens, 600)
+        XCTAssertEqual(input.allTokenUnpricedTokens, 600)
+    }
+
+    func testEmptyOutputScopeExcludesUnpricedInputFromItsEstimate() async throws {
+        let ledger = QueryTestLedger(rows: [row(day: "2026-08-05", quantity: 100, model: "unknown-model")])
+        let summary = try await UsageQueryService(ledger: ledger).summary(
+            period: .today, now: date("2026-08-05T12:00:00Z"),
+            calendar: amsterdamCalendar(), tokenScope: .output
+        )
+        XCTAssertEqual(summary.tokenTotal, 0)
+        XCTAssertEqual(summary.knownAPIEquivalentUSD, 0)
+        XCTAssertEqual(summary.unpricedTokens, 0)
+        XCTAssertTrue(summary.unpricedUsage.isEmpty)
+        XCTAssertEqual(summary.allTokenUnpricedTokens, 100)
+        XCTAssertNil(MenuPresentation(summary: summary, displayMetric: .tokens).unpricedTitle)
+    }
+
     func testSummaryIncludesOnlyUnpricedModelsInTheSelectedPeriod() async throws {
         let ledger = QueryTestLedger(rows: [
             row(day: "2026-08-04", quantity: 900, model: "gpt-older-missing"),

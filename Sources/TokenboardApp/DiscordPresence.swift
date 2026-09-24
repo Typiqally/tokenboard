@@ -16,12 +16,14 @@ struct DiscordPresenceActivity: Equatable, Sendable {
 }
 
 enum DiscordPresencePresentation {
-    static let consentVersion = 2
-    static let disclosure = "Discord may show this activity on your profile, in friend lists, and in server member lists. Tokenboard publishes only this preview and a static link to its public GitHub repository through the local Discord desktop client."
+    static let consentVersion = 3
+    static let disclosure = "Discord may show this activity on your profile, in friend lists, and in server member lists. Tokenboard publishes today's token total, estimated focus time, and a still of your selected companion's daily stage when its Discord artwork is available. The image follows companion changes and resets each local day. Tokenboard publishes only this preview and a static link to its public GitHub repository through the local Discord desktop client."
 
     static func activity(
         tokenTotal: Int64,
-        estimatedFocusMinutes: Int?
+        estimatedFocusMinutes: Int?,
+        companion: CompanionPresentation? = nil,
+        availableArtworkKeys: Set<String> = []
     ) -> DiscordPresenceActivity {
         let state: String
         if tokenTotal == 0 {
@@ -31,11 +33,13 @@ enum DiscordPresencePresentation {
         } else {
             state = "\(ValueFormatter.compactTokens(tokenTotal)) tokens today"
         }
+        let artwork = companion.flatMap(DiscordCompanionArtwork.init(companion:))
+            .flatMap { availableArtworkKeys.contains($0.key) ? $0 : nil }
         return DiscordPresenceActivity(
             details: "Today's AI coding usage",
             state: state,
-            largeImageKey: "tokenboard",
-            largeImageText: "Tokenboard",
+            largeImageKey: artwork?.key ?? "tokenboard",
+            largeImageText: artwork?.tooltip ?? "Tokenboard",
             buttons: [
                 DiscordPresenceButton(
                     label: "View on GitHub",
@@ -48,7 +52,9 @@ enum DiscordPresencePresentation {
     static func accessibilityPreview(_ activity: DiscordPresenceActivity) -> String {
         let spokenState = activity.state.replacingOccurrences(of: " · ", with: ", ")
         let action = activity.buttons.first.map { " Action: \($0.label)." } ?? ""
-        return "Playing Tokenboard. \(activity.details). \(spokenState).\(action)"
+        let artwork = activity.largeImageKey == "tokenboard"
+            ? "" : " Image: \(activity.largeImageText)."
+        return "Playing Tokenboard. \(activity.details). \(spokenState).\(artwork)\(action)"
     }
 }
 
@@ -113,6 +119,7 @@ final class DiscordPresenceCoordinator: ObservableObject {
     @Published private(set) var currentActivity: DiscordPresenceActivity?
 
     var isConfigured: Bool { configuration != nil }
+    let availableArtworkKeys: Set<String>
 
     private let configuration: DiscordApplicationConfiguration?
     private let client: any DiscordPresenceClient
@@ -120,93 +127,125 @@ final class DiscordPresenceCoordinator: ObservableObject {
 
     init(
         configuration: DiscordApplicationConfiguration?,
-        client: any DiscordPresenceClient
+        client: any DiscordPresenceClient,
+        artworkAvailability: DiscordArtworkAvailability? = nil
     ) {
         self.configuration = configuration
         self.client = client
+        availableArtworkKeys = (artworkAvailability ?? DiscordArtworkResources.availability)
+            .keys(for: configuration)
         status = configuration == nil ? .unavailable : .disabled
     }
 
-    func setEnabled(
-        _ enabled: Bool,
-        activity: DiscordPresenceActivity
-    ) async {
-        currentActivity = activity
-        guard enabled else {
-            isEnabled = false
-            if status == .connected {
-                try? await client.setActivity(nil)
-            }
-            await client.disconnect()
-            publishedActivity = nil
-            status = .disabled
-            return
-        }
+    // One worker owns all client calls. Main-actor reentrancy may change the
+    // desired activity while connect/send suspends; the worker drains the
+    // newest value before finishing and never lets an old task reconnect later.
+    private var worker: Task<Void, Never>?
+    private var connected = false
+    private var shouldConnect = false
+    private var disconnectRequested = false
+    private var clearRequested = false
+    private var disconnectedStatus: DiscordPresenceStatus = .disabled
+    private var intentRevision: UInt64 = 0
 
-        guard configuration != nil else {
-            isEnabled = false
-            status = .unavailable
-            return
+    func setEnabled(_ enabled: Bool, activity: DiscordPresenceActivity) async {
+        currentActivity = activity
+        intentRevision &+= 1
+        isEnabled = enabled && configuration != nil
+        shouldConnect = isEnabled
+        if !isEnabled {
+            disconnectRequested = true
+            clearRequested = true
+            disconnectedStatus = enabled ? .unavailable : .disabled
         }
-        isEnabled = true
-        if status == .connected {
-            await update(activity)
-        } else {
-            await connect()
-        }
+        await synchronize()
     }
 
     func update(_ activity: DiscordPresenceActivity) async {
         currentActivity = activity
-        guard isEnabled, status == .connected, publishedActivity != activity else { return }
-        do {
-            try await client.setActivity(activity)
-            publishedActivity = activity
-        } catch {
-            await client.disconnect()
-            publishedActivity = nil
-            status = Self.status(for: error)
-        }
+        guard isEnabled, worker == nil, connected else { return }
+        await synchronize()
     }
 
     func retry() async {
         guard isEnabled else { return }
-        await client.disconnect()
-        publishedActivity = nil
-        await connect()
+        intentRevision &+= 1
+        disconnectRequested = true
+        shouldConnect = true
+        await synchronize()
     }
 
     func discordBecameUnavailable() async {
         guard isEnabled else { return }
-        await client.disconnect()
-        publishedActivity = nil
-        status = .discordNotRunning
+        intentRevision &+= 1
+        disconnectRequested = true
+        shouldConnect = false
+        disconnectedStatus = .discordNotRunning
+        await synchronize()
     }
 
     func shutdown() async {
-        if status == .connected {
-            try? await client.setActivity(nil)
-        }
-        await client.disconnect()
-        publishedActivity = nil
-        status = .disabled
+        intentRevision &+= 1
+        isEnabled = false
+        shouldConnect = false
+        disconnectRequested = true
+        clearRequested = true
+        disconnectedStatus = .disabled
+        await synchronize()
     }
 
-    private func connect() async {
-        guard let configuration, let currentActivity else {
-            status = .unavailable
+    private func synchronize() async {
+        if let worker {
+            await worker.value
             return
         }
-        status = .connecting
-        do {
-            try await client.connect(applicationID: configuration.applicationID)
-            try await client.setActivity(currentActivity)
-            publishedActivity = currentActivity
-            status = .connected
-        } catch {
-            await client.disconnect()
-            publishedActivity = nil
-            status = Self.status(for: error)
+        let task = Task { @MainActor [weak self] in
+            await self?.drain()
+            self?.worker = nil
+        }
+        worker = task
+        await task.value
+    }
+
+    private func drain() async {
+        while true {
+            if disconnectRequested {
+                disconnectRequested = false
+                let shouldClear = clearRequested
+                clearRequested = false
+                if connected && shouldClear {
+                    try? await client.setActivity(nil)
+                }
+                await client.disconnect()
+                connected = false
+                publishedActivity = nil
+                status = disconnectedStatus
+                continue
+            }
+            guard isEnabled, shouldConnect, let configuration else { return }
+            let revision = intentRevision
+            do {
+                if !connected {
+                    status = .connecting
+                    try await client.connect(applicationID: configuration.applicationID)
+                    connected = true
+                    // Disable, shutdown, or Retry may have arrived while opening.
+                    if disconnectRequested || !isEnabled { continue }
+                    status = .connected
+                }
+                guard let activity = currentActivity, publishedActivity != activity else { return }
+                try await client.setActivity(activity)
+                publishedActivity = activity
+                // Loop: an update received during the send replaces this value.
+            } catch {
+                await client.disconnect()
+                connected = false
+                publishedActivity = nil
+                if intentRevision == revision {
+                    shouldConnect = false
+                    status = Self.status(for: error)
+                }
+            }
         }
     }
 

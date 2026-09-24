@@ -5,6 +5,63 @@ import TokenboardCore
 
 @MainActor
 final class AppModelTests: XCTestCase {
+    func testTokenScopeRefreshesUsageWithoutScanningAndKeepsDailyExtras() async throws {
+        let setup = try makeSetup(approved: true, grantedProviders: Set(Provider.allCases))
+        defer { setup.cleanup() }
+        await setup.model.start()
+        let dailyTotal = setup.model.companionDailyTokenTotal(at: setup.model.now())
+        let discord = setup.model.discordPresencePreview
+        let history = HistoryViewModel(model: setup.model, request: HistoryOpenRequest(provider: .codex, range: .today))
+        let initiallyLoaded = await waitUntil { history.snapshot != nil }
+        XCTAssertTrue(initiallyLoaded)
+        await setup.model.select(tokenScope: .output)
+        let historyUpdated = await waitUntil { history.snapshot?.tokenScope == .output }
+        XCTAssertTrue(historyUpdated)
+        XCTAssertEqual(setup.preferences.selectedTokenScope, .output)
+        XCTAssertEqual(setup.model.presentation?.tokenTotal, 21)
+        XCTAssertEqual(setup.model.presentation?.apiValueTitle, "≈ $0.25 output API equivalent")
+        XCTAssertEqual(setup.model.historyState.snapshots?[.today]?.breakdown.tokenTotal, 21)
+        XCTAssertEqual(setup.model.companionDailyTokenTotal(at: setup.model.now()), dailyTotal)
+        XCTAssertEqual(setup.model.discordPresencePreview, discord)
+        let counts = await setup.coordinator.counts()
+        XCTAssertEqual(counts, [1, 0])
+        history.cancel()
+        await setup.model.shutdown()
+    }
+
+    func testFailedScopeChangeShowsFailureAndCanRetryWithoutOldTotals() async throws {
+        let setup = try makeSetup(approved: true, grantedProviders: Set(Provider.allCases))
+        defer { setup.cleanup() }
+        await setup.model.start()
+        await setup.query.failSummary(scope: .output)
+        await setup.model.select(tokenScope: .output)
+        XCTAssertNil(setup.model.presentation)
+        let presentation = RichPopoverPresentation.make(state: setup.model.state, startupError: nil, relativeTo: setup.model.now())
+        guard case .failed = presentation.contentState else { return XCTFail("Expected an explicit failure") }
+        await setup.query.failSummary(scope: nil)
+        await setup.model.queryUsagePresentations()
+        XCTAssertEqual(setup.model.presentation?.tokenTotal, 21)
+        XCTAssertNil(setup.model.state.summaryError)
+        await setup.model.shutdown()
+    }
+
+    func testLateSummaryCannotOverwriteNewTokenScope() async throws {
+        let setup = try makeSetup(approved: true, grantedProviders: Set(Provider.allCases))
+        defer { setup.cleanup() }
+        await setup.model.start()
+        await setup.query.holdSummary(scope: .input)
+        let input = Task { await setup.model.select(tokenScope: .input) }
+        let isHeld = await waitUntil { await setup.query.hasHeldSummary() }
+        XCTAssertTrue(isHeld)
+        await setup.model.select(tokenScope: .output)
+        await setup.query.resumeSummary()
+        await input.value
+        XCTAssertEqual(setup.model.selectedTokenScope, .output)
+        XCTAssertEqual(setup.model.presentation?.tokenTotal, 21)
+        XCTAssertEqual(setup.model.historyState.snapshots?[.today]?.tokenScope, .output)
+        await setup.model.shutdown()
+    }
+
     func testStartupRunsIntegrityAndBundledCatalogBeforeInboxGrantsScanAndQuery() async throws {
         let setup = try makeSetup(approved: true, grantedProviders: Set(Provider.allCases))
         defer { setup.cleanup() }
@@ -607,6 +664,108 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(utcSetup.model.companionState.theme, .pokemon, "previewing changes nothing")
     }
 
+    func testDiscordArtworkFollowsDailyStageThemeAndNone() async throws {
+        let setup = try makeSetup(
+            approved: true, grantedProviders: Set(Provider.allCases),
+            discordEnabled: true, discordConsentVersion: DiscordPresencePresentation.consentVersion,
+            discordArtworkKeys: Set(DiscordCompanionArtwork.all.map(\.key))
+        )
+        defer { setup.cleanup() }
+        await setup.model.start()
+        await setup.model.select(companionTheme: .forest)
+        let first = setup.model.discordPresencePreview
+        XCTAssertEqual(DiscordCompanionArtwork.byKey[first.largeImageKey]?.stage, 0)
+        XCTAssertEqual(DiscordCompanionArtwork.byKey[first.largeImageKey]?.theme, .forest)
+        var published = await setup.discordClient.activities()
+        XCTAssertEqual(published.last, first)
+
+        await setup.query.setHistoryTokenTotal(90_000_000)
+        await setup.model.retryUsageHistory()
+        let grown = setup.model.discordPresencePreview
+        XCTAssertEqual(DiscordCompanionArtwork.byKey[grown.largeImageKey]?.stage, 1)
+        published = await setup.discordClient.activities()
+        XCTAssertEqual(published.last, grown)
+        let count = published.count
+        setup.model.setShowCompanionInMenuBar(true)
+        await setup.model.select(period: .thisWeek)
+        published = await setup.discordClient.activities()
+        XCTAssertEqual(published.count, count)
+        XCTAssertEqual(setup.model.discordPresencePreview, grown)
+
+        await setup.model.discordBecameUnavailable()
+        await setup.model.select(companionTheme: .pokemon)
+        let companion = try XCTUnwrap(setup.model.companionPresentation(at: setup.model.now()))
+        let expected = try XCTUnwrap(DiscordCompanionArtwork(companion: companion))
+        await setup.model.retryDiscordPresence()
+        published = await setup.discordClient.activities()
+        XCTAssertEqual(published.last?.largeImageKey, expected.key)
+
+        await setup.model.select(companionTheme: .none)
+        published = await setup.discordClient.activities()
+        XCTAssertEqual(published.last?.largeImageKey, "tokenboard")
+        await setup.model.shutdown()
+    }
+
+    func testDiscordArtworkResetsBeforeNewDailyDataAndRotatesWithCalendar() async throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let clock = DiscordModelTestClock(Date(timeIntervalSince1970: 1_775_000_000))
+        let setup = try makeSetup(
+            approved: true, grantedProviders: Set(Provider.allCases),
+            discordEnabled: true, discordConsentVersion: DiscordPresencePresentation.consentVersion,
+            calendar: calendar, companionSeed: 123,
+            discordArtworkKeys: Set(DiscordCompanionArtwork.all.map(\.key)),
+            now: { clock.read() }
+        )
+        defer { setup.cleanup() }
+        await setup.query.setHistoryTokenTotal(1_000_000_000)
+        await setup.model.start()
+        await setup.model.select(companionTheme: .pokemon)
+        let previous = try XCTUnwrap(DiscordCompanionArtwork.byKey[
+            setup.model.discordPresencePreview.largeImageKey
+        ])
+        XCTAssertEqual(previous.stage, 11)
+        clock.set(calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: clock.read()))!)
+        await setup.model.refreshDiscordPresenceForCalendarChange()
+        let next = setup.model.discordPresencePreview
+        let nextArtwork = try XCTUnwrap(DiscordCompanionArtwork.byKey[next.largeImageKey])
+        XCTAssertEqual(nextArtwork.stage, 0)
+        XCTAssertNotEqual(nextArtwork.variant, previous.variant)
+        XCTAssertEqual(next.state, "No usage yet today")
+        var published = await setup.discordClient.activities()
+        XCTAssertEqual(published.last, next)
+
+        calendar.timeZone = TimeZone(secondsFromGMT: -12 * 3600)!
+        await setup.query.setHistoryTokenTotal(180_000_000)
+        await setup.model.refreshForCalendarChange(calendar)
+        let companion = try XCTUnwrap(setup.model.companionPresentation(at: clock.read()))
+        let expected = try XCTUnwrap(DiscordCompanionArtwork(companion: companion))
+        XCTAssertEqual(expected.stage, 2)
+        XCTAssertEqual(expected.variant, previous.variant)
+        published = await setup.discordClient.activities()
+        XCTAssertEqual(published.last?.largeImageKey, expected.key)
+        await setup.model.shutdown()
+    }
+
+    func testDiscordPreviewUsesInitialStageWithoutSnapshotAndFallsBackWithoutPublishedArt() async throws {
+        let setup = try makeSetup(
+            approved: false, grantedProviders: [],
+            discordArtworkKeys: Set(DiscordCompanionArtwork.all.map(\.key))
+        )
+        defer { setup.cleanup() }
+        await setup.model.select(companionTheme: .village)
+        let preview = setup.model.discordPresencePreview
+        XCTAssertEqual(DiscordCompanionArtwork.byKey[preview.largeImageKey]?.stage, 0)
+        XCTAssertEqual(preview.state, "No usage yet today")
+        let published = await setup.discordClient.activities()
+        XCTAssertEqual(published, [])
+
+        let unavailable = try makeSetup(approved: false, grantedProviders: [])
+        defer { unavailable.cleanup() }
+        await unavailable.model.select(companionTheme: .village)
+        XCTAssertEqual(unavailable.model.discordPresencePreview.largeImageKey, "tokenboard")
+    }
+
     private func makeSetup(
         approved: Bool,
         grantedProviders: Set<Provider>,
@@ -615,7 +774,9 @@ final class AppModelTests: XCTestCase {
         discordConsentVersion: Int = 0,
         calendar: Calendar = Calendar(identifier: .gregorian),
         companionSeed: UInt64? = nil,
-        historyRefreshClock: any IngestionClock = ContinuousIngestionClock()
+        historyRefreshClock: any IngestionClock = ContinuousIngestionClock(),
+        discordArtworkKeys: Set<String> = [],
+        now: @escaping @Sendable () -> Date = { Date(timeIntervalSince1970: 1_775_000_000) }
     ) throws -> ModelSetup {
         let suiteName = "AppModelTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -644,7 +805,10 @@ final class AppModelTests: XCTestCase {
             configuration: DiscordApplicationConfiguration(
                 applicationID: "123456789012345678"
             )!,
-            client: discordClient
+            client: discordClient,
+            artworkAvailability: DiscordArtworkAvailability(
+                applicationID: "123456789012345678", assetKeys: discordArtworkKeys
+            )
         )
         let model = AppModel(
             ledger: ledger,
@@ -658,7 +822,7 @@ final class AppModelTests: XCTestCase {
                 root: URL(fileURLWithPath: "/tmp/\(suiteName)-support", isDirectory: true)
             ),
             discordPresence: discordPresence,
-            now: { Date(timeIntervalSince1970: 1_775_000_000) },
+            now: now,
             calendar: calendar,
             historyRefreshClock: historyRefreshClock
         )
@@ -815,14 +979,29 @@ private actor RuntimeQuery: AppUsageQuerying {
     let recorder: OrderedRecorder
     private var historyRanges: [UsageHistoryRange] = []
     private var historyTokenTotal: Int64 = 321
+    private var failingScope: UsageTokenScope?
+    func failSummary(scope: UsageTokenScope?) { failingScope = scope }
+    private var heldScope: UsageTokenScope?
+    private var heldSummary: CheckedContinuation<Void, Never>?
+    func holdSummary(scope: UsageTokenScope) { heldScope = scope }
+    func hasHeldSummary() -> Bool { heldSummary != nil }
+    func resumeSummary() {
+        heldScope = nil
+        heldSummary?.resume()
+        heldSummary = nil
+    }
     init(recorder: OrderedRecorder) { self.recorder = recorder }
 
-    func summary(period: CalendarPeriod, now: Date, calendar: Calendar) -> UsageSummary {
+    func summary(period: CalendarPeriod, now: Date, calendar: Calendar, tokenScope: UsageTokenScope) async throws -> UsageSummary {
         recorder.append("query.\(period.rawValue)")
+        if failingScope == tokenScope { throw AppUsageQueryError.historyUnavailable }
+        if heldScope == tokenScope {
+            await withCheckedContinuation { heldSummary = $0 }
+        }
         return UsageSummary(
             period: period,
-            tokenTotal: 321,
-            knownAPIEquivalentUSD: Decimal(string: "1.25")!,
+            tokenTotal: tokenScope == .all ? 321 : tokenScope == .input ? 300 : 21,
+            knownAPIEquivalentUSD: Decimal(string: tokenScope == .all ? "1.25" : tokenScope == .input ? "1" : "0.25")!,
             unpricedTokens: 0,
             exchangeRates: ExchangeRateSnapshot(
                 catalogID: "test",
@@ -830,7 +1009,8 @@ private actor RuntimeQuery: AppUsageQuerying {
                 verifiedAt: "2026-08-07",
                 provenanceURL: URL(string: "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml")!,
                 rates: [.usd: 1, .eur: Decimal(string: "0.8")!]
-            )
+            ),
+            tokenScope: tokenScope
         )
     }
 
@@ -838,9 +1018,11 @@ private actor RuntimeQuery: AppUsageQuerying {
         range: UsageHistoryRange,
         now: Date,
         calendar: Calendar,
-        provider: Provider?
+        provider: Provider?,
+        tokenScope: UsageTokenScope
     ) -> UsageHistorySnapshot {
         historyRanges.append(range)
+        let selectedTotal = tokenScope == .all ? historyTokenTotal : tokenScope == .input ? max(0, historyTokenTotal - 21) : 21
         let interval = DateInterval(start: now, duration: 1)
         return UsageHistorySnapshot(
             range: range,
@@ -849,20 +1031,21 @@ private actor RuntimeQuery: AppUsageQuerying {
             previousInterval: interval,
             points: [],
             comparison: UsageComparison(
-                currentTokenTotal: historyTokenTotal,
+                currentTokenTotal: selectedTotal,
                 previousTokenTotal: 300,
-                tokenDelta: historyTokenTotal - 300,
+                tokenDelta: selectedTotal - 300,
                 percentChange: 7
             ),
             breakdown: UsageBreakdown(
-                tokenTotal: historyTokenTotal,
-                knownAPIEquivalentUSD: Decimal(string: "1.25")!,
+                tokenTotal: selectedTotal,
+                knownAPIEquivalentUSD: Decimal(string: tokenScope == .all ? "1.25" : tokenScope == .input ? "1" : "0.25")!,
                 unpricedTokens: 0,
                 exchangeRates: nil,
                 providers: [],
                 models: [],
                 tokenTypes: []
-            )
+            ),
+            tokenScope: tokenScope
         )
     }
 
@@ -1014,4 +1197,12 @@ private final class RuntimeBookmarkAccess: SecurityScopedBookmarkAccessing, @unc
         return true
     }
     func stopAccessing(_ url: URL) { stopCount += 1 }
+}
+
+private final class DiscordModelTestClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Date
+    init(_ value: Date) { self.value = value }
+    func read() -> Date { lock.withLock { value } }
+    func set(_ value: Date) { lock.withLock { self.value = value } }
 }

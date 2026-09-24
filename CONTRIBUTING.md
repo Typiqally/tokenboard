@@ -25,7 +25,7 @@ Develop behavior test-first. Parser fixtures must be synthetic and content-free:
 
 Any new entitlement or privacy-boundary change requires an explicit security review. Tokenboard is intentionally unsandboxed for same-user Discord IPC, but must remain signed without privilege entitlements. Do not add remote-network APIs, helper executables, daemons, XPC services, web views, analytics, telemetry, or third-party runtime dependencies. IPC code must accept only same-user Unix sockets, keep payload fields allowlisted, and never add Discord authentication. Pricing entries must cite official first-party provenance URLs and explicit effective dates; uncertainty stays unpriced.
 
-CI and tagged releases read the same public ID from the `TOKENBOARD_DISCORD_APPLICATION_ID` GitHub Actions repository variable. It is public configuration, not a secret. Keep the variable aligned with Tokenboard's shared Discord application and its `tokenboard` Rich Presence asset.
+CI and tagged releases read the same public ID from the `TOKENBOARD_DISCORD_APPLICATION_ID` GitHub Actions repository variable. It is public configuration, not a secret. Keep the variable aligned with Tokenboard's shared Discord application and its `tokenboard` Rich Presence asset. Companion artwork keys must be uploaded and verified before being added to `Resources/Discord/published-assets.json`; see `Resources/Discord/README.md` for deterministic export and publication. Never mark pending branded artwork as cleared just to enable Discord images.
 
 ## Public release packaging
 

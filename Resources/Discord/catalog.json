@@ -1,0 +1,2059 @@
+{
+  "entries" : [
+    {
+      "imageSHA256" : "0b65008efef9c444e7bef660c41241fd99578bc69ec1351cb9a1863a5a067d31",
+      "key" : "tb_v1_pokemon_bulbasaur_01",
+      "previewSHA256" : "9dcf27921cb3c0cefc1a124f6b35645671a0e445864504920b605fe9d231edc4",
+      "stage" : 0,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Bulbasaur · First partner",
+      "variant" : "bulbasaur"
+    },
+    {
+      "imageSHA256" : "d812369c4d65ad7ff4911601505b23bc5c5b74261a484796863159dfef65daa0",
+      "key" : "tb_v1_pokemon_bulbasaur_02",
+      "previewSHA256" : "4072bf357f9bd8f35ab4f25704237eacb1b066f62f0e22cbcc6220dc58854ff8",
+      "stage" : 1,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Bulbasaur · First steps",
+      "variant" : "bulbasaur"
+    },
+    {
+      "imageSHA256" : "d9061600725de4d740353f5e7c4631b0c90b85290c98481d5502258d875167c3",
+      "key" : "tb_v1_pokemon_bulbasaur_03",
+      "previewSHA256" : "fd48787aad15501db25554a838ec595351a75608ba929634cc1f9b542107e537",
+      "stage" : 2,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Bulbasaur · Rookie battles",
+      "variant" : "bulbasaur"
+    },
+    {
+      "imageSHA256" : "810d6ef024b901bd44534746a4f0a3f26ff2c60d181fbb63c502263e8b4437bb",
+      "key" : "tb_v1_pokemon_bulbasaur_04",
+      "previewSHA256" : "b68f01b12fb516bdbfeadd520d23b27c56118932a265b41f08a288a7d5d15642",
+      "stage" : 3,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Bulbasaur · Training begins",
+      "variant" : "bulbasaur"
+    },
+    {
+      "imageSHA256" : "15882c5bfdc8673c194edbc9f051d3569ed85c72ac2b26476e986dcf734fc7f3",
+      "key" : "tb_v1_pokemon_bulbasaur_05",
+      "previewSHA256" : "b6da72d39b350c20ee5cf7fad3f8158e7c32ace4f7cfa1edc8e3ecde1dcd8f3c",
+      "stage" : 4,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Bulbasaur · Second evolution",
+      "variant" : "bulbasaur"
+    },
+    {
+      "imageSHA256" : "04d68c923e50f94ac4358938e930487fe72ee51aa48e3998db117fb14f5ece98",
+      "key" : "tb_v1_pokemon_bulbasaur_06",
+      "previewSHA256" : "91f6195994763075606236a8f585e3c34dfdd21b90fd0058a2ac9699d49d0056",
+      "stage" : 5,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Bulbasaur · Growing stronger",
+      "variant" : "bulbasaur"
+    },
+    {
+      "imageSHA256" : "a0c78999e6dc09040b6e69c88ad550cc30860e42cdf8c45df6752e78a7fd9769",
+      "key" : "tb_v1_pokemon_bulbasaur_07",
+      "previewSHA256" : "b9caa58894261c967167756d38deb3b9589f35a5078d11a621f2220bdd1176e9",
+      "stage" : 6,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Bulbasaur · Proven team",
+      "variant" : "bulbasaur"
+    },
+    {
+      "imageSHA256" : "f002706cbc66e6f89f9d1e4ab8a8f3609669597b717995278a4a935c76386482",
+      "key" : "tb_v1_pokemon_bulbasaur_08",
+      "previewSHA256" : "202e957a6c82dada2452d5908745ffc2fcb7de87ab0cfd870eee57f54e97f752",
+      "stage" : 7,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Bulbasaur · Seasoned partner",
+      "variant" : "bulbasaur"
+    },
+    {
+      "imageSHA256" : "82eb4653bb1779c0eeabfc9286bf537295b3e01fb9acda2b0e7f4834cce2b8bd",
+      "key" : "tb_v1_pokemon_bulbasaur_09",
+      "previewSHA256" : "84afcb2649ed6f2970273cfb9174a16f6dff00d76176f48d2cfa0e0a6745bbb4",
+      "stage" : 8,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Bulbasaur · Final evolution",
+      "variant" : "bulbasaur"
+    },
+    {
+      "imageSHA256" : "66a83c4d4c81cccebffcaa74bf025a4a09ff761a9a601cae930ac5f893fa5be3",
+      "key" : "tb_v1_pokemon_bulbasaur_10",
+      "previewSHA256" : "e28242743f0a3c7cfc10ea174bd3fc08b21c50422609ef2014cbcc4c983227aa",
+      "stage" : 9,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Bulbasaur · Battle-hardened",
+      "variant" : "bulbasaur"
+    },
+    {
+      "imageSHA256" : "34cb9ad7dba905b225dc8fef50f4ae553cb8992752b4fbe9853a131a10ba9743",
+      "key" : "tb_v1_pokemon_bulbasaur_11",
+      "previewSHA256" : "f59a398696fdbe933bc52d0cf4ecbc0cc3c8b048300b69d9b6351dddaa75d9c9",
+      "stage" : 10,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Bulbasaur · Victory Road",
+      "variant" : "bulbasaur"
+    },
+    {
+      "imageSHA256" : "fd5272ad9f9f92c0abe5a45294aa8041cb31b873e6d7435f125d368429735f8e",
+      "key" : "tb_v1_pokemon_bulbasaur_12",
+      "previewSHA256" : "3bd39f9dc648b96352f303e4a8992a2c5a531df390d28f8d555de5cc2fe3c6b9",
+      "stage" : 11,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Bulbasaur · Evolution family",
+      "variant" : "bulbasaur"
+    },
+    {
+      "imageSHA256" : "bd8b35c12c64dd47d953939ec4806c70b9997664da452b4fd4d607006ce48786",
+      "key" : "tb_v1_pokemon_charmander_01",
+      "previewSHA256" : "b3f5daf1af990f0e6149d3159c589e517093bf96c2f3022e770a1c2773867d49",
+      "stage" : 0,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Charmander · First partner",
+      "variant" : "charmander"
+    },
+    {
+      "imageSHA256" : "6f4579ec6ec0b98d682a03d31fb5ae7b6a0c95722475aac513c17aa8d33b904d",
+      "key" : "tb_v1_pokemon_charmander_02",
+      "previewSHA256" : "351e95e8845655ea1fd70028bceac8652e3d253773c6674b847d6363f27930e9",
+      "stage" : 1,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Charmander · First steps",
+      "variant" : "charmander"
+    },
+    {
+      "imageSHA256" : "e35fd9e258b691e3282d79bfbbc79ae4364fd28b631be4de878eba818d2cc66b",
+      "key" : "tb_v1_pokemon_charmander_03",
+      "previewSHA256" : "bb91a1d99a6c33d27313a66b7dac2620613ffa64e5d0c4527c02e60ac2500ad2",
+      "stage" : 2,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Charmander · Rookie battles",
+      "variant" : "charmander"
+    },
+    {
+      "imageSHA256" : "84f175a34a51a325ce711c348d682f6fbf250794e780ab17c9315518210a7b28",
+      "key" : "tb_v1_pokemon_charmander_04",
+      "previewSHA256" : "e10e172ce9e36b2d2e6fa0d6cfe76b4623e8f2f2c62a97a5c222a5211859436a",
+      "stage" : 3,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Charmander · Training begins",
+      "variant" : "charmander"
+    },
+    {
+      "imageSHA256" : "216b807a36f31810ca795511c13461cde75b93f3cef5bc427e25e1bd934cbb43",
+      "key" : "tb_v1_pokemon_charmander_05",
+      "previewSHA256" : "01508dab60f0c0e939baa8f18d178f65a3ccfb460422463867bdba5f9ab644bb",
+      "stage" : 4,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Charmander · Second evolution",
+      "variant" : "charmander"
+    },
+    {
+      "imageSHA256" : "5998bc3610145eb7a776e5e6449db60ec5fb56df93ac2523ae201bc0faf52e54",
+      "key" : "tb_v1_pokemon_charmander_06",
+      "previewSHA256" : "e6ffb58f998762b46e9a8476e29e43a9390020d5e5dfaac7c2bf49bd109db13f",
+      "stage" : 5,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Charmander · Growing stronger",
+      "variant" : "charmander"
+    },
+    {
+      "imageSHA256" : "e0f8a2e012552ae6fb0ae66953ebf1790e94ef90941bde889d2bcfccc4685416",
+      "key" : "tb_v1_pokemon_charmander_07",
+      "previewSHA256" : "5bbe79420a6ad4e300ffad754d947b1debc51ee044a1fdfe8224dcf59c93b4d7",
+      "stage" : 6,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Charmander · Proven team",
+      "variant" : "charmander"
+    },
+    {
+      "imageSHA256" : "dc4bd303bbfe9ea99022ed3bf0dd2f94dca4aef13a0749e2f8e68bf5aea33ed4",
+      "key" : "tb_v1_pokemon_charmander_08",
+      "previewSHA256" : "8170e9dec209ed0521beaaff7786ab5c6d1031694d76364ac5e3c1075fe25e86",
+      "stage" : 7,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Charmander · Seasoned partner",
+      "variant" : "charmander"
+    },
+    {
+      "imageSHA256" : "635be007a82a0ae93cceb9531e6250f6d7242c6ae3416db6d47643746bd2dc62",
+      "key" : "tb_v1_pokemon_charmander_09",
+      "previewSHA256" : "a749afa57ff54e5a0bab3a8d1633075fee11d151ec8528186b6b1828840f359a",
+      "stage" : 8,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Charmander · Final evolution",
+      "variant" : "charmander"
+    },
+    {
+      "imageSHA256" : "d64f4ffd22be37ad51d0a6ad142045161f22e51223b3e7dc4e2bc420a61ba543",
+      "key" : "tb_v1_pokemon_charmander_10",
+      "previewSHA256" : "cfa38c8a421544c6c4210666ac0cf95138962a31b40edd09c50a9062b92a74db",
+      "stage" : 9,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Charmander · Battle-hardened",
+      "variant" : "charmander"
+    },
+    {
+      "imageSHA256" : "e57eb2ff979b3d2ec27506fd70263e5052b773e86eeea9bf1ee21af58fc5339d",
+      "key" : "tb_v1_pokemon_charmander_11",
+      "previewSHA256" : "4407c6098656a224d43de21c0af76a425defa8f029bcd6bf45ffaae0bf2c4444",
+      "stage" : 10,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Charmander · Victory Road",
+      "variant" : "charmander"
+    },
+    {
+      "imageSHA256" : "cfea0c6572ec336353fadbb2f48befc5cf21c30399f6e81b9da0780a174e177e",
+      "key" : "tb_v1_pokemon_charmander_12",
+      "previewSHA256" : "2d1ee7064778ae96ff6897631c42daffbae15055dee9ba6091ff25bb626b8202",
+      "stage" : 11,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Charmander · Evolution family",
+      "variant" : "charmander"
+    },
+    {
+      "imageSHA256" : "db7202a42cb0a758679f5454c976014c322f6b01ad32b7d8462a19df278c8547",
+      "key" : "tb_v1_pokemon_squirtle_01",
+      "previewSHA256" : "34efcee1883ebd45a745ec791318bf89df7011f32bc70dda5947a212008c65a6",
+      "stage" : 0,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Squirtle · First partner",
+      "variant" : "squirtle"
+    },
+    {
+      "imageSHA256" : "8dad891cc9d2b598fd86aef6543fc2a115830d3a1493d36538031712fd73e1da",
+      "key" : "tb_v1_pokemon_squirtle_02",
+      "previewSHA256" : "832b8e319caa176f60ee446c617c090b757b4bf4d4f7d8b5963e6cd86082438d",
+      "stage" : 1,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Squirtle · First steps",
+      "variant" : "squirtle"
+    },
+    {
+      "imageSHA256" : "b0887e8855134a762e2ab08a4d804805e8a9f3a477c8c0bc263bb77ac76e705a",
+      "key" : "tb_v1_pokemon_squirtle_03",
+      "previewSHA256" : "b231b1e7286c754fdb9a61bb1842f5b728a92cfbd69325b1cc5b19189405f763",
+      "stage" : 2,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Squirtle · Rookie battles",
+      "variant" : "squirtle"
+    },
+    {
+      "imageSHA256" : "10a3cf7223476b24051446f2c10def3e41357dae0dd6e05926aed73bdbc8f0f0",
+      "key" : "tb_v1_pokemon_squirtle_04",
+      "previewSHA256" : "0f5c26d49463a83fe598ceae513c662297878d2968ecdc96239800a9df2e020d",
+      "stage" : 3,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Squirtle · Training begins",
+      "variant" : "squirtle"
+    },
+    {
+      "imageSHA256" : "a0eedcbd018a9234f59085d47d4b5bd83a2ad03eddb37736f73da679f8ba054f",
+      "key" : "tb_v1_pokemon_squirtle_05",
+      "previewSHA256" : "cbea24821f8d4d008e2902569c782427dd7abd475ae7e506e3146bf6be1433e8",
+      "stage" : 4,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Squirtle · Second evolution",
+      "variant" : "squirtle"
+    },
+    {
+      "imageSHA256" : "b3b05f81bd98627fdd71fd6567c833fbfaa1f95c7183d28d134b8665cd592844",
+      "key" : "tb_v1_pokemon_squirtle_06",
+      "previewSHA256" : "b4049aaa000955981233486197adeff4d8bad5515544bb7deea981f17cbda8fc",
+      "stage" : 5,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Squirtle · Growing stronger",
+      "variant" : "squirtle"
+    },
+    {
+      "imageSHA256" : "a257b0b67789197fabaaccac3dc26475cd3e9f3d8f7150808a99647e6ba34216",
+      "key" : "tb_v1_pokemon_squirtle_07",
+      "previewSHA256" : "90f4d6530287924cd003fa1d7264a263e54b2f889419d86a55723c1913585f95",
+      "stage" : 6,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Squirtle · Proven team",
+      "variant" : "squirtle"
+    },
+    {
+      "imageSHA256" : "5a4e730627e34aa2608a480a35aa543b643c8e3cbc4fe1a1c698c5d816a72097",
+      "key" : "tb_v1_pokemon_squirtle_08",
+      "previewSHA256" : "a7f490d8939def56eee19a816cd11176ad3de8e3df8b612da22ab0018031f844",
+      "stage" : 7,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Squirtle · Seasoned partner",
+      "variant" : "squirtle"
+    },
+    {
+      "imageSHA256" : "05df157a6c2cdb372d95af9feedf96fdf239b4339744f6b4ae02fe5bf0883f7e",
+      "key" : "tb_v1_pokemon_squirtle_09",
+      "previewSHA256" : "c18db0573f9a081258bdee8a654b180874fe301d03ff0709c7d5595a78f1d57f",
+      "stage" : 8,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Squirtle · Final evolution",
+      "variant" : "squirtle"
+    },
+    {
+      "imageSHA256" : "eb334c9a8f29870295a0fec40ed7ebf9dc217aadfaf9cdfe76a73f31ba2ef459",
+      "key" : "tb_v1_pokemon_squirtle_10",
+      "previewSHA256" : "5d70ea330b64c1edf53f5fd5415e61e8466d29fed256273ae67bdc1c0537ff2a",
+      "stage" : 9,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Squirtle · Battle-hardened",
+      "variant" : "squirtle"
+    },
+    {
+      "imageSHA256" : "e4f45fb18b45bb7b871e951578f3abf0cece42cb348da0c7ce51a6b92319126a",
+      "key" : "tb_v1_pokemon_squirtle_11",
+      "previewSHA256" : "cfc03e4d8ce73ac553fb8f760a0d14b357ecdd882f4111161e4418b1acb44739",
+      "stage" : 10,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Squirtle · Victory Road",
+      "variant" : "squirtle"
+    },
+    {
+      "imageSHA256" : "627c89be4d53adbe037b9038eb4d4433a3d3126dfec8a36665a9fdabe2630700",
+      "key" : "tb_v1_pokemon_squirtle_12",
+      "previewSHA256" : "ecbc56d1b471815836fc42b35ad99e05751d0ac29c3b3e071458538485c8ebb8",
+      "stage" : 11,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Squirtle · Evolution family",
+      "variant" : "squirtle"
+    },
+    {
+      "imageSHA256" : "06b7d14738d0648525ca6b3ed4883505b8c63f4678dd5a6a8a159793d3058522",
+      "key" : "tb_v1_pokemon_chikorita_01",
+      "previewSHA256" : "a1a090c28c20eb0aed1914d37da23d560c1102e3c9b366a4aa6a979403e41502",
+      "stage" : 0,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Chikorita · First partner",
+      "variant" : "chikorita"
+    },
+    {
+      "imageSHA256" : "5a65da3e3be5fcf418e91957f8dad9dd9e08e4b33ff000af293e5c0a75c5aff6",
+      "key" : "tb_v1_pokemon_chikorita_02",
+      "previewSHA256" : "9f7e14fb37ff2a3042e17c9ac5d37de0c50097e5b5610b0e2aaf2a12cf1f3e58",
+      "stage" : 1,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Chikorita · First steps",
+      "variant" : "chikorita"
+    },
+    {
+      "imageSHA256" : "b4de62ad63c6926b5dab1fcd7485494c0c9f93095d555389b52a7c839a8607c9",
+      "key" : "tb_v1_pokemon_chikorita_03",
+      "previewSHA256" : "3febf3f858ac1d98c2cbc82798a70b1a0f7668e7194eca64561d6f6ec0be6297",
+      "stage" : 2,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Chikorita · Rookie battles",
+      "variant" : "chikorita"
+    },
+    {
+      "imageSHA256" : "c4eb6b32ce33c0dd9f83a4a598d602d4bf2b0edf0b09a0ba6ce4b392a989cf20",
+      "key" : "tb_v1_pokemon_chikorita_04",
+      "previewSHA256" : "59d5dc9f4b7bb010d849f261f9b122c61d39c913f7356d9300f4c9ec53c07957",
+      "stage" : 3,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Chikorita · Training begins",
+      "variant" : "chikorita"
+    },
+    {
+      "imageSHA256" : "87f2671792e0a2276a65cd75895d3973b833af5c092776e23a5ef4f8fc0f3edc",
+      "key" : "tb_v1_pokemon_chikorita_05",
+      "previewSHA256" : "6b6f845a78623d76e669d1d707f18b932999325b19841da850593113ed657555",
+      "stage" : 4,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Chikorita · Second evolution",
+      "variant" : "chikorita"
+    },
+    {
+      "imageSHA256" : "3f58e3f7a6d258a3692a6139f4fcb3a062099421c904410347e6a80ce8138498",
+      "key" : "tb_v1_pokemon_chikorita_06",
+      "previewSHA256" : "41aa8c99cc71278cc3cf291d11f10dd8c105507ee211fa872b4cf0afa5a72917",
+      "stage" : 5,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Chikorita · Growing stronger",
+      "variant" : "chikorita"
+    },
+    {
+      "imageSHA256" : "76955c8d8b9e10edc2ca41b92dad8e3b9ca61cbaa8fb79f07bfeb70795268539",
+      "key" : "tb_v1_pokemon_chikorita_07",
+      "previewSHA256" : "8abf0b2b57e6644ae14de5bf75034cb009ce514d839c5ad6ea78d4ce6884f377",
+      "stage" : 6,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Chikorita · Proven team",
+      "variant" : "chikorita"
+    },
+    {
+      "imageSHA256" : "c592631764f783bcbd52b29e4d6f0e8f9462a739760087762effe043452689e9",
+      "key" : "tb_v1_pokemon_chikorita_08",
+      "previewSHA256" : "3150ba25a18c8fdc95b6cd6f43bce2f56d2f6a143c96293840f295cfe5eca847",
+      "stage" : 7,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Chikorita · Seasoned partner",
+      "variant" : "chikorita"
+    },
+    {
+      "imageSHA256" : "bc0c42927e944e9019940a97b83546f63ee1956ed61f74c7dc76641b0295c7cb",
+      "key" : "tb_v1_pokemon_chikorita_09",
+      "previewSHA256" : "92fb1b6eab3daf49793c56c4a40c38d0160efc81bd060026099c853f266c0c71",
+      "stage" : 8,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Chikorita · Final evolution",
+      "variant" : "chikorita"
+    },
+    {
+      "imageSHA256" : "f8f597edee8ec75df0a2c0281d7251e658ae3ab01c040bc849ef95f90d6c686d",
+      "key" : "tb_v1_pokemon_chikorita_10",
+      "previewSHA256" : "e82cb6c9ffb764bf94155d7492309d14bdd1d6449f8859aa0c2282071f11307b",
+      "stage" : 9,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Chikorita · Battle-hardened",
+      "variant" : "chikorita"
+    },
+    {
+      "imageSHA256" : "ac5eda0fb422a834a07856b179ad9e639c7e37604e5c399be04a949b8a61b85d",
+      "key" : "tb_v1_pokemon_chikorita_11",
+      "previewSHA256" : "b902b0dce114e9caa62ba6f762b012eac18b32d969bb49e66be6c2c0755410ac",
+      "stage" : 10,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Chikorita · Victory Road",
+      "variant" : "chikorita"
+    },
+    {
+      "imageSHA256" : "b5d20380ee98520a8753c7e4a8904b5f9073060f27ed9c9a328bf558b33d588c",
+      "key" : "tb_v1_pokemon_chikorita_12",
+      "previewSHA256" : "65e179059342bac4527f10d159fdb1cb535b7eefc58095e1152a3a169470147c",
+      "stage" : 11,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Chikorita · Evolution family",
+      "variant" : "chikorita"
+    },
+    {
+      "imageSHA256" : "5b1cad31ed5e4d261c076e636b82c2b73b9e652d493ca17b65e363a83140c734",
+      "key" : "tb_v1_pokemon_cyndaquil_01",
+      "previewSHA256" : "30b85e178a91bfe3cbd03e3ce6a30b35c6f9fbe1c671df12e7ca793d0f8b84a8",
+      "stage" : 0,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Cyndaquil · First partner",
+      "variant" : "cyndaquil"
+    },
+    {
+      "imageSHA256" : "c5e33475889552f1e3988b642fd0df5dc0b53729050121b72475c2708ab1070c",
+      "key" : "tb_v1_pokemon_cyndaquil_02",
+      "previewSHA256" : "cf9182aa70e9880572a360b5c1329cfdca1611126b0b3a283124cc7a96a50a9e",
+      "stage" : 1,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Cyndaquil · First steps",
+      "variant" : "cyndaquil"
+    },
+    {
+      "imageSHA256" : "49f19527686a1c2b8745b6ad6803a8a5e8197a83b0335c97fcab04a48f881acf",
+      "key" : "tb_v1_pokemon_cyndaquil_03",
+      "previewSHA256" : "b7f7abf297f6506bfcda4a416cc703a74971f995a6685946bf0dbd7da99711e0",
+      "stage" : 2,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Cyndaquil · Rookie battles",
+      "variant" : "cyndaquil"
+    },
+    {
+      "imageSHA256" : "4b0614dc40e7a3e2b19d07dc74d656eb2feb27c272bdbe9d346cd4a4d74970fe",
+      "key" : "tb_v1_pokemon_cyndaquil_04",
+      "previewSHA256" : "91389d030d10c0723be49552ed552b01cec04c20258c9727a881474e768afcdc",
+      "stage" : 3,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Cyndaquil · Training begins",
+      "variant" : "cyndaquil"
+    },
+    {
+      "imageSHA256" : "b864d6c3014b145bcc6cfbb6ee434adedf3e070a29b847d23a48b93648273993",
+      "key" : "tb_v1_pokemon_cyndaquil_05",
+      "previewSHA256" : "0c3e4481da7bb48045cd5cf14adc2df72dcf3b5f550c49e9e002071fd93c6ab8",
+      "stage" : 4,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Cyndaquil · Second evolution",
+      "variant" : "cyndaquil"
+    },
+    {
+      "imageSHA256" : "6333ef97588bfbe3d8343e37456147ed92cd3785a10be111a87a5a44031b694f",
+      "key" : "tb_v1_pokemon_cyndaquil_06",
+      "previewSHA256" : "e9dbcdc4f06813e1269a4b264646a3a08b08686ae3b25b1f638d3a87b9ccd3c3",
+      "stage" : 5,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Cyndaquil · Growing stronger",
+      "variant" : "cyndaquil"
+    },
+    {
+      "imageSHA256" : "7d9855cabe492674e096b11921f9c191aa1d45e8e6e1f526e78d9ae7514e1841",
+      "key" : "tb_v1_pokemon_cyndaquil_07",
+      "previewSHA256" : "bf5a662a054485b0d2da0d26e83f7321e72b707fde0ec01ee0482e8ad7deae9f",
+      "stage" : 6,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Cyndaquil · Proven team",
+      "variant" : "cyndaquil"
+    },
+    {
+      "imageSHA256" : "92bc10f14347fdf11a128e184d2df85ce14263c6006e5b484ad4d94a8d85dfa5",
+      "key" : "tb_v1_pokemon_cyndaquil_08",
+      "previewSHA256" : "57221a9781f66607738ea30752edd808fef588e240aa2ded578f5e4baa7d6093",
+      "stage" : 7,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Cyndaquil · Seasoned partner",
+      "variant" : "cyndaquil"
+    },
+    {
+      "imageSHA256" : "5b7be8f9b542983f49eb0c610ac4ab66b44f247838fa46d7951c18da2a6a19fd",
+      "key" : "tb_v1_pokemon_cyndaquil_09",
+      "previewSHA256" : "61d1ac3d6207eb55b556ead572386550795e103485acc9ea056089623fc673dd",
+      "stage" : 8,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Cyndaquil · Final evolution",
+      "variant" : "cyndaquil"
+    },
+    {
+      "imageSHA256" : "69b61b991ccb4120b31a70e9aaa88e54511aa295dcb39d629ce23417cab86d86",
+      "key" : "tb_v1_pokemon_cyndaquil_10",
+      "previewSHA256" : "ac3303d91cb2f9f42559ed738188b729eec22b2bbe24db131f62c46b06d2683e",
+      "stage" : 9,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Cyndaquil · Battle-hardened",
+      "variant" : "cyndaquil"
+    },
+    {
+      "imageSHA256" : "c029d03b6323abf9d4ffce001a099f09f49d6f45b3c537a42b16db42ab655f42",
+      "key" : "tb_v1_pokemon_cyndaquil_11",
+      "previewSHA256" : "97c42aac6253205e9cc8da50f7e624d9046fc3d08d74bd6469aec8c5f71b4557",
+      "stage" : 10,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Cyndaquil · Victory Road",
+      "variant" : "cyndaquil"
+    },
+    {
+      "imageSHA256" : "e161d160a9c12e173840ee7a3814798a54ca97b6a535374e523a848b03094a53",
+      "key" : "tb_v1_pokemon_cyndaquil_12",
+      "previewSHA256" : "150e198c9e8788edfde87b5186c22d8e8441dbb28f41550ffe9b635ceef5e279",
+      "stage" : 11,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Cyndaquil · Evolution family",
+      "variant" : "cyndaquil"
+    },
+    {
+      "imageSHA256" : "c085f7898ac8948590f6cbb333d530d7d44ea4b2546b1c9b57736dafa556607e",
+      "key" : "tb_v1_pokemon_totodile_01",
+      "previewSHA256" : "cc34c5788bb38ba1a0322785fa7647904648b2ebe605588e0388231346f93fb4",
+      "stage" : 0,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Totodile · First partner",
+      "variant" : "totodile"
+    },
+    {
+      "imageSHA256" : "767d866e7661017bdcbd662545438adcce781a6f1ed2de9fc87873a80ba03093",
+      "key" : "tb_v1_pokemon_totodile_02",
+      "previewSHA256" : "a58865a01c58af498a08651e4fd2f8183b93a7f02546dd9ab74c9597b7b401cd",
+      "stage" : 1,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Totodile · First steps",
+      "variant" : "totodile"
+    },
+    {
+      "imageSHA256" : "38389008102db417b7b4e5e7090d292eb0f52a4922266c711f29cff0cb1e5552",
+      "key" : "tb_v1_pokemon_totodile_03",
+      "previewSHA256" : "089a1503f692ba64b06aac432471d928444ab99539f529129185884439a8a694",
+      "stage" : 2,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Totodile · Rookie battles",
+      "variant" : "totodile"
+    },
+    {
+      "imageSHA256" : "16489c338b3c1658ccf88da2e0dc782b84951cd9d289f8b23155a24271a1f0e3",
+      "key" : "tb_v1_pokemon_totodile_04",
+      "previewSHA256" : "d53f0c0ebb0ccc5a0dfd813b592054d57e6d0138c09d3968a087533a2bfc66ae",
+      "stage" : 3,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Totodile · Training begins",
+      "variant" : "totodile"
+    },
+    {
+      "imageSHA256" : "7c2aa863ea044008dd402349c7c795c2922839a7131381c6530b11762ed7608a",
+      "key" : "tb_v1_pokemon_totodile_05",
+      "previewSHA256" : "4028d34d3a63d6e6da8c32a11c73576692ff8da5e7018dc14d62468f25def7f2",
+      "stage" : 4,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Totodile · Second evolution",
+      "variant" : "totodile"
+    },
+    {
+      "imageSHA256" : "0930fba947a1659d8e9adb45ebab6b93350696ff16ae1bb1ad9e1b2106636194",
+      "key" : "tb_v1_pokemon_totodile_06",
+      "previewSHA256" : "0167ce20f5af6e5610a658e55058244cae4521ffa82811c487104c4b409a0b65",
+      "stage" : 5,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Totodile · Growing stronger",
+      "variant" : "totodile"
+    },
+    {
+      "imageSHA256" : "cd2416e648baee99c5a8736b18d32bbd3b51fa1376de3365fcbf5c9391964e8e",
+      "key" : "tb_v1_pokemon_totodile_07",
+      "previewSHA256" : "4d2e688ea537fe882d544929d4466a4bc6353167bf34d00c1d5aa6fa126ab45e",
+      "stage" : 6,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Totodile · Proven team",
+      "variant" : "totodile"
+    },
+    {
+      "imageSHA256" : "56abcd9e79e6b4d8a6b5adcb77d8df9a1847fb4e7f538b9f1d48c9ea918ed8f0",
+      "key" : "tb_v1_pokemon_totodile_08",
+      "previewSHA256" : "afa9e0bfc3261858862a724b593e89c2f207386c5ffdef98a9a5fdd75351cd98",
+      "stage" : 7,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Totodile · Seasoned partner",
+      "variant" : "totodile"
+    },
+    {
+      "imageSHA256" : "e2467439bed3d8d1e9ca278b739b9d3f7b75424f9b042f2f3c2cef3f172c7e81",
+      "key" : "tb_v1_pokemon_totodile_09",
+      "previewSHA256" : "1786b09c2af3891fcb8fb4d34aa7a267b70f1296bf45edbcaa6b216d90781429",
+      "stage" : 8,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Totodile · Final evolution",
+      "variant" : "totodile"
+    },
+    {
+      "imageSHA256" : "90f966f30bb4d51c9afc46e08cb70b65bf0be95033dcbdaaba60330e1aa0ea92",
+      "key" : "tb_v1_pokemon_totodile_10",
+      "previewSHA256" : "17f3c3d611f70537995ae3f3bfc4e863341ad7df848639f8a5995f97fcba672d",
+      "stage" : 9,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Totodile · Battle-hardened",
+      "variant" : "totodile"
+    },
+    {
+      "imageSHA256" : "688be392144efff71540bd6bb9535ac920e249f361c9c06cebfec29571496f91",
+      "key" : "tb_v1_pokemon_totodile_11",
+      "previewSHA256" : "25f9cd7f9fd67c2684a6f0a5c72ffd08d6231c82ebac794a4e74d3b6dc24601e",
+      "stage" : 10,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Totodile · Victory Road",
+      "variant" : "totodile"
+    },
+    {
+      "imageSHA256" : "2ec87ea89e9a081c78e5fefb39cc06bd1fa0a9335b7ac6aa59e13590188679e4",
+      "key" : "tb_v1_pokemon_totodile_12",
+      "previewSHA256" : "f4e4b4d026fcd91d78c2d33ef1952ead2af8ce65afb4a589c71c5842a5d2913d",
+      "stage" : 11,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Totodile · Evolution family",
+      "variant" : "totodile"
+    },
+    {
+      "imageSHA256" : "54ec5a2869aa533a824e116a831b80e8b6b30f19a2927d9934ee20b481dab7eb",
+      "key" : "tb_v1_pokemon_treecko_01",
+      "previewSHA256" : "f2e811416efffe95ceaf1fee2a04cce6566bd2d4773dc938df568ab7a0a99cf8",
+      "stage" : 0,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Treecko · First partner",
+      "variant" : "treecko"
+    },
+    {
+      "imageSHA256" : "5c4b1e9e9d472f9ff5ca03ff1a677d2dc7c03bce4a46dafa8fbc3050610d7802",
+      "key" : "tb_v1_pokemon_treecko_02",
+      "previewSHA256" : "10f40904b7a1ea8defd7b126bd8e7406ad3090d6007edde19306ecad849ce248",
+      "stage" : 1,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Treecko · First steps",
+      "variant" : "treecko"
+    },
+    {
+      "imageSHA256" : "f3afb4ee2c7aa1506f980d04774325ad0227a6c3cdbe9cbcb1a68d0293a68b08",
+      "key" : "tb_v1_pokemon_treecko_03",
+      "previewSHA256" : "c0b1e946243d02f1dd6be38ed0ba00bdbb04b14f6e77256fb34dd27e0d7c9724",
+      "stage" : 2,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Treecko · Rookie battles",
+      "variant" : "treecko"
+    },
+    {
+      "imageSHA256" : "eb68dfd1aa4289a024ab3e6d2fe3b55eb5824f5ad2c34446c6790c1bddbcf50b",
+      "key" : "tb_v1_pokemon_treecko_04",
+      "previewSHA256" : "788ae7200d5f869a6bf376b8a52a9642056043b6712b14f16e4fdabac76ead5a",
+      "stage" : 3,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Treecko · Training begins",
+      "variant" : "treecko"
+    },
+    {
+      "imageSHA256" : "eedf793a125aec764121e6a984618c7d9b2d2021cc076bcc4ffe8b59ca14bc7c",
+      "key" : "tb_v1_pokemon_treecko_05",
+      "previewSHA256" : "4b00fb3f8c4c87740dbbf2fa397ac4cdc90835e3bc59bec307cb23a9c0fe0dfc",
+      "stage" : 4,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Treecko · Second evolution",
+      "variant" : "treecko"
+    },
+    {
+      "imageSHA256" : "8af0023f778871cb573699aa0553ae59970ae171053d5198268532c44c6ca5e9",
+      "key" : "tb_v1_pokemon_treecko_06",
+      "previewSHA256" : "dbcac06afb2f5675a6d3df0ddea80bcda71df03dbac87f88712dffbe115edc84",
+      "stage" : 5,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Treecko · Growing stronger",
+      "variant" : "treecko"
+    },
+    {
+      "imageSHA256" : "e732d86e78b635b450dcc16f5dd2cba1951b225450f38378850a466471987347",
+      "key" : "tb_v1_pokemon_treecko_07",
+      "previewSHA256" : "5ae1da124c19f611575e654b149679558d37c8dea7a0f65eaf8bcd0f3ae8c029",
+      "stage" : 6,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Treecko · Proven team",
+      "variant" : "treecko"
+    },
+    {
+      "imageSHA256" : "b803089508b30a4c4754e9e298ff7cb07d69a4e45c6527393f809a319bb1dea0",
+      "key" : "tb_v1_pokemon_treecko_08",
+      "previewSHA256" : "5e932dceca693fbf5e8eb81c4f447bc68f131041c54e32991a66a0e46aa892d2",
+      "stage" : 7,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Treecko · Seasoned partner",
+      "variant" : "treecko"
+    },
+    {
+      "imageSHA256" : "64ec37c8fe9cc63f5f479bc29102af6fb2e6eaf28d2f5116caa1cb3fccb4de95",
+      "key" : "tb_v1_pokemon_treecko_09",
+      "previewSHA256" : "504b030cb8f311cedb8feb46b8badb96eb0074c0f522fe6e4f779516bda15958",
+      "stage" : 8,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Treecko · Final evolution",
+      "variant" : "treecko"
+    },
+    {
+      "imageSHA256" : "5eb59cf4195c5ac5f9eb4b506118a659ad4a98f2ef0ba30f3010b0069beaf88a",
+      "key" : "tb_v1_pokemon_treecko_10",
+      "previewSHA256" : "8aed1aa72b1057b95e7631371f56a9eba033eeca9e7a90cd2956b634eebd3ee7",
+      "stage" : 9,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Treecko · Battle-hardened",
+      "variant" : "treecko"
+    },
+    {
+      "imageSHA256" : "a292f93fd29e83ac01421972012a7d91b9de74c53ecec11a6085fd96e3add7b1",
+      "key" : "tb_v1_pokemon_treecko_11",
+      "previewSHA256" : "9fca434996b0d7cddd0a14b08105ef1d29478bd731b480329f6edfcb3fb1c27c",
+      "stage" : 10,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Treecko · Victory Road",
+      "variant" : "treecko"
+    },
+    {
+      "imageSHA256" : "b35112e19037844e5cebc47153a8f4fb9691aa9e3f5babb70bfc8ca67708dca1",
+      "key" : "tb_v1_pokemon_treecko_12",
+      "previewSHA256" : "f4e4f7c2027863f084320dcca1a3a287502e86d59ca17018f845bac6b49e0e3e",
+      "stage" : 11,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Treecko · Evolution family",
+      "variant" : "treecko"
+    },
+    {
+      "imageSHA256" : "8240eca3ae81445bac0f827b073146746baff3685aa7a9c34845311694ee2564",
+      "key" : "tb_v1_pokemon_torchic_01",
+      "previewSHA256" : "1334269abb228fb810ad3ee68d442aaf687a247e659759c40b72661286672d5b",
+      "stage" : 0,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Torchic · First partner",
+      "variant" : "torchic"
+    },
+    {
+      "imageSHA256" : "7ef85f71e4e44dd4863eb0c6c42416f99d6cc6b062c46a100e1f1d2d1bc7c54e",
+      "key" : "tb_v1_pokemon_torchic_02",
+      "previewSHA256" : "9673ad1264d7ae521cbcc875e7236d949405804e0c897d2722de275384a711ba",
+      "stage" : 1,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Torchic · First steps",
+      "variant" : "torchic"
+    },
+    {
+      "imageSHA256" : "af6927754bce0d66875237f4ade6a9660e9b55f49234766a307afcb861008b46",
+      "key" : "tb_v1_pokemon_torchic_03",
+      "previewSHA256" : "54277ff2cef908465ee55e3553d44884bd5ee268ed0b29a5fd4683637b8dc00d",
+      "stage" : 2,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Torchic · Rookie battles",
+      "variant" : "torchic"
+    },
+    {
+      "imageSHA256" : "12f5ab186f1c0cc4618c5cb3e0bcebcf14520fbc0516980054b0828c9266107d",
+      "key" : "tb_v1_pokemon_torchic_04",
+      "previewSHA256" : "687aa0c72825892989b5d19a39d2976dd9dfffcd9b931ca864c6ea1106facf27",
+      "stage" : 3,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Torchic · Training begins",
+      "variant" : "torchic"
+    },
+    {
+      "imageSHA256" : "1689351b1c324c6eb25b2ef70d5795de907110683d1e1f3b615b7ea417a3d686",
+      "key" : "tb_v1_pokemon_torchic_05",
+      "previewSHA256" : "3cdc5bf9afba1c172dfc7ed0bfc4aa27a43bb9aa8cfb3bc0316536c9fda70758",
+      "stage" : 4,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Torchic · Second evolution",
+      "variant" : "torchic"
+    },
+    {
+      "imageSHA256" : "3dd3dfdebd44e16c6f64657cf9005f4c93761da36ec4dfed09cbad55320c788c",
+      "key" : "tb_v1_pokemon_torchic_06",
+      "previewSHA256" : "5be02e8c616da0dc435768a43b14031b0629d69cd444d488d3bd81ffe9fb0d84",
+      "stage" : 5,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Torchic · Growing stronger",
+      "variant" : "torchic"
+    },
+    {
+      "imageSHA256" : "3270349781b133b186fc91daaaf86be1d14a2b7964d401d9c9cfd0cfea3892a6",
+      "key" : "tb_v1_pokemon_torchic_07",
+      "previewSHA256" : "b6782de6d06da1e62155ffca211f6e3e818002b2639cb217dda1fde5f3f30427",
+      "stage" : 6,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Torchic · Proven team",
+      "variant" : "torchic"
+    },
+    {
+      "imageSHA256" : "65c07d99156b8c693ca318e71802fa9b4e150fde6cad2d055e68b4014a27fbb3",
+      "key" : "tb_v1_pokemon_torchic_08",
+      "previewSHA256" : "8b5bb3f9bfc424328f0284b2f11524c29fd81bd1b4e024518deea172ae11b2af",
+      "stage" : 7,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Torchic · Seasoned partner",
+      "variant" : "torchic"
+    },
+    {
+      "imageSHA256" : "a90ee675f87e50c6b2badad9505e4ac93d8efa1245907be9185ee25abad547a5",
+      "key" : "tb_v1_pokemon_torchic_09",
+      "previewSHA256" : "8aed71d64532b813789552a16778b23cd80db3521de30f4e06a2ab30cde9cef4",
+      "stage" : 8,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Torchic · Final evolution",
+      "variant" : "torchic"
+    },
+    {
+      "imageSHA256" : "5b32afd15994f5ba246501b0337525501b8e4efee9d3118a4403608fe62bc1ce",
+      "key" : "tb_v1_pokemon_torchic_10",
+      "previewSHA256" : "53ea6d91c5cf7b52c4e258a7a64a29156423ba2084d32f91b12f7b11355699d8",
+      "stage" : 9,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Torchic · Battle-hardened",
+      "variant" : "torchic"
+    },
+    {
+      "imageSHA256" : "d502fd88049182141166d52dc4dbeada75ddee40479d4fd1ad17c29dac5659bc",
+      "key" : "tb_v1_pokemon_torchic_11",
+      "previewSHA256" : "477b8c63892b3cc8b88dbc8cca492d1576d765750bfcff452e1a426a909b6e3d",
+      "stage" : 10,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Torchic · Victory Road",
+      "variant" : "torchic"
+    },
+    {
+      "imageSHA256" : "2b9b8c47e18be33f5898479537d6e05dc54ccf31f590892bbd4fbbc9bb6ddded",
+      "key" : "tb_v1_pokemon_torchic_12",
+      "previewSHA256" : "85e984aa53e4f828d2ed506463cee409e003d923ed9a80fb64264f9301231cba",
+      "stage" : 11,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Torchic · Evolution family",
+      "variant" : "torchic"
+    },
+    {
+      "imageSHA256" : "79b8c9e025b068dc63a632f8caed96669792995267525bc7f5fd16df32fc3f81",
+      "key" : "tb_v1_pokemon_mudkip_01",
+      "previewSHA256" : "78ff8ef92135c711241bf471b7b444fff781a4ab293523cae4efa0eca5851290",
+      "stage" : 0,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Mudkip · First partner",
+      "variant" : "mudkip"
+    },
+    {
+      "imageSHA256" : "5e6c58399d78a49f16a690eab29a9867ab50abba86271a67051b71054b515189",
+      "key" : "tb_v1_pokemon_mudkip_02",
+      "previewSHA256" : "82588a5b36b5f15cc1ce6258a58141dd86fb7ca4afe02341e901603587e7601b",
+      "stage" : 1,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Mudkip · First steps",
+      "variant" : "mudkip"
+    },
+    {
+      "imageSHA256" : "999406459fdff68d2adf868a6570d12bcc7dcce09ac87d13d6df5226de7ceac0",
+      "key" : "tb_v1_pokemon_mudkip_03",
+      "previewSHA256" : "308c6c50b72f033db5e0abb081c4d397136135d9a10b2d28adfe1893c816cb34",
+      "stage" : 2,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Mudkip · Rookie battles",
+      "variant" : "mudkip"
+    },
+    {
+      "imageSHA256" : "7cc80428d1c62182cf00cedb3604180cfe7fd3d2875a3128e20f372a4ca4893e",
+      "key" : "tb_v1_pokemon_mudkip_04",
+      "previewSHA256" : "82540a662b720954aa13da88376b5b6004042936a3e9fd7706f330fa552d6372",
+      "stage" : 3,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Mudkip · Training begins",
+      "variant" : "mudkip"
+    },
+    {
+      "imageSHA256" : "cfb2cea695cefac74109e89fea4a4c5d9d2ac7937805eb3bd085738eeec064ee",
+      "key" : "tb_v1_pokemon_mudkip_05",
+      "previewSHA256" : "fdb545461dfd1bc0e376811dba0630e809c36960c72f76c5cde62a0d69aac2b1",
+      "stage" : 4,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Mudkip · Second evolution",
+      "variant" : "mudkip"
+    },
+    {
+      "imageSHA256" : "4d2deadec773ea37656321a9b9a888f9fbb8d60c92e1ba356f2e959112605a73",
+      "key" : "tb_v1_pokemon_mudkip_06",
+      "previewSHA256" : "00870b742bd5eec60113dc02c03bf961b721e6ee54baa1eb2f2e1456390153ff",
+      "stage" : 5,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Mudkip · Growing stronger",
+      "variant" : "mudkip"
+    },
+    {
+      "imageSHA256" : "0f07fad4ae9566422f11392ea3cca3a36e6ab0ce43c5674735ae08f532a59cb3",
+      "key" : "tb_v1_pokemon_mudkip_07",
+      "previewSHA256" : "3126ca849c98313cd703ccdcefcafff4d203d12df300bdf3649bf83c5d6b915a",
+      "stage" : 6,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Mudkip · Proven team",
+      "variant" : "mudkip"
+    },
+    {
+      "imageSHA256" : "7f5771374f1921eda6bbbd2cc6f5f8435221be6cd491210ba607be16213b2506",
+      "key" : "tb_v1_pokemon_mudkip_08",
+      "previewSHA256" : "c8830592df5183f0d5717b49fe71a8d3b295b65826817ce686bea17dac2a4848",
+      "stage" : 7,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Mudkip · Seasoned partner",
+      "variant" : "mudkip"
+    },
+    {
+      "imageSHA256" : "62215416187b2db460106e9c236555ee5a2e3c2a89f08b48e388018262fbf90f",
+      "key" : "tb_v1_pokemon_mudkip_09",
+      "previewSHA256" : "4a7069f93acba14ba1b4eba317dbf85984c4bd15fdbfa2dbb332b67d930decaa",
+      "stage" : 8,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Mudkip · Final evolution",
+      "variant" : "mudkip"
+    },
+    {
+      "imageSHA256" : "e61ebdf16d8bcdfd977bb13f000d46a56b611cb3ea8527ac04afa92448cb2a6a",
+      "key" : "tb_v1_pokemon_mudkip_10",
+      "previewSHA256" : "da7c14d84da53845ca665cf0b34f34f5a54d39b9a86b62e79747147784e1ae07",
+      "stage" : 9,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Mudkip · Battle-hardened",
+      "variant" : "mudkip"
+    },
+    {
+      "imageSHA256" : "31997a115c0adaa857418704c7a9ba176df87d501c0f0575ce4b6f95ebd368ef",
+      "key" : "tb_v1_pokemon_mudkip_11",
+      "previewSHA256" : "933e26967319e827a2429d4325b1c101d8a692a967c340ddd179c290301c86f2",
+      "stage" : 10,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Mudkip · Victory Road",
+      "variant" : "mudkip"
+    },
+    {
+      "imageSHA256" : "dcd1fb98b5c79a3327c08f30ba76a7de27881d5ed10dedefd6c95c49eebce130",
+      "key" : "tb_v1_pokemon_mudkip_12",
+      "previewSHA256" : "b26e057b0731f154bb4d9f8ceb092b41c388f3006f443ce2568513692d37c6a4",
+      "stage" : 11,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Mudkip · Evolution family",
+      "variant" : "mudkip"
+    },
+    {
+      "imageSHA256" : "81f56a147fe076d9739a7163b80733c0d9068ff7693062e9cec8827a68f4242a",
+      "key" : "tb_v1_pokemon_turtwig_01",
+      "previewSHA256" : "ea8d668682dac7aaa93bfc79ec0cba1d6e8194315a4ba751f87614643cad7ee9",
+      "stage" : 0,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Turtwig · First partner",
+      "variant" : "turtwig"
+    },
+    {
+      "imageSHA256" : "1e2e7d4ad0ed9163c716b58c2c4b209a743011b3cc9e311587cec63260fdb6a8",
+      "key" : "tb_v1_pokemon_turtwig_02",
+      "previewSHA256" : "da5a1460b39208910f4f13e45e33c028389b23f6547ada2a2a8c37a36998b9e4",
+      "stage" : 1,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Turtwig · First steps",
+      "variant" : "turtwig"
+    },
+    {
+      "imageSHA256" : "ce3f4ad18b9713c45e5af2c9a9a4b2d38afd02f852a28af89ff04372aadc39e3",
+      "key" : "tb_v1_pokemon_turtwig_03",
+      "previewSHA256" : "dce061009304ee4a7f667efa6c3c4ab75d8f2f9dea3e72c8f9e3956fcb092cfc",
+      "stage" : 2,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Turtwig · Rookie battles",
+      "variant" : "turtwig"
+    },
+    {
+      "imageSHA256" : "6940cf99f363ed43563603819430ed7870454f2e675d5cfe466a1290f41e06ed",
+      "key" : "tb_v1_pokemon_turtwig_04",
+      "previewSHA256" : "20c8e1203943cc786a0a113bc70e8dce0fb00a182a3375618e476f14d1e50113",
+      "stage" : 3,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Turtwig · Training begins",
+      "variant" : "turtwig"
+    },
+    {
+      "imageSHA256" : "e7ee3d0b705be36ef7624bc84965c83cc4cab8ba7d54f2b914aa012e97c7f98f",
+      "key" : "tb_v1_pokemon_turtwig_05",
+      "previewSHA256" : "031b95e0dd249fb520f06fba7c770ff3bc3c80a27f19b77032be149fc18f6910",
+      "stage" : 4,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Turtwig · Second evolution",
+      "variant" : "turtwig"
+    },
+    {
+      "imageSHA256" : "0e93e6cb3bc0e39c9efa061698b7c9c5749b352d623b78ed91244466825c17d7",
+      "key" : "tb_v1_pokemon_turtwig_06",
+      "previewSHA256" : "a31dbf388c765155cef2d1ac16bbcf1935163089c21e7ab7cf770d71414895c8",
+      "stage" : 5,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Turtwig · Growing stronger",
+      "variant" : "turtwig"
+    },
+    {
+      "imageSHA256" : "d1f6310a95dd1412b445a2bdab7e0b072deade3101ff76cfe66541b931add692",
+      "key" : "tb_v1_pokemon_turtwig_07",
+      "previewSHA256" : "dac7aa40b991d0a53f5346a4ed2b23b45aa369fd87ad206346318f02f05eb8a2",
+      "stage" : 6,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Turtwig · Proven team",
+      "variant" : "turtwig"
+    },
+    {
+      "imageSHA256" : "93c4453a9e7612228ff22de3a931b832f2f50524c3f7bdeb456318c273cdc2f6",
+      "key" : "tb_v1_pokemon_turtwig_08",
+      "previewSHA256" : "d02129438c3d5fe53fe8abc0e0f2176fb8cc74cefafa4f136bcf461d406ec15c",
+      "stage" : 7,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Turtwig · Seasoned partner",
+      "variant" : "turtwig"
+    },
+    {
+      "imageSHA256" : "2f25f485f7dae4329ab54f23427984409d38116aed2eea5bd9178f7dd659af5e",
+      "key" : "tb_v1_pokemon_turtwig_09",
+      "previewSHA256" : "dba332f3ca20fec9346f3ce0666c404e3d11d8fbdb0d35037502a6faf2fa1306",
+      "stage" : 8,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Turtwig · Final evolution",
+      "variant" : "turtwig"
+    },
+    {
+      "imageSHA256" : "25cbcf4f59db30de11681ee1eb447a18aabb26d4d1aa3be53bf6ca03936c70f6",
+      "key" : "tb_v1_pokemon_turtwig_10",
+      "previewSHA256" : "c363b1190ea4c88a986a1501291b7a209e46829ccfc3586bb3c5c7e63c1091c3",
+      "stage" : 9,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Turtwig · Battle-hardened",
+      "variant" : "turtwig"
+    },
+    {
+      "imageSHA256" : "2e0f604f34c31aeb9ade5db5206d3dd6533323aec9199fd98e833e85e639aec7",
+      "key" : "tb_v1_pokemon_turtwig_11",
+      "previewSHA256" : "0b48ab36b9c7ef5d35af5589bf5b88840820ee72e8897f8621274c8f2e527e30",
+      "stage" : 10,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Turtwig · Victory Road",
+      "variant" : "turtwig"
+    },
+    {
+      "imageSHA256" : "fe712395abf09a664bc523bd655be8728e9c7ab042b66def987f096d2d4b6522",
+      "key" : "tb_v1_pokemon_turtwig_12",
+      "previewSHA256" : "451d51e5e0be59be93aff56d5f9da5c810f77cf12ec7392b7fdf18c1ca4aa471",
+      "stage" : 11,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Turtwig · Evolution family",
+      "variant" : "turtwig"
+    },
+    {
+      "imageSHA256" : "c358bbcd32c7a8f18d2c1733472209dcde8196a7506148b3187d66216604061a",
+      "key" : "tb_v1_pokemon_chimchar_01",
+      "previewSHA256" : "4ab34203e61f0cff075727e9e068d6505e9efe631745cd2761c34e4d59088677",
+      "stage" : 0,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Chimchar · First partner",
+      "variant" : "chimchar"
+    },
+    {
+      "imageSHA256" : "21d286af1b15a50811b4e0c6e72cd92eac0302351ac5e91e093cd37a1e89bc7a",
+      "key" : "tb_v1_pokemon_chimchar_02",
+      "previewSHA256" : "a531270724063d64ece455b6b9cee321797c8398c7509f137e87db6eff521cc3",
+      "stage" : 1,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Chimchar · First steps",
+      "variant" : "chimchar"
+    },
+    {
+      "imageSHA256" : "ec980ff0e5b4eca9c486e0440baecd20f4f16337e3552016e878b733f62057fb",
+      "key" : "tb_v1_pokemon_chimchar_03",
+      "previewSHA256" : "6420c21bcc1245cbf8f0a4881a0a1618fe5f0e62e49111ad915abe7d32376721",
+      "stage" : 2,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Chimchar · Rookie battles",
+      "variant" : "chimchar"
+    },
+    {
+      "imageSHA256" : "ca0f3f7064cadff0f241cc39fe28ae655bccb726bf66e205a3adfe8001a011c3",
+      "key" : "tb_v1_pokemon_chimchar_04",
+      "previewSHA256" : "6e49f43a60f6c7f0b4093aca81bb44fcd9ad730e4dfa3c8049bc47940ced9675",
+      "stage" : 3,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Chimchar · Training begins",
+      "variant" : "chimchar"
+    },
+    {
+      "imageSHA256" : "ac2426a26edcd1ecca1ea7ebd390261f727ad657129212345ebd1f1d2d29bdbe",
+      "key" : "tb_v1_pokemon_chimchar_05",
+      "previewSHA256" : "67dc1ae3bd04805393e50f75bdd5b3e6c2d7bc4246bf8223e139e95bac678043",
+      "stage" : 4,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Chimchar · Second evolution",
+      "variant" : "chimchar"
+    },
+    {
+      "imageSHA256" : "2dfc46b0884aa492ef1a927f07eb3b82f6f462acb1ddfacbf0b73de324509949",
+      "key" : "tb_v1_pokemon_chimchar_06",
+      "previewSHA256" : "54fabf44803d4f8f57b76eb371a54e6492f7c3b5bea4a0580ac6f0125856cec6",
+      "stage" : 5,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Chimchar · Growing stronger",
+      "variant" : "chimchar"
+    },
+    {
+      "imageSHA256" : "0cfb070c3a5da52571417ef7c0bc3ae0d12b4c95dfea61ed6d1515430f6b42c7",
+      "key" : "tb_v1_pokemon_chimchar_07",
+      "previewSHA256" : "d957a2777add9a037c3b99123daf7b5db5ab89d134565434f041d631a02f3a39",
+      "stage" : 6,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Chimchar · Proven team",
+      "variant" : "chimchar"
+    },
+    {
+      "imageSHA256" : "eb1e8ec278ed8212407b317826688dd9444eed55968a3dc2d3abb157a413b864",
+      "key" : "tb_v1_pokemon_chimchar_08",
+      "previewSHA256" : "fe3d1bd9af242ebf8dbc71dd9ffeff8ee3e151c9700d742f8fca2b3ee5d5334a",
+      "stage" : 7,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Chimchar · Seasoned partner",
+      "variant" : "chimchar"
+    },
+    {
+      "imageSHA256" : "f837f6ad42586b554590720e65ee85b5319a13fe611b43c6b1b5e1ca411f3a6f",
+      "key" : "tb_v1_pokemon_chimchar_09",
+      "previewSHA256" : "b68b8f8f9bb0ef6539da9fa6496802ad6840251726ac637f426f84ae4e230916",
+      "stage" : 8,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Chimchar · Final evolution",
+      "variant" : "chimchar"
+    },
+    {
+      "imageSHA256" : "8cfa045394a1b552c4777d890c19429b9f0d850a9ad67fee50962c1921869359",
+      "key" : "tb_v1_pokemon_chimchar_10",
+      "previewSHA256" : "acb120c173e0b2737424a1b7c95b36bbd4810444063294455ddff5488f843631",
+      "stage" : 9,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Chimchar · Battle-hardened",
+      "variant" : "chimchar"
+    },
+    {
+      "imageSHA256" : "9c9da2d1a573469d36c6bff3cc40f5eda53fa43c79dc2ae0c595ff16c7261898",
+      "key" : "tb_v1_pokemon_chimchar_11",
+      "previewSHA256" : "e1dd916f2337d3bcb36ed62ede07bebd947eb50f3cd9d2e8f2b6628e022e4b9c",
+      "stage" : 10,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Chimchar · Victory Road",
+      "variant" : "chimchar"
+    },
+    {
+      "imageSHA256" : "5fc0308c996493f5a5834ed46903bbed94b14c755846e4863ab94c1e4337adaf",
+      "key" : "tb_v1_pokemon_chimchar_12",
+      "previewSHA256" : "c027992915799a66d9140c04a414d774daec8fad75c67d0bfd53f6524fc60fc6",
+      "stage" : 11,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Chimchar · Evolution family",
+      "variant" : "chimchar"
+    },
+    {
+      "imageSHA256" : "ae75a861e83cb6a55f622ddd3e19e0f97203e200c3532926806af463ff56b4bf",
+      "key" : "tb_v1_pokemon_piplup_01",
+      "previewSHA256" : "b529f74b5132f9f091f7652a3e7a64499cab6ce6c34e5003abbe379faaaa5c1b",
+      "stage" : 0,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Piplup · First partner",
+      "variant" : "piplup"
+    },
+    {
+      "imageSHA256" : "3e7a6dd9871b41c62a136e8de609cba0ad7bdc96e09dc0012a3f6ebc54fe80d4",
+      "key" : "tb_v1_pokemon_piplup_02",
+      "previewSHA256" : "10f523979314500b92f58cdf81e4cc2eac6f793cf5492d5f4d7ea78f792e534b",
+      "stage" : 1,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Piplup · First steps",
+      "variant" : "piplup"
+    },
+    {
+      "imageSHA256" : "0bd92f39730d7ae4d92dc7341b6f0f61a7d8ebd662432d085f6bed2ea8ef9d8a",
+      "key" : "tb_v1_pokemon_piplup_03",
+      "previewSHA256" : "ad3a9ac3dbaf1cffe726b36429f8a5be28e3254a0270f93a1b5f21a12b9acc8b",
+      "stage" : 2,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Piplup · Rookie battles",
+      "variant" : "piplup"
+    },
+    {
+      "imageSHA256" : "b00f31e38c1daf6c830f4193d8a93e4c66248c18cbd4da66d569512cbd258d5c",
+      "key" : "tb_v1_pokemon_piplup_04",
+      "previewSHA256" : "acbd617c05af56ffb09f187e89cbf4a036c3fcb0373d79e738201e11ab5e829c",
+      "stage" : 3,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Piplup · Training begins",
+      "variant" : "piplup"
+    },
+    {
+      "imageSHA256" : "bcf04e9d687f4179a166578c14071aa779866f1baa29415db2a09f74cf52cc52",
+      "key" : "tb_v1_pokemon_piplup_05",
+      "previewSHA256" : "3db9a55d73fddfd789fe4d06c1cea4ba8282d3c275bfa9593b30bb1ec9a531f4",
+      "stage" : 4,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Piplup · Second evolution",
+      "variant" : "piplup"
+    },
+    {
+      "imageSHA256" : "124abde73224ddb839ef2221473cee93d488b9511ec7f74c809ec9e81771fcf2",
+      "key" : "tb_v1_pokemon_piplup_06",
+      "previewSHA256" : "27b17900452a1a843298d5c68cc38b85ab563fc3b48193946bd9f58b73d05842",
+      "stage" : 5,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Piplup · Growing stronger",
+      "variant" : "piplup"
+    },
+    {
+      "imageSHA256" : "417d032297866ec4bd7dc7e1c7686d84b630981f61b74a74f6a27720080da658",
+      "key" : "tb_v1_pokemon_piplup_07",
+      "previewSHA256" : "6718da5bff9597ebcbe5f1095360e5e4cd3721cc5525a210a9575e20f051e5ab",
+      "stage" : 6,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Piplup · Proven team",
+      "variant" : "piplup"
+    },
+    {
+      "imageSHA256" : "70fa50b3e294e3a2d18b5199228435e5274872472ec83cf5c9ec91156d75c814",
+      "key" : "tb_v1_pokemon_piplup_08",
+      "previewSHA256" : "1b6cf63eff1739ea00c892532c0f0286f0897c6fc8a9b10356718232aaa8af03",
+      "stage" : 7,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Piplup · Seasoned partner",
+      "variant" : "piplup"
+    },
+    {
+      "imageSHA256" : "d4f9ba81040bf69eafde522cb75d6ff91f3b4d6c84f24fc1f6c4825065b61518",
+      "key" : "tb_v1_pokemon_piplup_09",
+      "previewSHA256" : "c911086262205f17967ba955ac9b7b310931d8641fd4c25d58ed9e7f603e6731",
+      "stage" : 8,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Piplup · Final evolution",
+      "variant" : "piplup"
+    },
+    {
+      "imageSHA256" : "4783bf480d07fcf0316f42228507600246ac73f41052bcbe968068a090ea8374",
+      "key" : "tb_v1_pokemon_piplup_10",
+      "previewSHA256" : "086ce5eabee749a24c798e0f05f5063da1cce36bc2f3043334cabef3f31a5332",
+      "stage" : 9,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Piplup · Battle-hardened",
+      "variant" : "piplup"
+    },
+    {
+      "imageSHA256" : "9c6cd4404eb09cbeb4e9749d26cb967519e05245a228e2820c36270788c6d171",
+      "key" : "tb_v1_pokemon_piplup_11",
+      "previewSHA256" : "016d488811283113b82e6e60e4109c7b22828c21c69e636acf697c194d2c2e6e",
+      "stage" : 10,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Piplup · Victory Road",
+      "variant" : "piplup"
+    },
+    {
+      "imageSHA256" : "c5dfc3fc63eadd592762bbe1059558cbe86c544e39e63767c0c64874acf6fc79",
+      "key" : "tb_v1_pokemon_piplup_12",
+      "previewSHA256" : "f197b84aa4a58ee94a6d48e592af14f41636941ba5f701bd20f43aba8c6b9e9e",
+      "stage" : 11,
+      "theme" : "pokemon",
+      "tooltip" : "Pokémon · Piplup · Evolution family",
+      "variant" : "piplup"
+    },
+    {
+      "imageSHA256" : "77a74b4f2ebf35dd5031854643222f0278ae4dd397900c928ab2012648f0ccb7",
+      "key" : "tb_v1_forest_wildwood_01",
+      "previewSHA256" : "c8cc8efe9f576bfb60fc48e2569e49ebe5f05f9a2262525f3436c03665af7dd2",
+      "stage" : 0,
+      "theme" : "forest",
+      "tooltip" : "Forest · Wildwood · Lone sapling",
+      "variant" : "wildwood"
+    },
+    {
+      "imageSHA256" : "c67ea173a8ed387e8a4eb4d8d532eb29f8a3fc3a0f5657407f56853bdf1686c8",
+      "key" : "tb_v1_forest_wildwood_02",
+      "previewSHA256" : "6d724ec4482de840e434cfd98abe8d004c97bad1fb4429e83a73d3c875dbbdfd",
+      "stage" : 1,
+      "theme" : "forest",
+      "tooltip" : "Forest · Wildwood · First saplings",
+      "variant" : "wildwood"
+    },
+    {
+      "imageSHA256" : "1a71cd30723f7e5199c0cf45d12886da7ed5bfc991ef1f35c7e3239beb07ca8b",
+      "key" : "tb_v1_forest_wildwood_03",
+      "previewSHA256" : "5535d8f805341f3b31d55e623b8e7d54d3cbdef1ebca3d8b1a3382766f553caf",
+      "stage" : 2,
+      "theme" : "forest",
+      "tooltip" : "Forest · Wildwood · Young grove",
+      "variant" : "wildwood"
+    },
+    {
+      "imageSHA256" : "2c9d5f094de407da52c2b34ccb98fb55a699633338ddd3587aaf71037861c601",
+      "key" : "tb_v1_forest_wildwood_04",
+      "previewSHA256" : "66ae6492209fc6dc5c0d18b5ce19a8cea9c9cad9ee73e8a03da9a69c47476b75",
+      "stage" : 3,
+      "theme" : "forest",
+      "tooltip" : "Forest · Wildwood · Grove",
+      "variant" : "wildwood"
+    },
+    {
+      "imageSHA256" : "97d25ec3efc1989e93068d248d254a83b650d89c5d76ec60d194b1f4861e7cbc",
+      "key" : "tb_v1_forest_wildwood_05",
+      "previewSHA256" : "e7f84e8d99fac8f5448af0323e6f4995d34a8f78ede192cf02f4d06d91ef6e39",
+      "stage" : 4,
+      "theme" : "forest",
+      "tooltip" : "Forest · Wildwood · Greenwood",
+      "variant" : "wildwood"
+    },
+    {
+      "imageSHA256" : "cf952b19e11623884509d24ceb35e329d32df7e91c8253b3362ea21188447e9b",
+      "key" : "tb_v1_forest_wildwood_06",
+      "previewSHA256" : "5ed80e7442cad188afb53a2446f67e4a34952ac5e7680861086d03ad2e110ad1",
+      "stage" : 5,
+      "theme" : "forest",
+      "tooltip" : "Forest · Wildwood · Woodland",
+      "variant" : "wildwood"
+    },
+    {
+      "imageSHA256" : "0287410070744cbbc1076cd4523c0fb8f23beadcda39b9fc39d491709d80e9a2",
+      "key" : "tb_v1_forest_wildwood_07",
+      "previewSHA256" : "2ed775b5d47ac44c82b542d43ccb85fe6e1b3146684773584ecb19608a627e80",
+      "stage" : 6,
+      "theme" : "forest",
+      "tooltip" : "Forest · Wildwood · Deep woodland",
+      "variant" : "wildwood"
+    },
+    {
+      "imageSHA256" : "e9aea2d5adc394ad1080f596c08e8323d1907a1d5ecb68abb52a207245f5b37d",
+      "key" : "tb_v1_forest_wildwood_08",
+      "previewSHA256" : "fa9b93ea787a2ce5ce4d390db060c5677e2d4504e4d67144599f1e96f8c6e908",
+      "stage" : 7,
+      "theme" : "forest",
+      "tooltip" : "Forest · Wildwood · Old growth",
+      "variant" : "wildwood"
+    },
+    {
+      "imageSHA256" : "455b0baf6f7bbcb9a6aea7321c180b205a6b7a39235bd80af3e6b6d677f51478",
+      "key" : "tb_v1_forest_wildwood_09",
+      "previewSHA256" : "fe363295acc9bc2cdda0349fce126c0493b55d24671b48c7099ba80e917424b3",
+      "stage" : 8,
+      "theme" : "forest",
+      "tooltip" : "Forest · Wildwood · Elder woods",
+      "variant" : "wildwood"
+    },
+    {
+      "imageSHA256" : "c38b7ebe627a7e1b40ef31fee925bfed029035e3853f3818bdbe983fa0247f4e",
+      "key" : "tb_v1_forest_wildwood_10",
+      "previewSHA256" : "6e9d57d9633ff74581b933457b59fe735d9642aa3c61a6ade95e9df05ca600ef",
+      "stage" : 9,
+      "theme" : "forest",
+      "tooltip" : "Forest · Wildwood · Ancient forest",
+      "variant" : "wildwood"
+    },
+    {
+      "imageSHA256" : "4313d2a58cd4e07e773be7c7359cf424868255cbfa7301ab463a136905970b69",
+      "key" : "tb_v1_forest_wildwood_11",
+      "previewSHA256" : "87266eab582056016537488e716b68503614e987fa2059b3fbc5496bc1aff4e6",
+      "stage" : 10,
+      "theme" : "forest",
+      "tooltip" : "Forest · Wildwood · Primeval forest",
+      "variant" : "wildwood"
+    },
+    {
+      "imageSHA256" : "df6cacfaf65b7fdd26799d6b54ee6036a258a3efa11b60b8e4d2523d5eedf9f9",
+      "key" : "tb_v1_forest_wildwood_12",
+      "previewSHA256" : "7c7d00489e8b2f6510c28e927a1134bf951936ead84f2a70fbd948591f90da0e",
+      "stage" : 11,
+      "theme" : "forest",
+      "tooltip" : "Forest · Wildwood · Endless forest",
+      "variant" : "wildwood"
+    },
+    {
+      "imageSHA256" : "465da7b367ca59e516a3c3394f61fb68a8141b25693701b84828ba2340df1727",
+      "key" : "tb_v1_village_riverstead_01",
+      "previewSHA256" : "abc76067b0ffc4f09226d882b3e6003185cf8ca22fd405d3610ebc57faef5f50",
+      "stage" : 0,
+      "theme" : "village",
+      "tooltip" : "Village · Riverstead · First cottage",
+      "variant" : "riverstead"
+    },
+    {
+      "imageSHA256" : "ad12124965e09a8c1e9819a8afb8dc06c037f5a9f404348c77d9e4ed9ece0a08",
+      "key" : "tb_v1_village_riverstead_02",
+      "previewSHA256" : "3adf675c508105a4f6a2fbd7ac5bb3e09e66005170845dcb75b57045cf5ea6a2",
+      "stage" : 1,
+      "theme" : "village",
+      "tooltip" : "Village · Riverstead · Homestead",
+      "variant" : "riverstead"
+    },
+    {
+      "imageSHA256" : "aa0e8b38095bae8d8a3c73e0df7f023b42e517a93b3908c732821e95db4de892",
+      "key" : "tb_v1_village_riverstead_03",
+      "previewSHA256" : "2bc5870332a38d84f67772bd26bc007a610eba8cabd99249a89d60dfc0bd3b9f",
+      "stage" : 2,
+      "theme" : "village",
+      "tooltip" : "Village · Riverstead · Hamlet",
+      "variant" : "riverstead"
+    },
+    {
+      "imageSHA256" : "dfd2f6b5eac589e64aad3c9fb03b11a133eddb31e38f8547c71eee7f801b6741",
+      "key" : "tb_v1_village_riverstead_04",
+      "previewSHA256" : "84575e9c5043152ec46b16ca71da377c81013dc3f6caa94d7f93464c1a5b0357",
+      "stage" : 3,
+      "theme" : "village",
+      "tooltip" : "Village · Riverstead · Village",
+      "variant" : "riverstead"
+    },
+    {
+      "imageSHA256" : "b78f9d002e6209a51a6217354822383521769b20db7e248cbeb2886bf41ae54e",
+      "key" : "tb_v1_village_riverstead_05",
+      "previewSHA256" : "f0fd3a2baf58436ee82db6a8acd7e85ec1b1664f924c00efaa7ff281b55771a1",
+      "stage" : 4,
+      "theme" : "village",
+      "tooltip" : "Village · Riverstead · Growing town",
+      "variant" : "riverstead"
+    },
+    {
+      "imageSHA256" : "d60eab0033ff24b1c371996a2c6c59dd00209e7d72eba412740f45f64fd5575d",
+      "key" : "tb_v1_village_riverstead_06",
+      "previewSHA256" : "2419ca02cb661a3c6ae517bdf283e391c9f89b56f32255e0d3f950c2f8a87964",
+      "stage" : 5,
+      "theme" : "village",
+      "tooltip" : "Village · Riverstead · Market town",
+      "variant" : "riverstead"
+    },
+    {
+      "imageSHA256" : "59d76fb8a8349e77761f0e3ab3af8a7d6d13138ab286ac872afa70f2ea295256",
+      "key" : "tb_v1_village_riverstead_07",
+      "previewSHA256" : "88c5989e67636634b06d1e0cfd755fadc659fb4d6f0896e36b9f685320768730",
+      "stage" : 6,
+      "theme" : "village",
+      "tooltip" : "Village · Riverstead · Busy town",
+      "variant" : "riverstead"
+    },
+    {
+      "imageSHA256" : "f9ca57453ed21ebb2d54f3364f9bf295a8b78473cec44afb4e0592a50fe3e3ef",
+      "key" : "tb_v1_village_riverstead_08",
+      "previewSHA256" : "e53f5e8d92067ef8b50bf1fa05e981eaa62ded12b281f3d70174ff235f25b231",
+      "stage" : 7,
+      "theme" : "village",
+      "tooltip" : "Village · Riverstead · City blocks",
+      "variant" : "riverstead"
+    },
+    {
+      "imageSHA256" : "6d42e92511441136ecce6ed56dc6d86e271e6c35981c054470026d75da4303e3",
+      "key" : "tb_v1_village_riverstead_09",
+      "previewSHA256" : "d74b66bf560b2a3b9dbd096346d2838895665ffa2d3f737a4326de83ee9cbe16",
+      "stage" : 8,
+      "theme" : "village",
+      "tooltip" : "Village · Riverstead · City rising",
+      "variant" : "riverstead"
+    },
+    {
+      "imageSHA256" : "deebeae7aab38e3857dc3a8d788bae86bfbb6b29fef9c1681cffb60dc6ca3387",
+      "key" : "tb_v1_village_riverstead_10",
+      "previewSHA256" : "9d793bb2566919a59c4d24e8c42b0f4ccaafcc52aa9f9768fcc0a4fa4c95619f",
+      "stage" : 9,
+      "theme" : "village",
+      "tooltip" : "Village · Riverstead · Downtown",
+      "variant" : "riverstead"
+    },
+    {
+      "imageSHA256" : "0031f791f7d5224f00c55f44c23f878c2a753cae0110cfb71170dff79c4a9cf5",
+      "key" : "tb_v1_village_riverstead_11",
+      "previewSHA256" : "2707f4c2eaaf19653823df3510930c6b1ac3eee4945937a4b9135f26876a0048",
+      "stage" : 10,
+      "theme" : "village",
+      "tooltip" : "Village · Riverstead · High-rise skyline",
+      "variant" : "riverstead"
+    },
+    {
+      "imageSHA256" : "36391cf183b079d44ce95456e1c96d1f105a0064d99b1e05d1abc7d60f22397f",
+      "key" : "tb_v1_village_riverstead_12",
+      "previewSHA256" : "3e54e27e6782f9fd647480ad9c2bc7bda3ef4b7ce7089d5f776e51d58cb0d266",
+      "stage" : 11,
+      "theme" : "village",
+      "tooltip" : "Village · Riverstead · Metropolis",
+      "variant" : "riverstead"
+    },
+    {
+      "imageSHA256" : "ad2539c1d9fd604e78e1f2ee0f9c76f9647a7d37f2d6cdf1be03aca4238da3b3",
+      "key" : "tb_v1_old_school_runescape_ranger_01",
+      "previewSHA256" : "d4c585306cd19de0c9aadca7631602e3ae72091a86c609677f5601db56e25e9c",
+      "stage" : 0,
+      "theme" : "old_school_runescape",
+      "tooltip" : "Old School RuneScape · Ranger · Leather",
+      "variant" : "ranger"
+    },
+    {
+      "imageSHA256" : "e3fd34362ddb8d7e6fbb8e4b0d09b5f87578bc214f16fd84134b19966013e04c",
+      "key" : "tb_v1_old_school_runescape_ranger_02",
+      "previewSHA256" : "5cd914deb43b43dd7050bfd3e338f018b74d16433fa02022593f5c3474367fbd",
+      "stage" : 1,
+      "theme" : "old_school_runescape",
+      "tooltip" : "Old School RuneScape · Ranger · Frog-leather",
+      "variant" : "ranger"
+    },
+    {
+      "imageSHA256" : "4c3589f0c5bd998ae819677b6d104347927c7948df0b5f82f4a8b58e843afadf",
+      "key" : "tb_v1_old_school_runescape_ranger_03",
+      "previewSHA256" : "9d26edaf4f40c91c1e003349c201b8ffa29f40d1ffe8201ddc8a78997bfb81de",
+      "stage" : 2,
+      "theme" : "old_school_runescape",
+      "tooltip" : "Old School RuneScape · Ranger · Studded leather",
+      "variant" : "ranger"
+    },
+    {
+      "imageSHA256" : "26d28903383136946105184cd0f0d48a83f507f9452ba9450853af8be182d00f",
+      "key" : "tb_v1_old_school_runescape_ranger_04",
+      "previewSHA256" : "040c6db16a42ce9eb6076534ed5df0edb4364ae8ffc2ba12f614e9cfc1bfff98",
+      "stage" : 3,
+      "theme" : "old_school_runescape",
+      "tooltip" : "Old School RuneScape · Ranger · Snakeskin",
+      "variant" : "ranger"
+    },
+    {
+      "imageSHA256" : "c7671944557e74df65dcb59c93b9b2be519b3c4012222521806ebd93d536694e",
+      "key" : "tb_v1_old_school_runescape_ranger_05",
+      "previewSHA256" : "a4b4bde60da9641f27a48917d407b073b665da9abbc802a9f4b770fdc98bbe1b",
+      "stage" : 4,
+      "theme" : "old_school_runescape",
+      "tooltip" : "Old School RuneScape · Ranger · Green d’hide",
+      "variant" : "ranger"
+    },
+    {
+      "imageSHA256" : "18e49f23a9f125e5213ae10e3419801d72f22bfb86eb0c093282773e9dbde630",
+      "key" : "tb_v1_old_school_runescape_ranger_06",
+      "previewSHA256" : "bb81c992a5506028101637a94be029d767f8f538c2a83a24e24c7695dfbfe9d4",
+      "stage" : 5,
+      "theme" : "old_school_runescape",
+      "tooltip" : "Old School RuneScape · Ranger · Blue d’hide",
+      "variant" : "ranger"
+    },
+    {
+      "imageSHA256" : "d4fceb442e8267fe1526fcbc7427f4b7a8806325ea6b689b1e5c51f0496c84ac",
+      "key" : "tb_v1_old_school_runescape_ranger_07",
+      "previewSHA256" : "95a2b2e2d1084f21ce9f8c13be192ddb31585837933d5a7480e6e2eb0607457d",
+      "stage" : 6,
+      "theme" : "old_school_runescape",
+      "tooltip" : "Old School RuneScape · Ranger · Red d’hide",
+      "variant" : "ranger"
+    },
+    {
+      "imageSHA256" : "2715f24443d6163e87cf7a942d5f2ea2d5e4d9983175a9169fab98b0758dd8a7",
+      "key" : "tb_v1_old_school_runescape_ranger_08",
+      "previewSHA256" : "d93099e052a3c11f06c13406728df232fadc1f41f0b0c2f9c559e52b3e1995a5",
+      "stage" : 7,
+      "theme" : "old_school_runescape",
+      "tooltip" : "Old School RuneScape · Ranger · Black d’hide",
+      "variant" : "ranger"
+    },
+    {
+      "imageSHA256" : "5d8f02d3e2467b5aff0dc8184b2819725a5d72358d8297024c411fb8b1688ae6",
+      "key" : "tb_v1_old_school_runescape_ranger_09",
+      "previewSHA256" : "a18c73fb45ec952752d859196de4d6345444017e8657166336d5c4f4b6ca4924",
+      "stage" : 8,
+      "theme" : "old_school_runescape",
+      "tooltip" : "Old School RuneScape · Ranger · Karil’s",
+      "variant" : "ranger"
+    },
+    {
+      "imageSHA256" : "c7cf53ca1473bf1866e2c3ba9d90a3b05e8547a5b1fe324b81020aa5aeb2b31e",
+      "key" : "tb_v1_old_school_runescape_ranger_10",
+      "previewSHA256" : "4fb2d01b2eb5872bee8de5960e43abfed95182e48f970bf1699501c20d5abeb6",
+      "stage" : 9,
+      "theme" : "old_school_runescape",
+      "tooltip" : "Old School RuneScape · Ranger · Armadyl",
+      "variant" : "ranger"
+    },
+    {
+      "imageSHA256" : "43ad64c80b85719d768f20b17ef63c9e7f6dc49f1f873af2dc27370e271fcd17",
+      "key" : "tb_v1_old_school_runescape_ranger_11",
+      "previewSHA256" : "1bf2b8ef36433f63df21891be28f47eadb6c3d02030755f0efaf729e4ea8e38d",
+      "stage" : 10,
+      "theme" : "old_school_runescape",
+      "tooltip" : "Old School RuneScape · Ranger · Crystal",
+      "variant" : "ranger"
+    },
+    {
+      "imageSHA256" : "7dce4530c1aa092bbe883ebf94d40ab71ab557d84d9a38578f70340d1e12ba6b",
+      "key" : "tb_v1_old_school_runescape_ranger_12",
+      "previewSHA256" : "e6c10f4ae0fad91e6ee26615b62e10a8fa99b970c94b79719af763b7e3af4e4f",
+      "stage" : 11,
+      "theme" : "old_school_runescape",
+      "tooltip" : "Old School RuneScape · Ranger · Masori",
+      "variant" : "ranger"
+    },
+    {
+      "imageSHA256" : "c960cdb3db07cabc1a9db9ab9c92122278e5a626df0c0190c6ec42e1f4fc309a",
+      "key" : "tb_v1_age_of_empires_ii_town_center_01",
+      "previewSHA256" : "3912a242e0060b692000d1457063dd2b7ddcbb7976eda1af3c85849df9cc31ac",
+      "stage" : 0,
+      "theme" : "age_of_empires_ii",
+      "tooltip" : "Age of Empires II · Town Center · Dark Age camp",
+      "variant" : "town-center"
+    },
+    {
+      "imageSHA256" : "dcd259724f6d4dc81cb3f2753756a667b7bc0a78d0df54893ae54c7db1a217cc",
+      "key" : "tb_v1_age_of_empires_ii_town_center_02",
+      "previewSHA256" : "27242a3c1ea22c9b5885fb1483c0cf496ec315869e74cce185d26845905781b8",
+      "stage" : 1,
+      "theme" : "age_of_empires_ii",
+      "tooltip" : "Age of Empires II · Town Center · Dark Age hamlet",
+      "variant" : "town-center"
+    },
+    {
+      "imageSHA256" : "3cbfd9f4966922a82daca13a23ae8dc687da7c5a7d34c84383a42e07de1262c6",
+      "key" : "tb_v1_age_of_empires_ii_town_center_03",
+      "previewSHA256" : "d69f70f69385c2c69cf69583f65f3530a4acfb3ef105f92dc5c9b09f8d42af3a",
+      "stage" : 2,
+      "theme" : "age_of_empires_ii",
+      "tooltip" : "Age of Empires II · Town Center · Dark Age town",
+      "variant" : "town-center"
+    },
+    {
+      "imageSHA256" : "70cc70eafeebb7fb72d1392620c377649b4cf9ec7e036fd05115bd42ea7c0d74",
+      "key" : "tb_v1_age_of_empires_ii_town_center_04",
+      "previewSHA256" : "4824ba809652430800b2ea027cad1c0562f9e7441a2f873aa291024fbf32f98a",
+      "stage" : 3,
+      "theme" : "age_of_empires_ii",
+      "tooltip" : "Age of Empires II · Town Center · Feudal Age",
+      "variant" : "town-center"
+    },
+    {
+      "imageSHA256" : "7294d60d95d779fb909e61f3c4187f81f3454f698da2833092b3bcc151f508fd",
+      "key" : "tb_v1_age_of_empires_ii_town_center_05",
+      "previewSHA256" : "288a3fd4d739ed6e1300b5d0076e000e2991ae34cf22adeed302824c14ce942c",
+      "stage" : 4,
+      "theme" : "age_of_empires_ii",
+      "tooltip" : "Age of Empires II · Town Center · Feudal village",
+      "variant" : "town-center"
+    },
+    {
+      "imageSHA256" : "6d7e1c33367a0133be6594c1652041b002b71908588b838455dd301665a2423b",
+      "key" : "tb_v1_age_of_empires_ii_town_center_06",
+      "previewSHA256" : "b0ea02a62255e706327837a2af26eca80c8f5603a130a1474e46c8be58608326",
+      "stage" : 5,
+      "theme" : "age_of_empires_ii",
+      "tooltip" : "Age of Empires II · Town Center · Feudal town",
+      "variant" : "town-center"
+    },
+    {
+      "imageSHA256" : "c382f0b3802d8853690115f3edf893ddcd75cfb84c42d82367a59f5739572a0e",
+      "key" : "tb_v1_age_of_empires_ii_town_center_07",
+      "previewSHA256" : "a031ae54a96d6a6f5e00b795c66ae1d7d2b658bbe90271545543e8de9b7d4673",
+      "stage" : 6,
+      "theme" : "age_of_empires_ii",
+      "tooltip" : "Age of Empires II · Town Center · Castle Age",
+      "variant" : "town-center"
+    },
+    {
+      "imageSHA256" : "67de4f476efde6ff28c0c4e3fa01b1f23b8d323b825f720122eaf6d38b926105",
+      "key" : "tb_v1_age_of_empires_ii_town_center_08",
+      "previewSHA256" : "35a8605d1f40e88334df09750fe25c4688275ba7c46b6092d89a90fd377d2557",
+      "stage" : 7,
+      "theme" : "age_of_empires_ii",
+      "tooltip" : "Age of Empires II · Town Center · Castle village",
+      "variant" : "town-center"
+    },
+    {
+      "imageSHA256" : "103061a0a30bf24879ac361c046a7afff35fd6e6e95ca7ff9d26a90b2fc93643",
+      "key" : "tb_v1_age_of_empires_ii_town_center_09",
+      "previewSHA256" : "a237c820f4156e3024ec673e894524cbf3644373242f14b2ee5076a6249c0f1a",
+      "stage" : 8,
+      "theme" : "age_of_empires_ii",
+      "tooltip" : "Age of Empires II · Town Center · Castle town",
+      "variant" : "town-center"
+    },
+    {
+      "imageSHA256" : "080b38c23d7f47d8949380872f66252221ae1477a071b0e03110c555a2c0c5a9",
+      "key" : "tb_v1_age_of_empires_ii_town_center_10",
+      "previewSHA256" : "64e5209c4ca7027293e6914d102744aef46411f9d96bcdc7293c6dcb28c0e5ca",
+      "stage" : 9,
+      "theme" : "age_of_empires_ii",
+      "tooltip" : "Age of Empires II · Town Center · Imperial Age",
+      "variant" : "town-center"
+    },
+    {
+      "imageSHA256" : "144e8d1e6341780e51f240b74e3f9ab063e24e41de01670c8b1891b769d90cba",
+      "key" : "tb_v1_age_of_empires_ii_town_center_11",
+      "previewSHA256" : "e3b8bb96de7e8f43c4d0d067447b41c940b21a74bce16dd675323e615f44a946",
+      "stage" : 10,
+      "theme" : "age_of_empires_ii",
+      "tooltip" : "Age of Empires II · Town Center · Imperial city",
+      "variant" : "town-center"
+    },
+    {
+      "imageSHA256" : "e1d034d01262391c9ade3c62c3bc57f7c87da6ce7deea9381c92e87318996a7f",
+      "key" : "tb_v1_age_of_empires_ii_town_center_12",
+      "previewSHA256" : "db29004be110f3f299e40066244d5860d00296d98382c7d39c15d0ee707e8ed0",
+      "stage" : 11,
+      "theme" : "age_of_empires_ii",
+      "tooltip" : "Age of Empires II · Town Center · Imperial capital",
+      "variant" : "town-center"
+    },
+    {
+      "imageSHA256" : "17263b534269115359b4a7c7ff769eff8c3f04e214e7924ce7ebcfb83c2b86c6",
+      "key" : "tb_v1_minecraft_steve_01",
+      "previewSHA256" : "5559144c6fb87d8c5492dd28e16bbab722c8727c1a1a5f30871facd98e907b39",
+      "stage" : 0,
+      "theme" : "minecraft",
+      "tooltip" : "Minecraft · Steve · Fresh spawn",
+      "variant" : "steve"
+    },
+    {
+      "imageSHA256" : "75cd6f1e8ec126c97cc94f880cad1d8f9e9f83d2ccafa51f82fb80bb39b35f72",
+      "key" : "tb_v1_minecraft_steve_02",
+      "previewSHA256" : "ca79b981239814e913f18e70f4b3c4222edca962a37b831eeb9887257ae762bc",
+      "stage" : 1,
+      "theme" : "minecraft",
+      "tooltip" : "Minecraft · Steve · Into the woods",
+      "variant" : "steve"
+    },
+    {
+      "imageSHA256" : "fa007624ef951ae45153f428e51a34810321e46a4b91eaa777bfc8896f8eb902",
+      "key" : "tb_v1_minecraft_steve_03",
+      "previewSHA256" : "84df3f316937f026524196fddfa89005605c7b9177fd15fb277d79666a59be9b",
+      "stage" : 2,
+      "theme" : "minecraft",
+      "tooltip" : "Minecraft · Steve · Village life",
+      "variant" : "steve"
+    },
+    {
+      "imageSHA256" : "b829e1843b6ed6c74699a15eb35f3383a7cf7086b762d3faf38eeb35316257e6",
+      "key" : "tb_v1_minecraft_steve_04",
+      "previewSHA256" : "1a2e9014ffacfcd4829d52281c3b4bfae696b0aac66c30063dc88c27a79a842f",
+      "stage" : 3,
+      "theme" : "minecraft",
+      "tooltip" : "Minecraft · Steve · Lush caves",
+      "variant" : "steve"
+    },
+    {
+      "imageSHA256" : "8a1431aa9b3c30c369a3a7b6723cf3e5a04702a26e911a8aa59e01155d55933c",
+      "key" : "tb_v1_minecraft_steve_05",
+      "previewSHA256" : "d9b3da24a081fba8e030e67e32e3a9875bddba0e58fc2baead1b8d549e4530c4",
+      "stage" : 4,
+      "theme" : "minecraft",
+      "tooltip" : "Minecraft · Steve · Jagged peaks",
+      "variant" : "steve"
+    },
+    {
+      "imageSHA256" : "538e9c0f4bf5973ffe8bad5098ce4385b18959e0961f43154bcebd1a55bf6119",
+      "key" : "tb_v1_minecraft_steve_06",
+      "previewSHA256" : "67494479b10fba17c14fb9b7af27e3628b11716f44ebff50e53f99d3bf3bcbdc",
+      "stage" : 5,
+      "theme" : "minecraft",
+      "tooltip" : "Minecraft · Steve · Ancient city",
+      "variant" : "steve"
+    },
+    {
+      "imageSHA256" : "e2549e3c87f259c3c6ba30982fd6e3396d431b7e32232919fb54f4721fe1022f",
+      "key" : "tb_v1_minecraft_steve_07",
+      "previewSHA256" : "be46718cbe57566fc6d5b5ac734643aeed8c1924b422a914512f766ccd9a5f17",
+      "stage" : 6,
+      "theme" : "minecraft",
+      "tooltip" : "Minecraft · Steve · Nether wastes",
+      "variant" : "steve"
+    },
+    {
+      "imageSHA256" : "9195899ec497d3cf06f232c7bb383113c47b41923d47bd2dbed18e8023c50728",
+      "key" : "tb_v1_minecraft_steve_08",
+      "previewSHA256" : "9e4234f5bdac3a6c4ce5e6dd02d4132afd4be6814b5399a84b9ae577d6c4c056",
+      "stage" : 7,
+      "theme" : "minecraft",
+      "tooltip" : "Minecraft · Steve · Crimson forest",
+      "variant" : "steve"
+    },
+    {
+      "imageSHA256" : "3dde813ea927d5c95eb2b08429ca998a64c80259b16014aae6726513af5813a2",
+      "key" : "tb_v1_minecraft_steve_09",
+      "previewSHA256" : "da404ac2d011f7bcbefa72762f672347dc358b39ec131a6799ca567a0e333fc0",
+      "stage" : 8,
+      "theme" : "minecraft",
+      "tooltip" : "Minecraft · Steve · Nether fortress",
+      "variant" : "steve"
+    },
+    {
+      "imageSHA256" : "a6985b3cae62c8a2b357d33d0bd750219fbdd33b1e0d88c128cd0d422be4cbae",
+      "key" : "tb_v1_minecraft_steve_10",
+      "previewSHA256" : "c76f7bb88f2e921c7807f56a70744ea5b9909943fca7c5470fe37dce4acd5881",
+      "stage" : 9,
+      "theme" : "minecraft",
+      "tooltip" : "Minecraft · Steve · Stronghold",
+      "variant" : "steve"
+    },
+    {
+      "imageSHA256" : "72179b3415dd414aec997ab5614155e303aae9af1d277b00fe7852672737f1f7",
+      "key" : "tb_v1_minecraft_steve_11",
+      "previewSHA256" : "895009810cef88994ee0d1c1857f8f2edf57d2a57bcf8f94ccbf03f5cc8038f1",
+      "stage" : 10,
+      "theme" : "minecraft",
+      "tooltip" : "Minecraft · Steve · The End",
+      "variant" : "steve"
+    },
+    {
+      "imageSHA256" : "7a72c292a918a2bf1ac29dd4624d2b966034df99eadb5a88da047b147ff17b52",
+      "key" : "tb_v1_minecraft_steve_12",
+      "previewSHA256" : "a1e9f4e3e25f1d89a7cc8c999bc3bdd0197a3bcf5b73ddb0988eccc787ef144f",
+      "stage" : 11,
+      "theme" : "minecraft",
+      "tooltip" : "Minecraft · Steve · End city",
+      "variant" : "steve"
+    },
+    {
+      "imageSHA256" : "fd9266d5dbc4b07d454efb12cb4788c0e77fd8eab3494174f4f9af0aaef11c39",
+      "key" : "tb_v1_banished_settlement_01",
+      "previewSHA256" : "ba72fec31da26e270cf76b215703d5e47eebffeb9fabb040e71371ceef4c7892",
+      "stage" : 0,
+      "theme" : "banished",
+      "tooltip" : "Banished · Settlement · First shelter",
+      "variant" : "settlement"
+    },
+    {
+      "imageSHA256" : "869d593c1b2027475b493a9fa360e223107d5c3840e70764594ed6d99db138b3",
+      "key" : "tb_v1_banished_settlement_02",
+      "previewSHA256" : "aca1c9f55c0017154bf1a7b75bca0d3e3aa2f4f7e9a66f4e82117c3fe8817491",
+      "stage" : 1,
+      "theme" : "banished",
+      "tooltip" : "Banished · Settlement · Gatherer's clearing",
+      "variant" : "settlement"
+    },
+    {
+      "imageSHA256" : "fa68ff6c681847307b74b38195ae0bf585ad625271808395abe7a16cce3c0b36",
+      "key" : "tb_v1_banished_settlement_03",
+      "previewSHA256" : "1f3c2fc2d288990724f22c13a83bc16510542bd14422d1728221491d7ef8aa97",
+      "stage" : 2,
+      "theme" : "banished",
+      "tooltip" : "Banished · Settlement · First harvest",
+      "variant" : "settlement"
+    },
+    {
+      "imageSHA256" : "c16e36876257a844436434d42f22331e271260da3261c73fb24c3924c3ec43d5",
+      "key" : "tb_v1_banished_settlement_04",
+      "previewSHA256" : "4f897ec65b44eaf72928cf91caaf6ff939a65021a301c60ad78ad78bf8a7c053",
+      "stage" : 3,
+      "theme" : "banished",
+      "tooltip" : "Banished · Settlement · Pasture raised",
+      "variant" : "settlement"
+    },
+    {
+      "imageSHA256" : "13bf5e17c0b86b3c4e310669134cb7e2c93bde5840c23ea5034b9e39dedc2878",
+      "key" : "tb_v1_banished_settlement_05",
+      "previewSHA256" : "c4152a571b8c71229ea9aee5e31212549ba8e7832a6b6a7a19a0bc5955cf40ec",
+      "stage" : 4,
+      "theme" : "banished",
+      "tooltip" : "Banished · Settlement · Roads laid",
+      "variant" : "settlement"
+    },
+    {
+      "imageSHA256" : "f49fefb2e999c09ab72f0a5b06b6dda75a9b7e90f3b7e7d8ca39e908f39def4c",
+      "key" : "tb_v1_banished_settlement_06",
+      "previewSHA256" : "dd649387f0b92d1b252b54c8c135b1b45128da8dfaf7f99d3e48790bc53d5b82",
+      "stage" : 5,
+      "theme" : "banished",
+      "tooltip" : "Banished · Settlement · River crossing",
+      "variant" : "settlement"
+    },
+    {
+      "imageSHA256" : "2b2037c2e0b226e881765381202e25cdedd539c0198b59572cb4787e5420238c",
+      "key" : "tb_v1_banished_settlement_07",
+      "previewSHA256" : "603bae6a2241e821e37a1bc183b0aac707e50dc3e6905fbb5c14f934414e6ed0",
+      "stage" : 6,
+      "theme" : "banished",
+      "tooltip" : "Banished · Settlement · Trading post",
+      "variant" : "settlement"
+    },
+    {
+      "imageSHA256" : "02edbd8514cdb2e0f188395db90e0456a5914ef5445fece6df3277e7bec6d9ab",
+      "key" : "tb_v1_banished_settlement_08",
+      "previewSHA256" : "76d996809496cbfdc4029c5b2576801823d85096a59e1a2e03bbefd1c680baa2",
+      "stage" : 7,
+      "theme" : "banished",
+      "tooltip" : "Banished · Settlement · Market town",
+      "variant" : "settlement"
+    },
+    {
+      "imageSHA256" : "6e71bec0397ca0d6590da4f36b233459e7f959e3c29680105ccf260624378f76",
+      "key" : "tb_v1_banished_settlement_09",
+      "previewSHA256" : "b93e2814b1f98e89fcbb2010bb4c23bf42943f9e73ff977a99e88c6e94b2d4e7",
+      "stage" : 8,
+      "theme" : "banished",
+      "tooltip" : "Banished · Settlement · Stone village",
+      "variant" : "settlement"
+    },
+    {
+      "imageSHA256" : "7d6f37b06bae4d8bf0bb38fbc953cf6f59bbd0ad0bc754ba423dcd98ba924256",
+      "key" : "tb_v1_banished_settlement_10",
+      "previewSHA256" : "f3eb95c781642712444abea6894ac71361c392f57a924ee75325bf663cd719e8",
+      "stage" : 9,
+      "theme" : "banished",
+      "tooltip" : "Banished · Settlement · First hard winter",
+      "variant" : "settlement"
+    },
+    {
+      "imageSHA256" : "fd981b0f054b1441497d48fb44ce0d3df5cc0eb06c5d166efb9a0ad70e0a59b1",
+      "key" : "tb_v1_banished_settlement_11",
+      "previewSHA256" : "bf4ae00340e4cd91583d23ac83ff677c566e15997afd0ae862cfced85295d7a1",
+      "stage" : 10,
+      "theme" : "banished",
+      "tooltip" : "Banished · Settlement · Winter endured",
+      "variant" : "settlement"
+    },
+    {
+      "imageSHA256" : "4c6ee1b9a997c5650f767011bbbe6ff7195e4d58b99280c2649462c8f5f31393",
+      "key" : "tb_v1_banished_settlement_12",
+      "previewSHA256" : "eb9840020b7aed913865cb91269c3e069ab9b555b8b7eabe419a25a826dbb159",
+      "stage" : 11,
+      "theme" : "banished",
+      "tooltip" : "Banished · Settlement · Thriving township",
+      "variant" : "settlement"
+    },
+    {
+      "imageSHA256" : "89fabfa743ca4a68a7bda52f992141c93ec66353c1a33e3e487798c961c3d42d",
+      "key" : "tb_v1_frostpunk_new_london_01",
+      "previewSHA256" : "20637606f88b2f2702456c356e2bd6ddc8bc5ef727051b2f21e80c9104e40374",
+      "stage" : 0,
+      "theme" : "frostpunk",
+      "tooltip" : "Frostpunk · New London · The Generator",
+      "variant" : "new-london"
+    },
+    {
+      "imageSHA256" : "06ea7e6cb811166ae81c47aaa70f0f3476ca7ffacd083cf59cec58db721859d3",
+      "key" : "tb_v1_frostpunk_new_london_02",
+      "previewSHA256" : "dc5cd8f64e355eced1ac03a51e554e664b1027337b67f717e60a6c5f8ed8990a",
+      "stage" : 1,
+      "theme" : "frostpunk",
+      "tooltip" : "Frostpunk · New London · First tents",
+      "variant" : "new-london"
+    },
+    {
+      "imageSHA256" : "b22095cfa6422f106307772217ff6c37d92ec3219cdf5e9b59af7e96cc2ed48d",
+      "key" : "tb_v1_frostpunk_new_london_03",
+      "previewSHA256" : "67dbd57138128e80d895a2f69ae4b21d36c138de9738449142dd2f62340ee76f",
+      "stage" : 2,
+      "theme" : "frostpunk",
+      "tooltip" : "Frostpunk · New London · Coal lifeline",
+      "variant" : "new-london"
+    },
+    {
+      "imageSHA256" : "50aeed55a84132bae3d9411ccd7708895e7b03f749cfc5e96b844ea7c99ad798",
+      "key" : "tb_v1_frostpunk_new_london_04",
+      "previewSHA256" : "c139f1ff9f412e9ac5006d2080313a6cb7f92102cee92166a2627b34b0e8e741",
+      "stage" : 3,
+      "theme" : "frostpunk",
+      "tooltip" : "Frostpunk · New London · Workshop district",
+      "variant" : "new-london"
+    },
+    {
+      "imageSHA256" : "7abfeb2cd552d0b6879751ecaa0b9f84c4cc783e934b472d0fa6148210d8cdbd",
+      "key" : "tb_v1_frostpunk_new_london_05",
+      "previewSHA256" : "74c95e6523e4e4fccbf3604e7949dce04aa39ae44cbff3971043f45ef779de73",
+      "stage" : 4,
+      "theme" : "frostpunk",
+      "tooltip" : "Frostpunk · New London · Beacon raised",
+      "variant" : "new-london"
+    },
+    {
+      "imageSHA256" : "6ef0eca7be3b7f1a8467ac623f3cfd2b6bcf39df2c78db37f0bec8b626cbb4f5",
+      "key" : "tb_v1_frostpunk_new_london_06",
+      "previewSHA256" : "8c16977986b10c777f94788279fbd15754e21d95fcd805a9f52250ab9c59d000",
+      "stage" : 5,
+      "theme" : "frostpunk",
+      "tooltip" : "Frostpunk · New London · Steam hubs",
+      "variant" : "new-london"
+    },
+    {
+      "imageSHA256" : "4b3b975dd03d2837431c25b4fe2531c5b80ac5da3e3ac5e17899b4778173b63b",
+      "key" : "tb_v1_frostpunk_new_london_07",
+      "previewSHA256" : "b2eb29eeb0a33f4962a86fe2f6a3034134824d12009f89925948664afef9fbc1",
+      "stage" : 6,
+      "theme" : "frostpunk",
+      "tooltip" : "Frostpunk · New London · Hothouse harvest",
+      "variant" : "new-london"
+    },
+    {
+      "imageSHA256" : "23b633104a92f54de2a82ebc8a346d7c7d098f90c06592b9460504cefd4dd238",
+      "key" : "tb_v1_frostpunk_new_london_08",
+      "previewSHA256" : "28750583bcc18bdb791f18386b1ff49f8b99c4b532b531bc2186f37e4b141649",
+      "stage" : 7,
+      "theme" : "frostpunk",
+      "tooltip" : "Frostpunk · New London · Industrial city",
+      "variant" : "new-london"
+    },
+    {
+      "imageSHA256" : "4c90ffb91a80157cdb314ff5e5e31e1ac629b397dbc388cd5828edc17e8f30c6",
+      "key" : "tb_v1_frostpunk_new_london_09",
+      "previewSHA256" : "ce3ee1f2953f474f3ed04913fa575eb7ad13732231e6f9a0be158084f0048c6a",
+      "stage" : 8,
+      "theme" : "frostpunk",
+      "tooltip" : "Frostpunk · New London · Automaton age",
+      "variant" : "new-london"
+    },
+    {
+      "imageSHA256" : "cea974d43e6b7da8aea5127e4e17e9b1021057f4ce6c969f612b03a079dc438d",
+      "key" : "tb_v1_frostpunk_new_london_10",
+      "previewSHA256" : "72299519f325735be04885badb08e2ca33b22925a3036a5955e2bdea9eb16d50",
+      "stage" : 9,
+      "theme" : "frostpunk",
+      "tooltip" : "Frostpunk · New London · Storm watch",
+      "variant" : "new-london"
+    },
+    {
+      "imageSHA256" : "175fc7efc9a565841b79c5edb79991aab2cb4924a9dbf3f9ec419e03bb05d001",
+      "key" : "tb_v1_frostpunk_new_london_11",
+      "previewSHA256" : "d03c54e50abfe7d6fbf9f3810444bfddd668b91f6296aacac6ad574f136a0304",
+      "stage" : 10,
+      "theme" : "frostpunk",
+      "tooltip" : "Frostpunk · New London · The Great Storm",
+      "variant" : "new-london"
+    },
+    {
+      "imageSHA256" : "8cbd2906797a972f4448ebbba4c37745ceb85049a54327d9e5326709fea15f83",
+      "key" : "tb_v1_frostpunk_new_london_12",
+      "previewSHA256" : "61578a174cd749d22e0a92603c25d8c7f32f1ef5864cc6fccacdef0853944e5e",
+      "stage" : 11,
+      "theme" : "frostpunk",
+      "tooltip" : "Frostpunk · New London · New London endures",
+      "variant" : "new-london"
+    }
+  ],
+  "imageSize" : 1024,
+  "previewSize" : 128,
+  "schemaVersion" : 1
+}

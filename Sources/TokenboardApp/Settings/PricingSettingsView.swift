@@ -120,6 +120,9 @@ struct PricingSettingsView: View {
 
             Text(PricingOverviewCopy.unpricedUsage)
                 .font(.headline)
+            Text("Coverage includes all token categories for the selected period.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
             if pricing.coveragePeriod != model.selectedPeriod {
                 Text("Refreshing pricing coverage…")
                     .foregroundStyle(.secondary)

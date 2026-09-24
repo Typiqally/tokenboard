@@ -1,6 +1,8 @@
 import Foundation
 
 public struct UsageSummary: Equatable, Sendable {
+    public let tokenScope: UsageTokenScope
+    public let allTokenUnpricedTokens: Int64
     public let period: CalendarPeriod
     public let tokenTotal: Int64
     public let knownAPIEquivalentUSD: Decimal
@@ -14,8 +16,12 @@ public struct UsageSummary: Equatable, Sendable {
         knownAPIEquivalentUSD: Decimal,
         unpricedTokens: Int64,
         unpricedUsage: [UnpricedUsageGroup] = [],
-        exchangeRates: ExchangeRateSnapshot? = nil
+        exchangeRates: ExchangeRateSnapshot? = nil,
+        tokenScope: UsageTokenScope = .all,
+        allTokenUnpricedTokens: Int64? = nil
     ) {
+        self.tokenScope = tokenScope
+        self.allTokenUnpricedTokens = allTokenUnpricedTokens ?? unpricedTokens
         self.period = period
         self.tokenTotal = tokenTotal
         self.knownAPIEquivalentUSD = knownAPIEquivalentUSD

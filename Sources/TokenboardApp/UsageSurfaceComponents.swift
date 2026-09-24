@@ -211,6 +211,7 @@ struct UsageTrendChart: View {
             }
             .accessibilityLabel(
                 UsageHistoryPresentation.chartAccessibilityLabel(for: snapshot.range)
+                    + ". " + UsageSelectionPresentation.tokenScopeTitle(snapshot.tokenScope)
             )
             .accessibilityAdjustableAction { direction in
                 switch direction {
@@ -375,7 +376,8 @@ extension UsageHistoryPresentation {
 
     static func apiEquivalentTitle(
         for breakdown: UsageBreakdown,
-        currency: DisplayCurrency
+        currency: DisplayCurrency,
+        tokenScope: UsageTokenScope = .all
     ) -> String {
         guard let converted = CurrencyConverter.convert(
             usd: breakdown.knownAPIEquivalentUSD,
@@ -384,7 +386,8 @@ extension UsageHistoryPresentation {
         ) else {
             return "\(currency.rawValue) API equivalent unavailable"
         }
-        return "≈ \(ValueFormatter.currency(converted, currency: currency)) API equivalent"
+        let scopeLabel = tokenScope == .all ? "" : " \(tokenScope.rawValue)"
+        return "≈ \(ValueFormatter.currency(converted, currency: currency))\(scopeLabel) API equivalent"
     }
 }
 

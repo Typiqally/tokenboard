@@ -1736,7 +1736,7 @@ private actor LifecycleQuery: AppUsageQuerying {
     private var completedCallCount = 0
 
     func hold(periods: Set<CalendarPeriod>) { heldPeriods = periods }
-    func summary(period: CalendarPeriod, now: Date, calendar: Calendar) async -> UsageSummary {
+    func summary(period: CalendarPeriod, now: Date, calendar: Calendar, tokenScope: UsageTokenScope) async -> UsageSummary {
         callCount += 1
         let readyCallWaiters = callWaiters.filter { $0.0 <= callCount }
         callWaiters.removeAll { $0.0 <= callCount }

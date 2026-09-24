@@ -6,6 +6,20 @@ import TokenboardCore
 
 @MainActor
 final class RichUsagePresentationTests: XCTestCase {
+    func testCompactRefreshTitleLeavesRoomForTokenScope() {
+        let idle = RichPopoverRefreshPresentation.make(
+            recencyTitle: "Updated 2h ago", recencyAccessibilityTitle: "Updated 2 hours ago",
+            isRefreshPending: false, isImporting: false
+        )
+        XCTAssertEqual(idle.compactTitle, "2H AGO")
+        XCTAssertEqual(idle.accessibilityTitle, "Updated 2 hours ago. Refresh local usage.")
+        let loading = RichPopoverRefreshPresentation.make(
+            recencyTitle: "Updated never", recencyAccessibilityTitle: "Updated never",
+            isRefreshPending: true, isImporting: false
+        )
+        XCTAssertEqual(loading.compactTitle, "REFRESHING…")
+    }
+
     func testPricingWarningListsSummaryModelsOnceAndIgnoresChartRange() throws {
         var state = AppPublishedState.initial(period: .thisMonth, displayMetric: .tokens)
         state.lifecycle = .ready

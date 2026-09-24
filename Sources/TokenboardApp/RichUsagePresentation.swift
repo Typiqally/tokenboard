@@ -420,12 +420,14 @@ struct UsagePointCalloutPresentation: Equatable, Sendable {
     static func make(
         point: UsageHistoryPoint,
         range: UsageHistoryRange,
-        currency: DisplayCurrency
+        currency: DisplayCurrency,
+        tokenScope: UsageTokenScope = .all
     ) -> UsagePointCalloutPresentation {
         let context = UsageHistoryPresentation.pointContextTitle(point, range: range)
-        let tokens = "\(ValueFormatter.exactTokens(point.tokenTotal)) tokens"
+        let label = tokenScope == .all ? "tokens" : "\(tokenScope.rawValue) tokens"
+        let tokens = "\(ValueFormatter.exactTokens(point.tokenTotal)) \(label)"
         let apiValue = point.breakdown.map {
-            UsageHistoryPresentation.apiEquivalentTitle(for: $0, currency: currency)
+            UsageHistoryPresentation.apiEquivalentTitle(for: $0, currency: currency, tokenScope: tokenScope)
         } ?? "API equivalent unavailable"
         return UsagePointCalloutPresentation(
             contextTitle: context,
@@ -441,6 +443,10 @@ struct RichPopoverRefreshPresentation: Equatable, Sendable {
     let title: String
     let accessibilityTitle: String
     let helpTitle: String
+
+    var compactTitle: String {
+        title.hasPrefix("UPDATED ") ? String(title.dropFirst("UPDATED ".count)) : title
+    }
 
     static func make(
         recencyTitle: String,
@@ -500,6 +506,8 @@ struct RichPopoverPresentation: Equatable, Sendable {
             contentState = .failed(message: startupError)
         } else if case let .failed(message) = state.lifecycle {
             contentState = .failed(message: message)
+        } else if let summaryError = state.summaryError, state.presentation == nil {
+            contentState = .failed(message: summaryError)
         } else if awaitingFirstUsage || state.presentation == nil {
             contentState = .loading
         } else {
@@ -515,13 +523,13 @@ struct RichPopoverPresentation: Equatable, Sendable {
         case .loading:
             statusTitle = ""
             statusSystemImageName = "hourglass"
-            statusAccessibilityLabel = "Tokenboard is importing usage"
-            headline = "Importing usage…"
+            statusAccessibilityLabel = state.lastUpdated == nil ? "Tokenboard is importing usage" : "Tokenboard is loading usage"
+            headline = state.lastUpdated == nil ? "Importing usage…" : "Loading usage…"
             apiValueTitle = "Reading local usage records"
         case .ready:
             statusTitle = state.presentation?.statusTitle ?? "0"
             statusSystemImageName = nil
-            statusAccessibilityLabel = "Tokenboard, \(statusTitle)"
+            statusAccessibilityLabel = "Tokenboard, \(statusTitle), \(UsageSelectionPresentation.tokenScopeTitle(state.selectedTokenScope))"
             headline = state.presentation?.tokenTitle ?? "0 tokens"
             apiValueTitle = state.presentation?.apiValueTitle ?? "API equivalent unavailable"
         case .failed:
@@ -553,7 +561,8 @@ struct RichPopoverPresentation: Equatable, Sendable {
                 range: state.selectedHistoryRange
             ),
             emptyMessage: snapshot?.breakdown.tokenTotal == 0
-                ? "No usage recorded in this range"
+                ? (state.selectedTokenScope == .all ? "No usage recorded in this range"
+                    : "No \(state.selectedTokenScope.rawValue) tokens recorded in this range")
                 : nil
         )
     }

@@ -75,6 +75,9 @@ struct RichUsagePopoverView: View {
         // Companion scenes inside the popover animate only while this
         // window is genuinely on screen.
         .tracksCompanionSceneVisibility()
+        .onChange(of: model.selectedTokenScope) { _, _ in
+            chartSelection.clearAll()
+        }
         .onChange(of: model.selectedHistoryRange) { _, _ in
             chartSelection.clearAll()
         }
@@ -252,6 +255,28 @@ struct RichUsagePopoverView: View {
             .fixedSize()
             .accessibilityLabel("Summary period, \(presentation.periodTitle)")
 
+            Menu {
+                Picker("Token scope", selection: Binding(
+                    get: { model.selectedTokenScope },
+                    set: { scope in Task { await model.select(tokenScope: scope) } }
+                )) {
+                    ForEach(UsageTokenScope.allCases, id: \.self) { scope in
+                        Text(UsageSelectionPresentation.tokenScopeTitle(scope)).tag(scope)
+                    }
+                }
+            } label: {
+                SurfaceEyebrow(
+                    title: UsageSelectionPresentation.tokenScopeOption(model.selectedTokenScope),
+                    foregroundColor: controlColor
+                )
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.visible)
+            .tint(controlColor)
+            .fixedSize()
+            .help(UsageSelectionPresentation.tokenScopeHelp)
+            .accessibilityLabel("Token scope, \(UsageSelectionPresentation.tokenScopeTitle(model.selectedTokenScope))")
+
             Spacer()
 
             Button {
@@ -263,7 +288,7 @@ struct RichUsagePopoverView: View {
                 }
             } label: {
                 HStack(spacing: 5) {
-                    Text(refreshPresentation.title)
+                    Text(refreshPresentation.compactTitle)
                         .font(.system(size: 10, weight: .medium))
                         .tracking(0.35)
                     if refreshPresentation.isInProgress {
@@ -282,7 +307,7 @@ struct RichUsagePopoverView: View {
             }
             .buttonStyle(.plain)
             .disabled(refreshPresentation.isInProgress)
-            .help(refreshPresentation.helpTitle)
+            .help(refreshPresentation.accessibilityTitle)
             .accessibilityLabel(refreshPresentation.accessibilityTitle)
 
             let quitAction = RichPopoverHeaderAction.quit
@@ -520,7 +545,8 @@ struct RichUsagePopoverView: View {
         let callout = UsagePointCalloutPresentation.make(
             point: point,
             range: range,
-            currency: model.selectedDisplayCurrency
+            currency: model.selectedDisplayCurrency,
+            tokenScope: model.selectedTokenScope
         )
         return VStack(alignment: .leading, spacing: 2) {
             Text(callout.contextTitle)

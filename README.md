@@ -61,6 +61,7 @@ There is no account, cloud service, telemetry endpoint, or background helper. Th
 Highlights:
 
 - Exact totals for Today, This Week, This Month, This Year, and All Time.
+- A remembered All / Input / Output selection in the popover, History, and Settings. It filters token totals, charts, breakdowns, and API-equivalent estimates. Input includes cache reads and writes; companion growth and Discord continue using all of today’s tokens.
 - Independent `TODAY`, `7D`, `30D`, and `90D` charts with hover, scrub, and click-to-pin values.
 - Effective-dated API-equivalent estimates that leave unknown prices visibly unpriced instead of guessing.
 - Provider, model, Input, Cache, and Output breakdowns without double-counting reasoning output.
@@ -181,9 +182,10 @@ Discord sharing is deliberately narrow and disabled by default. When enabled, To
 - `Playing Tokenboard`
 - today's compact token total
 - today's estimated focus duration
+- a still of the selected companion’s daily stage, when its Discord artwork is available
 - a static **View on GitHub** action
 
-It does not send provider, model, project, path, conversation, cost, timestamps, party data, or secrets. Communication goes only to the running Discord desktop client's same-user local IPC socket. Discord hides Rich Presence buttons from the account publishing the activity, so the GitHub action is visible to other users rather than in your own Current Activity card.
+It does not send provider, model, project, path, conversation, cost, timestamps, party data, or secrets. The image shares the companion’s theme, daily starter family, and token stage using a fixed scene; private layouts and animation stay local. Selecting `None` restores the Tokenboard icon. Settings shows the resolved image before sharing. Communication goes only to the running Discord desktop client's same-user local IPC socket. Discord hides Rich Presence buttons from the account publishing the activity, so the GitHub action is visible to other users rather than in your own Current Activity card.
 
 ## Build from source
 
@@ -215,7 +217,7 @@ Scripts/verify-runtime-resources.sh .build/release/Tokenboard.app
 git diff --check
 ```
 
-The shared public Discord application ID is required only for release builds. The Discord application should have a Rich Presence image asset with the exact key `tokenboard`.
+The shared public Discord application ID is required only for release builds. The Discord application should have a Rich Presence image asset with the exact key `tokenboard`. All eight companion themes have twelve published stages that follow today's token total, including all twelve daily Pokémon starter families. Companion images use verified, pre-uploaded assets from the same application; unavailable artwork falls back to this icon. See the [artwork export and publication workflow](Resources/Discord/README.md).
 
 ## Repository map
 

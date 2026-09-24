@@ -1,6 +1,24 @@
 import TokenboardCore
 
 enum UsageSelectionPresentation {
+    static func tokenScopeTitle(_ scope: UsageTokenScope) -> String {
+        switch scope {
+        case .all: "All tokens"
+        case .input: "Input tokens"
+        case .output: "Output tokens"
+        }
+    }
+
+    static func tokenScopeOption(_ scope: UsageTokenScope) -> String {
+        switch scope {
+        case .all: "All"
+        case .input: "Input"
+        case .output: "Output"
+        }
+    }
+
+    static let tokenScopeHelp = "Input includes uncached input, cache reads, and cache writes. Output includes reasoning once. Filters usage totals and API-equivalent estimates."
+
     static let displayMetrics = DisplayMetric.allCases
     static let periods = CalendarPeriod.allCases
     static let currencies = DisplayCurrency.allCases

@@ -4,11 +4,14 @@ import Foundation
 enum CompanionSceneLayout: Equatable, Sendable {
     case strip
     case panorama
+    case discordIcon
 
     func subjectHeightBasis(for size: CGSize, theme: CompanionTheme) -> CGFloat {
         switch self {
         case .strip:
             return size.height
+        case .discordIcon:
+            return size.height * (Self.usesCompactGrowthBand(theme) ? 0.74 : 0.64)
         case .panorama:
             if Self.usesCompactGrowthBand(theme) {
                 // These generated sprites share the plate's compact 84-point
@@ -26,6 +29,8 @@ enum CompanionSceneLayout: Equatable, Sendable {
         switch self {
         case .strip:
             return size.height
+        case .discordIcon:
+            return Self.usesCompactGrowthBand(theme) ? size.height * 0.375 : size.height
         case .panorama:
             // Forest and Village depth offsets were authored inside the
             // original ground band. Keep that point inset when the panorama
@@ -40,6 +45,8 @@ enum CompanionSceneLayout: Equatable, Sendable {
         switch self {
         case .strip:
             size.height / TokenboardSurfaceMetrics.companionSceneHeight
+        case .discordIcon:
+            size.height / 160
         case .panorama:
             // Inhabitants and atmosphere grow enough to read without turning
             // every background actor into a second foreground hero.

@@ -12,6 +12,8 @@ Tokenboard is for macOS developers who use Claude Code or Codex and want a quick
 
 Tokenboard locally scans user-approved Claude Code and Codex history folders, reduces usage to deletion-resistant daily token aggregates, and shows token totals or estimated public API-equivalent value for Today, This Week, This Month, This Year, or All Time. Cached 7D, 30D, and 90D trends explain change and provider share without querying on popover open. USD remains the canonical pricing currency, with optional display conversion to a locally selected currency. Success means the value is fast to read, historically defensible, explicit about unpriced usage, and effectively idle between local filesystem events.
 
+Token scope is a persistent All / Input / Output preference, defaulting to All. Input includes every normalized input category, including cache reads, cache writes, and unclassified input; Output includes output once, with no additional reasoning count. The selection applies to usage totals, charts, comparisons, breakdowns, API-equivalent estimates, and their unpriced warnings. Work Patterns scopes token volume while retaining activity-based time estimates. Companion progress, Discord presence, and pricing coverage diagnostics continue using all token categories.
+
 ## Brand Personality
 
 Simple, clean, mean. Quietly confident and direct, with precise language and no decorative product theater. Optional companions can add personality, but the default experience remains the undecorated usage tool.
@@ -45,7 +47,8 @@ Simple, clean, mean. Quietly confident and direct, with precise language and no 
 ## Discord Activity
 
 - Keep Discord Activity off by default in General Settings. The first enable shows the exact current preview and requires explicit confirmation; later toggles may reuse a versioned consent until the disclosure changes.
-- Publish one deliberately narrow daily summary: `Playing Tokenboard`, today's AI coding usage, a compact token total, estimated focus duration, and one static `View on GitHub` action to Tokenboard's public repository. Do not include provider, model, project, path, conversation, cost, timestamps, party data, or secrets.
+- Publish one deliberately narrow daily summary: `Playing Tokenboard`, today's AI coding usage, a compact token total, estimated focus duration, a still matching the selected companion’s theme, daily starter family, and token stage when its Discord artwork is available, and one static `View on GitHub` action to Tokenboard's public repository. Do not include provider, model, project, path, conversation, cost, timestamps, party data, or secrets.
+- Use shared pre-uploaded stills; local companion seeds, rotating scenery, growth between milestones, and animation stay private. Selecting `None` or an unavailable theme uses the Tokenboard icon. Preview the resolved image and tooltip before sharing; consent version 3 covers this behavior.
 - Connect only to the running desktop client's documented local IPC socket. Tokenboard does not authenticate a Discord account, contact Discord remotely, or keep a helper alive.
 - Keep the preference enabled across launches, retry when Discord launches or the Mac wakes, update after local usage refreshes and calendar changes, and clear activity on disable or clean shutdown.
 - Make `Connected`, `Discord isn't running`, failure, and unavailable-build states visible, with an explicit Retry action for recoverable states.

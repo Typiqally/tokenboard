@@ -10,12 +10,17 @@ public struct UsageQueryService: Sendable {
     public func summary(
         period: CalendarPeriod,
         now: Date,
-        calendar: Calendar
+        calendar: Calendar,
+        tokenScope: UsageTokenScope = .all
     ) async throws -> UsageSummary {
         let interval = period.interval(containing: now, calendar: calendar)
         let rows = try await ledger.usageRows(in: interval, calendar: calendar)
         let pricing = try await ledger.pricingSnapshot()
-        let analysis = try PriceResolver(pricing: pricing).analyze(rows: rows)
+        let resolver = try PriceResolver(pricing: pricing)
+        let allAnalysis = try resolver.analyze(rows: rows.filter { UsageTokenScope.all.includes($0.metric) })
+        let analysis = tokenScope == .all ? allAnalysis : try resolver.analyze(
+            rows: rows.filter { tokenScope.includes($0.metric) }
+        )
         let resolution = analysis.resolution
         return UsageSummary(
             period: period,
@@ -23,7 +28,9 @@ public struct UsageQueryService: Sendable {
             knownAPIEquivalentUSD: resolution.knownUSD,
             unpricedTokens: resolution.unpricedTokens,
             unpricedUsage: analysis.unpricedUsage,
-            exchangeRates: pricing.latestExchangeRates
+            exchangeRates: pricing.latestExchangeRates,
+            tokenScope: tokenScope,
+            allTokenUnpricedTokens: allAnalysis.resolution.unpricedTokens
         )
     }
 
@@ -31,13 +38,15 @@ public struct UsageQueryService: Sendable {
         range: UsageHistoryRange,
         now: Date,
         calendar: Calendar,
-        provider: Provider? = nil
+        provider: Provider? = nil,
+        tokenScope: UsageTokenScope = .all
     ) async throws -> UsageHistorySnapshot {
         let snapshots = try await history(
             ranges: [range],
             now: now,
             calendar: calendar,
-            provider: provider
+            provider: provider,
+            tokenScope: tokenScope
         )
         guard let snapshot = snapshots[range] else {
             throw UsageHistoryError.calendarArithmeticFailure
@@ -49,7 +58,8 @@ public struct UsageQueryService: Sendable {
         ranges: [UsageHistoryRange],
         now: Date,
         calendar: Calendar,
-        provider: Provider? = nil
+        provider: Provider? = nil,
+        tokenScope: UsageTokenScope = .all
     ) async throws -> [UsageHistoryRange: UsageHistorySnapshot] {
         let requestedRanges = Set(ranges)
         guard !requestedRanges.isEmpty else { return [:] }
@@ -71,7 +81,9 @@ public struct UsageQueryService: Sendable {
 
         let queryInterval = DateInterval(start: queryStart, end: today.end)
         let queriedRows = try await ledger.usageRows(in: queryInterval, calendar: calendar)
-        let rows = queriedRows.filter { provider == nil || $0.provider == provider }
+        let rows = queriedRows.filter {
+            (provider == nil || $0.provider == provider) && tokenScope.includes($0.metric)
+        }
         let pricing = try await ledger.pricingSnapshot()
         let priceResolver = try PriceResolver(pricing: pricing)
 
@@ -85,7 +97,9 @@ public struct UsageQueryService: Sendable {
                 in: DateInterval(start: hourlyQueryStart, end: today.end),
                 calendar: calendar
             )
-            hourlyRows = queriedHourlyRows.filter { provider == nil || $0.provider == provider }
+            hourlyRows = queriedHourlyRows.filter {
+                (provider == nil || $0.provider == provider) && tokenScope.includes($0.metric)
+            }
         } else {
             hourlyRows = []
         }
@@ -144,7 +158,8 @@ public struct UsageQueryService: Sendable {
                 calendar: calendar,
                 provider: provider,
                 pricing: pricing,
-                priceResolver: priceResolver
+                priceResolver: priceResolver,
+                tokenScope: tokenScope
             )
         }
         return snapshots
@@ -185,7 +200,8 @@ public struct UsageQueryService: Sendable {
         calendar: Calendar,
         provider: Provider?,
         pricing: PricingSnapshot,
-        priceResolver: PriceResolver
+        priceResolver: PriceResolver,
+        tokenScope: UsageTokenScope
     ) throws -> UsageHistorySnapshot {
         let breakdown = try usageBreakdown(
             rows: currentRows,
@@ -247,7 +263,8 @@ public struct UsageQueryService: Sendable {
                 percentChange: percentChange
             ),
             breakdown: breakdown,
-            workPatterns: workPatterns
+            workPatterns: workPatterns,
+            tokenScope: tokenScope
         )
     }
 

@@ -4,6 +4,7 @@ import TokenboardCore
 @MainActor
 final class AppPreferences {
     private enum Key {
+        static let selectedTokenScope = "selectedTokenScope"
         static let selectedPeriod = "selectedPeriod"
         static let selectedDisplayMetric = "selectedDisplayMetric"
         static let selectedDisplayCurrency = "selectedDisplayCurrency"
@@ -29,6 +30,14 @@ final class AppPreferences {
         for key in Key.legacyCompanionProgress {
             defaults.removeObject(forKey: key)
         }
+    }
+
+    var selectedTokenScope: UsageTokenScope {
+        get {
+            defaults.string(forKey: Key.selectedTokenScope)
+                .flatMap(UsageTokenScope.init(rawValue:)) ?? .all
+        }
+        set { defaults.set(newValue.rawValue, forKey: Key.selectedTokenScope) }
     }
 
     var selectedPeriod: CalendarPeriod {

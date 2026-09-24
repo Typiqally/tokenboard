@@ -5,6 +5,18 @@ import TokenboardCore
 
 @MainActor
 final class AppPreferencesTests: XCTestCase {
+    func testTokenScopePersistsAndInvalidValueDefaultsToAll() {
+        let suiteName = "TokenScopePreferencesTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let preferences = AppPreferences(defaults: defaults)
+        XCTAssertEqual(preferences.selectedTokenScope, .all)
+        preferences.selectedTokenScope = .output
+        XCTAssertEqual(AppPreferences(defaults: defaults).selectedTokenScope, .output)
+        defaults.set("invalid", forKey: "selectedTokenScope")
+        XCTAssertEqual(preferences.selectedTokenScope, .all)
+    }
+
     func testDefaultsAndWritesOnlyApprovedKeys() {
         let suiteName = "AppPreferencesTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!

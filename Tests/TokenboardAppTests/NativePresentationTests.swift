@@ -374,7 +374,7 @@ private actor PresentationLedger: AppLedgerRuntime {
 }
 
 private actor PresentationQuery: AppUsageQuerying {
-    func summary(period: CalendarPeriod, now: Date, calendar: Calendar) -> UsageSummary {
+    func summary(period: CalendarPeriod, now: Date, calendar: Calendar, tokenScope: UsageTokenScope) -> UsageSummary {
         UsageSummary(period: period, tokenTotal: 0, knownAPIEquivalentUSD: 0, unpricedTokens: 0)
     }
 }

@@ -21,6 +21,7 @@ final class AppModel: ObservableObject {
     var sourceHealth: [Provider: SourceHealth] { state.sourceHealth }
     var sourceFileCounts: [Provider: Int] { state.sourceFileCounts }
     var onboardingRequired: Bool { state.onboardingRequired }
+    var selectedTokenScope: UsageTokenScope { state.selectedTokenScope }
     var selectedPeriod: CalendarPeriod { state.selectedPeriod }
     var selectedDisplayMetric: DisplayMetric { state.selectedDisplayMetric }
     var selectedDisplayCurrency: DisplayCurrency { state.selectedDisplayCurrency }
@@ -89,7 +90,7 @@ final class AppModel: ObservableObject {
     var inFlightQueries: [UInt64: Task<Result<UsageSummary, Error>, Never>] = [:]
     var historyQueryGeneration: UInt64 = 0
     var inFlightHistoryQueries: [
-        UInt64: Task<Result<[UsageHistoryRange: UsageHistorySnapshot], Error>, Never>
+        UInt64: Task<Result<AppHistoryQueryResult, Error>, Never>
     ] = [:]
     var historyRefreshWindowTask: Task<Void, Never>?
     var historyRefreshWindowGeneration: UInt64 = 0
@@ -173,6 +174,7 @@ final class AppModel: ObservableObject {
             period: preferences.selectedPeriod,
             displayMetric: preferences.selectedDisplayMetric,
             displayCurrency: preferences.selectedDisplayCurrency,
+            tokenScope: preferences.selectedTokenScope,
             historicalImportApproved: preferences.historicalImportApproved,
             companion: CompanionState(
                 theme: preferences.selectedCompanionTheme,
@@ -250,6 +252,27 @@ final class AppModel: ObservableObject {
         await launchActivityBackfill()
     }
 
+    func select(tokenScope: UsageTokenScope) async {
+        guard tokenScope != state.selectedTokenScope,
+              !isDatabaseRestoreInProgress, !isDatabaseRecoveryActionLocked,
+              state.lifecycle != .stopped, state.lifecycle != .shuttingDown else { return }
+        preferences.selectedTokenScope = tokenScope
+        queryGeneration &+= 1
+        historyQueryGeneration &+= 1
+        lastSummary = nil
+        var next = state
+        if next.selectedTokenScope == .all {
+            next.allTokenTodaySnapshot = next.historyState.snapshots?[.today] ?? next.allTokenTodaySnapshot
+        }
+        next.selectedTokenScope = tokenScope
+        next.summaryError = nil
+        next.presentation = nil
+        next.historyState = .loading
+        commitState(next)
+        guard isReadyForSources else { return }
+        await queryUsagePresentations()
+    }
+
     func select(period: CalendarPeriod) async {
         guard !isDatabaseRestoreInProgress,
               !isDatabaseRecoveryActionLocked,
@@ -316,6 +339,7 @@ final class AppModel: ObservableObject {
         var next = state
         next.companion.theme = companionTheme
         commitState(next)
+        await reconcileDiscordPresence()
     }
 
     func setShowCompanionInMenuBar(_ enabled: Bool) {
@@ -346,6 +370,7 @@ final class AppModel: ObservableObject {
     func retryDiscordPresence() async {
         guard discordPresenceEnabled else { return }
         if discordPresence.isEnabled {
+            await discordPresence.update(makeDiscordPresenceActivity())
             await discordPresence.retry()
         } else {
             await discordPresence.setEnabled(true, activity: makeDiscordPresenceActivity())
@@ -388,12 +413,19 @@ final class AppModel: ObservableObject {
         )
     }
 
+    private func allTokenTodaySnapshot(for state: AppPublishedState) -> UsageHistorySnapshot? {
+        if let today = state.historyState.snapshots?[.today], today.tokenScope == .all {
+            return today
+        }
+        return state.allTokenTodaySnapshot
+    }
+
     private func companionDailyTokenTotal(
         for state: AppPublishedState,
         at date: Date
     ) -> Int64 {
         CompanionDailyTokenSource.total(
-            from: state.historyState.snapshots?[.today],
+            from: allTokenTodaySnapshot(for: state),
             at: date,
             calendar: calendar
         )
@@ -471,7 +503,8 @@ final class AppModel: ObservableObject {
     ) async throws -> UsageHistorySnapshot {
         if !ignoreCache,
            provider == nil,
-           let cached = state.historyState.snapshots?[range] {
+           let cached = state.historyState.snapshots?[range],
+           cached.tokenScope == state.selectedTokenScope {
             return cached
         }
         guard isReadyForSources else { throw AppUsageQueryError.historyUnavailable }
@@ -479,7 +512,8 @@ final class AppModel: ObservableObject {
             range: range,
             now: now(),
             calendar: calendar,
-            provider: provider
+            provider: provider,
+            tokenScope: state.selectedTokenScope
         )
     }
 
@@ -547,16 +581,14 @@ final class AppModel: ObservableObject {
     }
 
     private func makeDiscordPresenceActivity() -> DiscordPresenceActivity {
-        guard let snapshot = state.historyState.snapshots?[.today],
-              snapshot.currentInterval.contains(now()) else {
-            return DiscordPresencePresentation.activity(
-                tokenTotal: 0,
-                estimatedFocusMinutes: 0
-            )
-        }
+        let date = now()
+        let snapshot = allTokenTodaySnapshot(for: state)
+        let isCurrent = snapshot?.currentInterval.contains(date) == true
         return DiscordPresencePresentation.activity(
-            tokenTotal: snapshot.breakdown.tokenTotal,
-            estimatedFocusMinutes: snapshot.workPatterns?.totalFocusMinutes
+            tokenTotal: companionDailyTokenTotal(at: date),
+            estimatedFocusMinutes: isCurrent ? snapshot?.workPatterns?.totalFocusMinutes : 0,
+            companion: companionPresentation(at: date),
+            availableArtworkKeys: discordPresence.availableArtworkKeys
         )
     }
 
@@ -566,6 +598,7 @@ final class AppModel: ObservableObject {
         next.lifecycle = .stopped
         next.presentation = nil
         next.historyState = .idle
+        next.allTokenTodaySnapshot = nil
         next.grantedProviders = []
         next.sourceFileCounts = [:]
         next.lastSuccessfulScans = [:]

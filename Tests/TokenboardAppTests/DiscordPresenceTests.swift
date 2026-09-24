@@ -48,9 +48,12 @@ final class DiscordPresenceTests: XCTestCase {
     }
 
     func testActivityPayloadIsStrictlyAllowlistedAndClearUsesNull() throws {
+        let artwork = try XCTUnwrap(DiscordCompanionArtwork.all.first { $0.theme == .forest })
         let activity = DiscordPresencePresentation.activity(
             tokenTotal: 12_345_678,
-            estimatedFocusMinutes: 85
+            estimatedFocusMinutes: 85,
+            companion: artwork.presentation,
+            availableArtworkKeys: [artwork.key]
         )
         let encoded = try DiscordRPCMessage.activity(
             activity,
@@ -71,6 +74,8 @@ final class DiscordPresenceTests: XCTestCase {
         XCTAssertEqual(Set(payload.keys), ["type", "details", "state", "assets", "buttons"])
         XCTAssertEqual(payload["type"] as? Int, 0)
         XCTAssertEqual(Set(assets.keys), ["large_image", "large_text"])
+        XCTAssertEqual(assets["large_image"] as? String, artwork.key)
+        XCTAssertEqual(assets["large_text"] as? String, artwork.tooltip)
         XCTAssertEqual(buttons.count, 1)
         XCTAssertEqual(Set(buttons[0].keys), ["label", "url"])
         XCTAssertEqual(buttons[0]["label"] as? String, "View on GitHub")

@@ -31,20 +31,28 @@ protocol AppUsageQuerying: Sendable {
     func summary(
         period: CalendarPeriod,
         now: Date,
-        calendar: Calendar
+        calendar: Calendar,
+        tokenScope: UsageTokenScope
     ) async throws -> UsageSummary
     func history(
         range: UsageHistoryRange,
         now: Date,
         calendar: Calendar,
-        provider: Provider?
+        provider: Provider?,
+        tokenScope: UsageTokenScope
     ) async throws -> UsageHistorySnapshot
     func history(
         ranges: [UsageHistoryRange],
         now: Date,
         calendar: Calendar,
-        provider: Provider?
+        provider: Provider?,
+        tokenScope: UsageTokenScope
     ) async throws -> [UsageHistoryRange: UsageHistorySnapshot]
+}
+
+struct AppHistoryQueryResult: Sendable {
+    let snapshots: [UsageHistoryRange: UsageHistorySnapshot]
+    let allTokenToday: UsageHistorySnapshot?
 }
 
 enum AppUsageQueryError: Error {
@@ -56,7 +64,8 @@ extension AppUsageQuerying {
         ranges: [UsageHistoryRange],
         now: Date,
         calendar: Calendar,
-        provider: Provider?
+        provider: Provider?,
+        tokenScope: UsageTokenScope
     ) async throws -> [UsageHistoryRange: UsageHistorySnapshot] {
         var snapshots: [UsageHistoryRange: UsageHistorySnapshot] = [:]
         for range in ranges {
@@ -64,7 +73,8 @@ extension AppUsageQuerying {
                 range: range,
                 now: now,
                 calendar: calendar,
-                provider: provider
+                provider: provider,
+                tokenScope: tokenScope
             )
         }
         return snapshots
@@ -74,7 +84,8 @@ extension AppUsageQuerying {
         range: UsageHistoryRange,
         now: Date,
         calendar: Calendar,
-        provider: Provider?
+        provider: Provider?,
+        tokenScope: UsageTokenScope
     ) async throws -> UsageHistorySnapshot {
         throw AppUsageQueryError.historyUnavailable
     }
@@ -150,11 +161,14 @@ enum UsageHistoryLoadState: Equatable, Sendable {
 
 struct AppPublishedState: Equatable, Sendable {
     var lifecycle: AppLifecycleState
+    var summaryError: String?
     var presentation: MenuPresentation?
     var sourceFileCounts: [Provider: Int]
     var grantedProviders: Set<Provider>
     var onboardingRequired: Bool
     var historicalImportApproved: Bool
+    var selectedTokenScope: UsageTokenScope = .all
+    var allTokenTodaySnapshot: UsageHistorySnapshot?
     var selectedPeriod: CalendarPeriod
     var selectedDisplayMetric: DisplayMetric
     var selectedDisplayCurrency: DisplayCurrency
@@ -188,6 +202,7 @@ struct AppPublishedState: Equatable, Sendable {
         period: CalendarPeriod,
         displayMetric: DisplayMetric,
         displayCurrency: DisplayCurrency = .usd,
+        tokenScope: UsageTokenScope = .all,
         historicalImportApproved: Bool = false,
         companion: CompanionState = CompanionState(
             theme: .none,
@@ -202,6 +217,7 @@ struct AppPublishedState: Equatable, Sendable {
             grantedProviders: [],
             onboardingRequired: false,
             historicalImportApproved: historicalImportApproved,
+            selectedTokenScope: tokenScope,
             selectedPeriod: period,
             selectedDisplayMetric: displayMetric,
             selectedDisplayCurrency: displayCurrency,

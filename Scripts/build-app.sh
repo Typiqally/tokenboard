@@ -58,6 +58,7 @@ else
 fi
 
 ditto Resources/Info.plist "$staging_app/Contents/Info.plist"
+ditto Resources/Discord "$staging_app/Contents/Resources/Discord"
 if [[ -z "$discord_application_id" ]]; then
   /usr/libexec/PlistBuddy \
     -c "Delete :TokenboardDiscordApplicationID" \

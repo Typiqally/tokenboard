@@ -173,6 +173,17 @@ struct SettingsView: View {
             }
             .pickerStyle(.segmented)
 
+            Picker("Tokens", selection: Binding(
+                get: { model.selectedTokenScope },
+                set: { scope in Task { await model.select(tokenScope: scope) } }
+            )) {
+                ForEach(UsageTokenScope.allCases, id: \.self) { scope in
+                    Text(UsageSelectionPresentation.tokenScopeOption(scope)).tag(scope)
+                }
+            }
+            .pickerStyle(.segmented)
+            .help(UsageSelectionPresentation.tokenScopeHelp)
+
             Picker("Period", selection: Binding(
                 get: { model.selectedPeriod },
                 set: { period in
@@ -352,18 +363,14 @@ private struct DiscordPresenceSettingsSection: View {
             .disabled(!coordinator.isConfigured)
 
             LabeledContent("Preview") {
-                let activity = model.discordPresencePreview
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text("Playing Tokenboard")
-                        .font(.headline)
-                    Text(activity.details)
-                    Text(activity.state)
-                        .foregroundStyle(.secondary)
-                }
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(
-                    DiscordPresencePresentation.accessibilityPreview(activity)
-                )
+                DiscordActivityPreview(activity: model.discordPresencePreview)
+            }
+
+            if model.companionState.isVisible,
+               model.discordPresencePreview.largeImageKey == "tokenboard" {
+                Text("Using the Tokenboard icon. Discord artwork for this companion isn't available yet.")
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             if model.discordPresenceEnabled || !coordinator.isConfigured {
@@ -398,6 +405,33 @@ private struct DiscordPresenceSettingsSection: View {
                 "\(DiscordPresencePresentation.accessibilityPreview(model.discordPresencePreview))\n\n\(DiscordPresencePresentation.disclosure)"
             )
         }
+    }
+}
+
+struct DiscordActivityPreview: View {
+    let activity: DiscordPresenceActivity
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            if let image = DiscordArtworkResources.preview(for: activity.largeImageKey) {
+                Image(nsImage: image)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: 64, height: 64)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .help(activity.largeImageText)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Playing Tokenboard")
+                    .font(.headline)
+                Text(activity.details)
+                Text(activity.state)
+                    .foregroundStyle(.primary)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(DiscordPresencePresentation.accessibilityPreview(activity))
     }
 }
 

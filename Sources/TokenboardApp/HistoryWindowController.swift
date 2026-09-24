@@ -35,6 +35,8 @@ final class HistoryViewModel: ObservableObject {
     private weak var model: AppModel?
     private var loadTask: Task<Void, Never>?
     private var loadGeneration: UInt64 = 0
+    private var observedTokenScope: UsageTokenScope?
+    private var observedHistoryState: UsageHistoryLoadState?
     private var stateObservation: AnyCancellable?
 
     init(model: AppModel, request: HistoryOpenRequest) {
@@ -102,13 +104,46 @@ final class HistoryViewModel: ObservableObject {
     }
 
     func cancel() {
+        loadGeneration &+= 1
         loadTask?.cancel()
         loadTask = nil
+        stateObservation?.cancel()
+        stateObservation = nil
     }
 
     private func receive(_ state: AppPublishedState) {
-        guard request.provider == nil,
-              let refreshed = state.historyState.snapshots?[request.range] else { return }
+        let scopeChanged = observedTokenScope != nil && observedTokenScope != state.selectedTokenScope
+        let historyChanged = observedHistoryState != state.historyState
+        observedTokenScope = state.selectedTokenScope
+        observedHistoryState = state.historyState
+        if scopeChanged {
+            loadTask?.cancel()
+            loadGeneration &+= 1
+            snapshot = nil
+            selectedPointID = nil
+            isLoading = true
+            errorMessage = nil
+        }
+        if request.provider != nil {
+            if scopeChanged || (historyChanged && state.historyState.snapshots != nil) {
+                // Published state arrives before AppModel's stored state is replaced.
+                let generation = loadGeneration
+                Task { @MainActor [weak self] in
+                    guard let self, self.loadGeneration == generation else { return }
+                    self.load(self.request, ignoreCache: true)
+                }
+            }
+            return
+        }
+        if case let .failed(message) = state.historyState {
+            isLoading = false
+            errorMessage = message
+            return
+        }
+        guard let refreshed = state.historyState.snapshots?[request.range],
+              refreshed.tokenScope == state.selectedTokenScope else { return }
+        loadTask?.cancel()
+        loadGeneration &+= 1
         snapshot = refreshed
         if let selectedPointID,
            !refreshed.points.contains(where: { $0.selectionID == selectedPointID }) {
@@ -128,7 +163,8 @@ final class HistoryViewModel: ObservableObject {
 
         if !ignoreCache,
            request.provider == nil,
-           let cached = model?.state.historyState.snapshots?[request.range] {
+           let cached = model?.state.historyState.snapshots?[request.range],
+           cached.tokenScope == model?.selectedTokenScope {
             snapshot = cached
             isLoading = false
             return
@@ -143,7 +179,8 @@ final class HistoryViewModel: ObservableObject {
                     provider: request.provider,
                     ignoreCache: ignoreCache
                 )
-                guard !Task.isCancelled, self.loadGeneration == generation else { return }
+                guard !Task.isCancelled, self.loadGeneration == generation,
+                      result.tokenScope == model.selectedTokenScope else { return }
                 self.snapshot = result
                 self.isLoading = false
             } catch {
@@ -244,6 +281,22 @@ struct UsageHistoryView: View {
                     .frame(width: 250)
                 }
 
+                HStack {
+                    Picker("Token scope", selection: Binding(
+                        get: { model.selectedTokenScope },
+                        set: { scope in Task { await model.select(tokenScope: scope) } }
+                    )) {
+                        ForEach(UsageTokenScope.allCases, id: \.self) { scope in
+                            Text(UsageSelectionPresentation.tokenScopeTitle(scope)).tag(scope)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .fixedSize()
+                    .help(UsageSelectionPresentation.tokenScopeHelp)
+                    Spacer()
+                }
+
                 if viewModel.request.section == .usage {
                     usageContent(snapshot: snapshot, breakdown: breakdown)
                 } else if let workPatterns = snapshot.workPatterns {
@@ -286,15 +339,22 @@ struct UsageHistoryView: View {
         breakdown: UsageBreakdown
     ) -> some View {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("\(ValueFormatter.exactTokens(breakdown.tokenTotal)) tokens")
+                    Text("\(ValueFormatter.exactTokens(breakdown.tokenTotal)) \(UsageSelectionPresentation.tokenScopeTitle(snapshot.tokenScope).lowercased())")
                         .font(.system(size: 32, weight: .semibold, design: .rounded))
                         .monospacedDigit()
                     Text(UsageHistoryPresentation.apiEquivalentTitle(
                         for: breakdown,
-                        currency: model.selectedDisplayCurrency
+                        currency: model.selectedDisplayCurrency,
+                        tokenScope: snapshot.tokenScope
                     ))
                     .font(.callout)
                     .foregroundStyle(.secondary)
+                }
+
+                if snapshot.breakdown.tokenTotal == 0 {
+                    Text(snapshot.tokenScope == .all ? "No usage recorded in this range"
+                        : "No \(snapshot.tokenScope.rawValue) tokens recorded in this range")
+                        .foregroundStyle(.secondary)
                 }
 
                 UsageTrendChart(
@@ -324,7 +384,9 @@ struct UsageHistoryView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Why this number?")
                         .font(.headline)
-                    Text("Additive local usage only. Reasoning output is never counted twice.")
+                    Text(snapshot.tokenScope == .input
+                        ? "Input includes the Input and Cache categories below. Reasoning output is never counted twice."
+                        : "Additive local usage only. Reasoning output is never counted twice.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)

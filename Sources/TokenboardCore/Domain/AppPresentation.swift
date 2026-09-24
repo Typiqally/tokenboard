@@ -28,7 +28,8 @@ public struct MenuPresentation: Equatable, Sendable {
         tokenTotal = summary.tokenTotal
         unpricedUsage = summary.unpricedUsage
         let compactTokens = ValueFormatter.compactTokens(summary.tokenTotal)
-        tokenTitle = "\(ValueFormatter.exactTokens(summary.tokenTotal)) tokens"
+        let tokenLabel = summary.tokenScope == .all ? "tokens" : "\(summary.tokenScope.rawValue) tokens"
+        tokenTitle = "\(ValueFormatter.exactTokens(summary.tokenTotal)) \(tokenLabel)"
         let converted = CurrencyConverter.convert(
             usd: summary.knownAPIEquivalentUSD,
             to: displayCurrency,
@@ -39,7 +40,8 @@ public struct MenuPresentation: Equatable, Sendable {
             statusTitle = displayMetric == .tokens
                 ? compactTokens
                 : "\(formatted)\(summary.unpricedTokens > 0 ? "+" : "")"
-            apiValueTitle = "≈ \(formatted) API equivalent"
+            let scopeLabel = summary.tokenScope == .all ? "" : " \(summary.tokenScope.rawValue)"
+            apiValueTitle = "≈ \(formatted)\(scopeLabel) API equivalent"
         } else {
             statusTitle = displayMetric == .tokens
                 ? compactTokens

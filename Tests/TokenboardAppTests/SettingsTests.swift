@@ -1441,7 +1441,7 @@ private actor SettingsLedger: AppLedgerRuntime {
 
 private actor SettingsQuery: AppUsageQuerying {
     private var calls = 0
-    func summary(period: CalendarPeriod, now: Date, calendar: Calendar) -> UsageSummary {
+    func summary(period: CalendarPeriod, now: Date, calendar: Calendar, tokenScope: UsageTokenScope) -> UsageSummary {
         calls += 1
         return UsageSummary(
             period: period,

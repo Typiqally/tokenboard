@@ -443,10 +443,12 @@ extension AppModel {
         }
         if queryID == queryGeneration,
            period == state.selectedPeriod,
-           case let .success(summary) = summaryResult {
+           case let .success(summary) = summaryResult,
+           summary.tokenScope == state.selectedTokenScope {
             lastSummary = summary
+            next.summaryError = nil
             normalizeDisplayCurrency(in: &next, for: summary)
-            next.health = next.health.replacing(unpricedTokens: summary.unpricedTokens)
+            next.health = next.health.replacing(unpricedTokens: summary.allTokenUnpricedTokens)
             next.presentation = makePresentation(summary: summary, state: next)
         } else if let lastSummary {
             next.presentation = makePresentation(summary: lastSummary, state: next)
@@ -665,17 +667,22 @@ extension AppModel {
             guard readyGeneration == generation,
                   accepts(generation),
                   queryGeneration == queryID,
-                  state.selectedPeriod == period else { return }
+                  state.selectedPeriod == period,
+                  summary.tokenScope == state.selectedTokenScope else { return }
             lastSummary = summary
             var next = state
+            next.summaryError = nil
             normalizeDisplayCurrency(in: &next, for: summary)
-            next.health = next.health.replacing(unpricedTokens: summary.unpricedTokens)
+            next.health = next.health.replacing(unpricedTokens: summary.allTokenUnpricedTokens)
             next.presentation = makePresentation(summary: summary, state: next)
             commitState(next)
         case let .failure(error):
             guard readyGeneration == generation,
                   accepts(generation),
                   queryGeneration == queryID else { return }
+            var next = state
+            next.summaryError = "Summary unavailable: \(Self.errorDescription(error))"
+            commitState(next)
             publishWarning(.applicationFailure, message: "Summary unavailable: \(Self.errorDescription(error))")
         }
     }
@@ -767,6 +774,7 @@ extension AppModel {
     func queryUsageHistory() async {
         guard preferences.historicalImportApproved, isReadyForSources else { return }
         let generation = lifecycleGeneration
+        let tokenScope = state.selectedTokenScope
         let cachedSnapshots = state.historyState.snapshots
         historyQueryGeneration &+= 1
         let queryID = historyQueryGeneration
@@ -779,14 +787,20 @@ extension AppModel {
         let queryService = self.queryService
         let requestedAt = now()
         let calendar = self.calendar
-        let task = Task<Result<[UsageHistoryRange: UsageHistorySnapshot], Error>, Never> {
+        let task = Task<Result<AppHistoryQueryResult, Error>, Never> {
             do {
-                return .success(try await queryService.history(
+                let snapshots = try await queryService.history(
                     ranges: UsageHistoryRange.allCases,
                     now: requestedAt,
                     calendar: calendar,
-                    provider: nil
-                ))
+                    provider: nil,
+                    tokenScope: tokenScope
+                )
+                let allTokenToday = tokenScope == .all ? snapshots[.today] : try await queryService.history(
+                    range: .today, now: requestedAt, calendar: calendar,
+                    provider: nil, tokenScope: .all
+                )
+                return .success(AppHistoryQueryResult(snapshots: snapshots, allTokenToday: allTokenToday))
             } catch {
                 return .failure(error)
             }
@@ -797,11 +811,13 @@ extension AppModel {
 
         guard readyGeneration == generation,
               accepts(generation),
-              historyQueryGeneration == queryID else { return }
+              historyQueryGeneration == queryID,
+              state.selectedTokenScope == tokenScope else { return }
         var next = state
         switch result {
-        case let .success(snapshots):
-            next.historyState = .loaded(snapshots)
+        case let .success(result):
+            next.historyState = .loaded(result.snapshots)
+            next.allTokenTodaySnapshot = result.allTokenToday
         case let .failure(error):
             if let cachedSnapshots {
                 next.historyState = .loaded(cachedSnapshots)
@@ -825,12 +841,14 @@ extension AppModel {
         let queryService = self.queryService
         let requestedAt = now()
         let calendar = self.calendar
+        let tokenScope = state.selectedTokenScope
         let task = Task<Result<UsageSummary, Error>, Never> {
             do {
                 return .success(try await queryService.summary(
                     period: period,
                     now: requestedAt,
-                    calendar: calendar
+                    calendar: calendar,
+                    tokenScope: tokenScope
                 ))
             } catch {
                 return .failure(error)

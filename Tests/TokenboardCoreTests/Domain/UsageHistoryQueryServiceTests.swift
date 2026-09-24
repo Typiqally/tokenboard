@@ -3,6 +3,37 @@ import XCTest
 @testable import TokenboardCore
 
 final class UsageHistoryQueryServiceTests: XCTestCase {
+    func testScopeFiltersHourlyDailyAndProviderTotalsButPreservesFocusTime() async throws {
+        let ledger = HistoryQueryTestLedger(rows: [
+            row(day: "2026-08-10", provider: .codex, model: "gpt-5", metric: .output, quantity: 10),
+            row(day: "2026-08-11", provider: .codex, model: "gpt-5", metric: .inputCacheRead, quantity: 100),
+            row(day: "2026-08-11", provider: .codex, model: "gpt-5", metric: .output, quantity: 20),
+            row(day: "2026-08-11", provider: .claudeCode, model: "claude-sonnet-4", metric: .output, quantity: 30),
+        ], hourlyRows: [
+            hourlyRow(at: "2026-08-11T07:00:00Z", provider: .codex, model: "gpt-5", metric: .inputCacheRead, quantity: 100),
+            hourlyRow(at: "2026-08-11T14:00:00Z", provider: .codex, model: "gpt-5", metric: .output, quantity: 20),
+        ], activityRows: [
+            activityRow(at: "2026-08-11T07:00:00Z", provider: .codex),
+            activityRow(at: "2026-08-11T14:00:00Z", provider: .codex),
+        ])
+        let service = UsageQueryService(ledger: ledger)
+        for scope in UsageTokenScope.allCases {
+            let snapshots = try await service.history(
+                ranges: [.today, .sevenDays], now: date("2026-08-11T20:00:00Z"),
+                calendar: amsterdamCalendar(), provider: .codex, tokenScope: scope
+            )
+            let today = try XCTUnwrap(snapshots[.today])
+            XCTAssertEqual(today.tokenScope, scope)
+            XCTAssertEqual(today.breakdown.tokenTotal, scope == .input ? 100 : scope == .output ? 20 : 120)
+            XCTAssertEqual(today.points.reduce(0) { $0 + $1.tokenTotal }, today.breakdown.tokenTotal)
+            XCTAssertEqual(today.comparison.previousTokenTotal, scope == .input ? 0 : 10)
+            XCTAssertEqual(today.workPatterns?.totalFocusMinutes, 10)
+            XCTAssertEqual(today.workPatterns?.focusSessionCount, 2)
+            XCTAssertEqual(today.workPatterns?.volumePeakHour?.hour, scope == .output ? 16 : 9)
+            XCTAssertEqual(snapshots[.sevenDays]?.breakdown.tokenTotal, scope == .input ? 100 : scope == .output ? 30 : 130)
+        }
+    }
+
     func testTodayHistoryBuildsHourlyProgressionAndKeepsPreUpgradeUsageAsBaseline() async throws {
         let calendar = amsterdamCalendar()
         let ledger = HistoryQueryTestLedger(

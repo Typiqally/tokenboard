@@ -8,7 +8,7 @@ final class BundledCatalogTests: XCTestCase {
         let catalog = try PricingCatalogValidator().validate(PricingCatalogLoader().load(data))
 
         XCTAssertEqual(catalog.schemaVersion, 2)
-        XCTAssertEqual(catalog.catalogID, "tokenboard-2026-09-07-2")
+        XCTAssertEqual(catalog.catalogID, "tokenboard-2026-09-24")
         let latestAliases: Set<String> = [
                 "claude-fable-5",
                 "claude-fable-5-1",
@@ -25,7 +25,7 @@ final class BundledCatalogTests: XCTestCase {
                 "gpt-5.6-luna",
                 "gpt-5.6-sol",
                 "gpt-5.6-terra",
-                "gpt-6-astra",
+                "gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "claude-opus-5-5",
                 "gpt-daybreak-blue-latest",
                 "gpt-daybreak-red-latest"
         ]
@@ -139,17 +139,66 @@ final class BundledCatalogTests: XCTestCase {
 
         let exchangeRates = try XCTUnwrap(catalog.exchangeRates)
         XCTAssertEqual(exchangeRates.baseCurrency, .usd)
-        XCTAssertEqual(exchangeRates.effectiveDate, "2026-08-10")
-        XCTAssertEqual(exchangeRates.verifiedAt, "2026-08-10")
+        XCTAssertEqual(exchangeRates.effectiveDate, "2026-09-24")
+        XCTAssertEqual(exchangeRates.verifiedAt, "2026-09-24")
         XCTAssertEqual(
             exchangeRates.provenanceURL.absoluteString,
             "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml"
         )
         XCTAssertEqual(exchangeRates.rates[.usd], 1)
-        XCTAssertEqual(exchangeRates.rates[.eur], Decimal(string: "0.865426222"))
-        XCTAssertEqual(exchangeRates.rates[.jpy], Decimal(string: "158.641280831"))
-        XCTAssertEqual(exchangeRates.rates[.gbp], Decimal(string: "0.740501947"))
-        XCTAssertEqual(exchangeRates.rates[.cny], Decimal(string: "6.744353094"))
+        XCTAssertEqual(exchangeRates.rates[.eur], Decimal(string: "0.879739597"))
+        XCTAssertEqual(exchangeRates.rates[.jpy], Decimal(string: "158.854579045"))
+        XCTAssertEqual(exchangeRates.rates[.gbp], Decimal(string: "0.756452890"))
+        XCTAssertEqual(exchangeRates.rates[.cny], Decimal(string: "6.712589074"))
+    }
+
+    func testSeptemberModelsHaveVerifiedRatesAndEffectiveDates() throws {
+        let data = try Data(contentsOf: TestRepository.root.appending(path: "Resources/tokenboard-pricing.json"))
+        let catalog = try PricingCatalogValidator().validate(PricingCatalogLoader().load(data))
+        try assertRate(in: catalog, modelID: "gpt-6-sol", from: "2026-09-22",
+                       prices: openAIPrices(input: "2", cacheRead: "0.2", cacheWrite: "2.5", output: "10"),
+                       provenance: openAIModel("gpt-6-sol"), verifiedAt: "2026-09-24")
+        try assertRate(in: catalog, modelID: "gpt-6-luna", from: "2026-09-22",
+                       prices: openAIPrices(input: "0.1", cacheRead: "0.01", cacheWrite: "0.125", output: "0.5"),
+                       provenance: openAIModel("gpt-6-luna"), verifiedAt: "2026-09-24")
+        try assertRate(in: catalog, modelID: "claude-opus-5-5", from: "2026-09-22",
+                       prices: claudePrices(input: "4", cacheRead: "0.2", cacheWrite5m: "5", cacheWrite1h: "8", output: "20"),
+                       provenance: anthropicPricing, verifiedAt: "2026-09-24")
+        for id in ["gpt-6-sol", "gpt-6-luna", "claude-opus-5-5"] {
+            let entry = try model(in: catalog, named: id)
+            XCTAssertEqual(entry.aliases.count, 1)
+            XCTAssertEqual(entry.aliases.first?.observedModelID, id)
+            XCTAssertEqual(entry.aliases.first?.effectiveFrom, "2026-09-22")
+            let rates = entry.rates.flatMap { rate in
+                rate.prices.map { metric, price in
+                    StoredPriceRate(provider: entry.provider, canonicalModelID: id,
+                                    metric: metric, usdPerMillion: price,
+                                    effectiveFrom: rate.effectiveFrom, effectiveTo: rate.effectiveTo,
+                                    provenanceURL: rate.provenanceURL, verifiedAt: rate.verifiedAt)
+                }
+            }
+            let aliases = entry.aliases.map {
+                StoredModelAlias(provider: entry.provider, observedModelID: $0.observedModelID,
+                                 canonicalModelID: id, effectiveFrom: $0.effectiveFrom, effectiveTo: $0.effectiveTo)
+            }
+            let resolver = try PriceResolver(pricing: PricingSnapshot(catalogIDs: [catalog.catalogID], rates: rates, aliases: aliases))
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+            for day in ["2026-09-21", "2026-09-22"] {
+                let date = try XCTUnwrap(ISO8601DateFormatter().date(from: day + "T12:00:00Z"))
+                let rows = rates.map {
+                    DailyUsageRow(localDay: LocalDay(date: date, calendar: calendar), provider: entry.provider,
+                                  observedModelID: id, metric: $0.metric, aggregation: .additive, quantity: 1_000_000)
+                }
+                let all = try resolver.resolve(rows: rows)
+                let input = try resolver.resolve(rows: rows.filter { UsageTokenScope.input.includes($0.metric) })
+                let output = try resolver.resolve(rows: rows.filter { UsageTokenScope.output.includes($0.metric) })
+                XCTAssertEqual(all.tokenTotal, input.tokenTotal + output.tokenTotal)
+                XCTAssertEqual(all.knownUSD, input.knownUSD + output.knownUSD)
+                XCTAssertEqual(all.unpricedTokens, day == "2026-09-21" ? Int64(rates.count) * 1_000_000 : 0)
+                XCTAssertEqual(all.knownUSD, day == "2026-09-21" ? 0 : rates.reduce(Decimal.zero) { $0 + $1.usdPerMillion })
+            }
+        }
     }
 
     func testBundledCatalogPricesHistoricalGPTAndClaudeFamilies() throws {
