@@ -296,7 +296,7 @@ final class SQLiteLedgerTests: XCTestCase {
         let connection = try SQLiteConnection(url: directory.appending(path: "ledger.sqlite"))
         XCTAssertEqual(
             try connection.queryStrings("SELECT version FROM schema_migrations ORDER BY version;"),
-            ["1", "2", "3", "4", "5", "6"]
+            Migrations.all.map { String($0.version) }
         )
         XCTAssertEqual(
             try connection.queryStrings("SELECT applied_at FROM schema_migrations WHERE version = 4;" ).count,
@@ -647,6 +647,277 @@ final class SQLiteLedgerTests: XCTestCase {
         let connection = try SQLiteConnection(url: directory.appending(path: "ledger.sqlite"))
         let value = "safe\u{0000}multibyte-✓"
         XCTAssertEqual(try connection.textBindingRoundTripForTesting(value), value)
+    }
+
+    private func agentActivity(
+        modelID: String = "gpt-test",
+        timestamp: Date? = nil,
+        delta: AgentActivityDelta
+    ) -> AgentActivityObservation {
+        AgentActivityObservation(
+            provider: .codex,
+            observedModelID: modelID,
+            timestamp: timestamp ?? self.timestamp(),
+            delta: delta
+        )
+    }
+
+    private func agentActivityQuantities(
+        _ rows: [AgentActivityRow]
+    ) -> [AgentActivityCounter: Int64] {
+        rows.reduce(into: [:]) { result, row in result[row.counter, default: 0] += row.quantity }
+    }
+
+    func testCommitStoresAgentActivityFromUsageAndObservationsWithTheCheckpoint() async throws {
+        let (ledger, _) = try makeLedger()
+        try await ledger.migrate()
+        let request = try NormalizedUsage(
+            provider: .codex,
+            observedModelID: "gpt-test",
+            timestamp: timestamp(),
+            metrics: [.inputUncached: 100, .inputCacheRead: 400, .output: 20],
+            stableSourceID: "session-a",
+            stableUsageID: "turn-a"
+        )
+
+        try await ledger.commit(
+            [request, try usage(quantity: 50)],
+            agentActivity: [
+                agentActivity(delta: .init(tasks: 1, toolCalls: 3)),
+                agentActivity(delta: .init(linesAdded: 12, linesRemoved: 5))
+            ],
+            skipped: [],
+            checkpoint: checkpoint(),
+            calendar: calendar
+        )
+
+        let rows = try await ledger.agentActivityRows(in: nil, calendar: calendar)
+        XCTAssertEqual(agentActivityQuantities(rows), [
+            .tasks: 1, .toolCalls: 3, .linesAdded: 12, .linesRemoved: 5,
+            .requests: 2, .contextTokens: 550, .contextPeak: 500, .activityTokens: 570
+        ])
+        XCTAssertEqual(Set(rows.map(\.localDay.value)), ["2026-08-05"])
+        let storedCheckpoint = try await ledger.checkpoint(for: fingerprintA)
+        XCTAssertEqual(storedCheckpoint, checkpoint())
+    }
+
+    func testContextPeakKeepsTheLargestRequestAcrossCommitsWhileOtherCountersSum() async throws {
+        let (ledger, _) = try makeLedger()
+        try await ledger.migrate()
+        for quantity: Int64 in [300, 100, 200] {
+            try await ledger.commit(
+                [try usage(quantity: quantity)],
+                agentActivity: [agentActivity(delta: .init(toolCalls: 1))],
+                skipped: [],
+                checkpoint: checkpoint(),
+                calendar: calendar
+            )
+        }
+
+        let rows = try await ledger.agentActivityRows(in: nil, calendar: calendar)
+        XCTAssertEqual(agentActivityQuantities(rows), [
+            .toolCalls: 3, .requests: 3, .contextTokens: 600, .contextPeak: 300, .activityTokens: 600
+        ])
+    }
+
+    func testAgentActivityOverflowRollsBackUsageAndCheckpoint() async throws {
+        let (ledger, _) = try makeLedger()
+        try await ledger.migrate()
+        try await ledger.commit(
+            [],
+            agentActivity: [agentActivity(delta: .init(toolCalls: .max))],
+            skipped: [],
+            checkpoint: checkpoint(),
+            calendar: calendar
+        )
+
+        do {
+            try await ledger.commit(
+                [try usage(quantity: 1)],
+                agentActivity: [agentActivity(delta: .init(toolCalls: 1))],
+                skipped: [],
+                checkpoint: checkpoint(fingerprint: fingerprintB),
+                calendar: calendar
+            )
+            XCTFail("Expected the integer-storage constraint to reject overflow")
+        } catch let failure as SQLiteFailure {
+            XCTAssertNotEqual(failure.code, 0)
+        }
+
+        let usageRows = try await ledger.usageRows(in: nil, calendar: calendar)
+        XCTAssertEqual(usageRows, [])
+        let rows = try await ledger.agentActivityRows(in: nil, calendar: calendar)
+        XCTAssertEqual(agentActivityQuantities(rows), [.toolCalls: .max])
+        let overflowCheckpoint = try await ledger.checkpoint(for: fingerprintB)
+        XCTAssertNil(overflowCheckpoint)
+    }
+
+    func testPrivacyBoundaryRejectsUnsafeAgentActivityModelsBeforePersistence() async throws {
+        let (ledger, _) = try makeLedger()
+        try await ledger.migrate()
+        let calendar = calendar
+
+        await assertStorageValidationError {
+            try await ledger.commit(
+                [try self.usage()],
+                agentActivity: [self.agentActivity(modelID: "prompt\ncontents", delta: .init(tasks: 1))],
+                skipped: [],
+                checkpoint: self.checkpoint(),
+                calendar: calendar
+            )
+        }
+        await assertStorageValidationError {
+            try await ledger.commitAgentActivityBackfill(
+                [AgentActivityRow(
+                    localDay: LocalDay(date: self.timestamp(), calendar: calendar),
+                    provider: .codex,
+                    observedModelID: "/private/session/path",
+                    counter: .tasks,
+                    quantity: 1
+                )],
+                fingerprint: self.fingerprintA,
+                expectedOffset: 120
+            )
+        }
+
+        let rows = try await ledger.agentActivityRows(in: nil, calendar: calendar)
+        let usageRows = try await ledger.usageRows(in: nil, calendar: calendar)
+        let storedCheckpoint = try await ledger.checkpoint(for: fingerprintA)
+        XCTAssertEqual(rows, [])
+        XCTAssertEqual(usageRows, [])
+        XCTAssertNil(storedCheckpoint)
+    }
+
+    func testAgentActivityRowsFilterByLocalDay() async throws {
+        let (ledger, _) = try makeLedger()
+        try await ledger.migrate()
+        try await ledger.commit(
+            [],
+            agentActivity: [
+                agentActivity(timestamp: timestamp("2026-08-04T10:00:00Z"), delta: .init(tasks: 1)),
+                agentActivity(timestamp: timestamp("2026-08-05T10:00:00Z"), delta: .init(tasks: 2))
+            ],
+            skipped: [],
+            checkpoint: checkpoint(),
+            calendar: calendar
+        )
+        let start = calendar.startOfDay(for: timestamp("2026-08-05T10:00:00Z"))
+        let interval = DateInterval(start: start, end: calendar.date(byAdding: .day, value: 1, to: start)!)
+
+        let rows = try await ledger.agentActivityRows(in: interval, calendar: calendar)
+
+        XCTAssertEqual(rows.map(\.quantity), [2])
+    }
+
+    func testNewSourcesAreCountedFromTheirFirstByte() async throws {
+        let (ledger, _) = try makeLedger()
+        try await ledger.migrate()
+        let missing = try await ledger.agentActivityBackfillOffset(for: fingerprintA)
+        XCTAssertNil(missing)
+
+        try await ledger.commit([try usage()], skipped: [], checkpoint: checkpoint(), calendar: calendar)
+        try await ledger.commit(
+            [try usage()],
+            skipped: [],
+            checkpoint: checkpoint(byteOffset: 240),
+            calendar: calendar
+        )
+
+        let offset = try await ledger.agentActivityBackfillOffset(for: fingerprintA)
+        XCTAssertEqual(offset, 0)
+        let pending = try await ledger.agentActivityBackfillPendingCountsByProvider()
+        XCTAssertEqual(pending, [:])
+    }
+
+    func testAgentActivityBackfillCommitsExactlyOnceAndRejectsStaleOffsets() async throws {
+        let (ledger, directory) = try makeLedger()
+        try await ledger.migrate()
+        try await ledger.commit([try usage()], skipped: [], checkpoint: checkpoint(), calendar: calendar)
+        try await ledger.commit(
+            [try usage()],
+            skipped: [],
+            checkpoint: checkpoint(fingerprint: fingerprintB, provider: .claudeCode),
+            calendar: calendar
+        )
+        let connection = try SQLiteConnection(url: directory.appending(path: "ledger.sqlite"))
+        try connection.execute(
+            "UPDATE source_checkpoints SET agent_activity_counted_from_offset = 120;"
+        )
+        let pending = try await ledger.agentActivityBackfillPendingCountsByProvider()
+        XCTAssertEqual(pending, [.codex: 1, .claudeCode: 1])
+        let backfilledRow = AgentActivityRow(
+            localDay: LocalDay(date: timestamp(), calendar: calendar),
+            provider: .codex,
+            observedModelID: "gpt-test",
+            counter: .tasks,
+            quantity: 4
+        )
+
+        do {
+            try await ledger.commitAgentActivityBackfill([backfilledRow], fingerprint: fingerprintA, expectedOffset: 60)
+            XCTFail("Expected a stale offset to be rejected")
+        } catch let error as LedgerError {
+            XCTAssertEqual(error, .staleAgentActivityBackfill)
+        }
+        try await ledger.commitAgentActivityBackfill([backfilledRow], fingerprint: fingerprintA, expectedOffset: 120)
+        do {
+            try await ledger.commitAgentActivityBackfill([backfilledRow], fingerprint: fingerprintA, expectedOffset: 120)
+            XCTFail("Expected a repeated backfill to be rejected")
+        } catch let error as LedgerError {
+            XCTAssertEqual(error, .staleAgentActivityBackfill)
+        }
+
+        let rows = try await ledger.agentActivityRows(in: nil, calendar: calendar)
+        XCTAssertEqual(rows.filter { $0.counter == .tasks }.map(\.quantity), [4])
+        let offset = try await ledger.agentActivityBackfillOffset(for: fingerprintA)
+        XCTAssertEqual(offset, 0)
+        let remaining = try await ledger.agentActivityBackfillPendingCountsByProvider()
+        XCTAssertEqual(remaining, [.claudeCode: 1])
+    }
+
+    func testReleasingUncountableHistoryClearsOnlyThatProviderAndKeepsStoredRows() async throws {
+        let (ledger, directory) = try makeLedger()
+        try await ledger.migrate()
+        try await ledger.commit([try usage()], skipped: [], checkpoint: checkpoint(), calendar: calendar)
+        try await ledger.commit(
+            [try usage()],
+            skipped: [],
+            checkpoint: checkpoint(fingerprint: fingerprintB, provider: .claudeCode),
+            calendar: calendar
+        )
+        let connection = try SQLiteConnection(url: directory.appending(path: "ledger.sqlite"))
+        try connection.execute("UPDATE source_checkpoints SET agent_activity_counted_from_offset = 120;")
+        let rowsBefore = try await ledger.agentActivityRows(in: nil, calendar: calendar)
+
+        let released = try await ledger.releaseUncountedAgentActivity(provider: .codex)
+        let releasedAgain = try await ledger.releaseUncountedAgentActivity(provider: .codex)
+
+        XCTAssertEqual(released, 1)
+        XCTAssertEqual(releasedAgain, 0)
+        let pending = try await ledger.agentActivityBackfillPendingCountsByProvider()
+        XCTAssertEqual(pending, [.claudeCode: 1])
+        let rowsAfter = try await ledger.agentActivityRows(in: nil, calendar: calendar)
+        XCTAssertEqual(rowsAfter, rowsBefore)
+    }
+
+    func testUnknownAgentActivityCounterIsReportedAsCorruptData() async throws {
+        let (ledger, directory) = try makeLedger()
+        try await ledger.migrate()
+        let connection = try SQLiteConnection(url: directory.appending(path: "ledger.sqlite"))
+        try connection.execute(
+            """
+            INSERT INTO daily_agent_activity VALUES(
+              '2026-08-05', 'Europe/Amsterdam', 'codex', 'gpt-test', 'future_counter', 1
+            );
+            """
+        )
+
+        do {
+            _ = try await ledger.agentActivityRows(in: nil, calendar: calendar)
+            XCTFail("Expected an unknown counter to be rejected")
+        } catch let error as LedgerError {
+            XCTAssertEqual(error, .corruptData("agent activity enum value is invalid"))
+        }
     }
 }
 

@@ -131,11 +131,52 @@ extension AppModel {
                 generation: generation,
                 completesInventoryRequest: true
             )
+            await backfillAgentActivityIfPending(generation: generation)
         } catch {
             guard readyGeneration == generation, accepts(generation) else { return }
             coordinatorStatus = .inactive
             publishWarning(.importFailure, message: "Historical import paused: \(Self.errorDescription(error))")
         }
+    }
+
+    /// Counts agent activity in history imported before activity counting existed. It runs after an import, in
+    /// the same runtime activity, only while a granted provider still has an uncounted prefix, so it never
+    /// competes with other source work. After a pass that visited every file of a provider, whatever that provider
+    /// still has uncounted belongs to logs that are gone or unreadable and is released, so later imports stop
+    /// asking.
+    func backfillAgentActivityIfPending(generation: UInt64) async {
+        let grantedProviders = Set(activeRoots().keys)
+        guard readyGeneration == generation,
+              accepts(generation),
+              case let .active(runID) = coordinatorStatus,
+              let pending = try? await ledger.agentActivityBackfillPendingCountsByProvider(),
+              pending.contains(where: { grantedProviders.contains($0.key) && $0.value > 0 }),
+              readyGeneration == generation,
+              accepts(generation),
+              coordinatorStatus == .active(runID: runID) else { return }
+
+        beginCoordinatorInventoryRequest()
+        let result = await coordinator.backfillAgentActivity()
+        guard readyGeneration == generation,
+              accepts(generation),
+              result.runID == runID else {
+            completeCoordinatorInventoryRequest()
+            return
+        }
+        for (provider, outcome) in result.providers {
+            switch outcome {
+            case let .success(discoveredFiles, scannedFiles), let .attention(discoveredFiles, scannedFiles):
+                guard scannedFiles == discoveredFiles else { continue }
+                _ = try? await ledger.releaseUncountedAgentActivity(provider: provider)
+            case .failure:
+                continue
+            }
+        }
+        await submitAndWaitForIngestionResult(
+            result,
+            generation: generation,
+            completesInventoryRequest: true
+        )
     }
 
     func launchActivityBackfill() async {

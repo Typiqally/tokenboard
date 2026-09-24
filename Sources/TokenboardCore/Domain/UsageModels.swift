@@ -25,6 +25,17 @@ public enum UsageMetric: String, Codable, CaseIterable, Sendable {
     }
 
     public var countsTowardTokenTotal: Bool { aggregation == .additive }
+
+    /// Whether the metric is part of the prompt the model read, which is what context size measures.
+    public var countsTowardContext: Bool {
+        switch self {
+        case .inputUncached, .inputCacheRead, .inputCacheWrite, .inputCacheWrite5m, .inputCacheWrite1h,
+             .inputUnclassified:
+            true
+        case .output, .detailReasoningOutput:
+            false
+        }
+    }
 }
 
 public enum UsageModelError: Error, Equatable {
@@ -63,6 +74,13 @@ public struct NormalizedUsage: Equatable, Sendable {
     public var tokenTotal: Int64 {
         metrics.reduce(0) { total, pair in
             pair.key.countsTowardTokenTotal ? total + pair.value : total
+        }
+    }
+
+    /// Input-side tokens of this request: the size of the context the model read.
+    public var contextTokens: Int64 {
+        metrics.reduce(0) { total, pair in
+            pair.key.countsTowardContext ? total + pair.value : total
         }
     }
 }

@@ -9,6 +9,7 @@ public struct UsageSummary: Equatable, Sendable {
     public let unpricedTokens: Int64
     public let unpricedUsage: [UnpricedUsageGroup]
     public let exchangeRates: ExchangeRateSnapshot?
+    public let agentActivity: AgentActivitySummary
 
     public init(
         period: CalendarPeriod,
@@ -18,7 +19,8 @@ public struct UsageSummary: Equatable, Sendable {
         unpricedUsage: [UnpricedUsageGroup] = [],
         exchangeRates: ExchangeRateSnapshot? = nil,
         tokenScope: UsageTokenScope = .all,
-        allTokenUnpricedTokens: Int64? = nil
+        allTokenUnpricedTokens: Int64? = nil,
+        agentActivity: AgentActivitySummary = .empty
     ) {
         self.tokenScope = tokenScope
         self.allTokenUnpricedTokens = allTokenUnpricedTokens ?? unpricedTokens
@@ -28,5 +30,6 @@ public struct UsageSummary: Equatable, Sendable {
         self.unpricedTokens = unpricedTokens
         self.unpricedUsage = unpricedUsage
         self.exchangeRates = exchangeRates
+        self.agentActivity = agentActivity
     }
 }

@@ -56,25 +56,18 @@ public actor IncrementalScanner {
         let metadata = FileMetadata(size: source.size, modificationTime: source.modificationTime)
         var checkpoint = storedCheckpoint
             ?? emptyCheckpoint(fingerprint: fingerprint, provider: provider, metadata: metadata)
-
-        guard metadata.size >= checkpoint.byteOffset else {
-            return attention(.truncated, offset: checkpoint.byteOffset)
-        }
-        if checkpoint.byteOffset > 0 {
-            guard let previousLine = try reader.lineEnding(at: checkpoint.byteOffset, in: source),
-                  let expectedHash = checkpoint.lastCommittedLineHash else {
-                return attention(.replaced, offset: checkpoint.byteOffset)
-            }
-            let observedHash = try await hash(previousLine)
-            guard observedHash == expectedHash else {
-                return attention(.replaced, offset: checkpoint.byteOffset)
-            }
+        if let reason = try await preflightAttention(for: checkpoint, in: source, size: metadata.size) {
+            return attention(reason, offset: checkpoint.byteOffset)
         }
 
         var adapter = ScannerAdapter(
             provider: provider,
             stableSourceID: stableSourceID,
             currentModel: checkpoint.adapterState["current_model"]
+        )
+        var deduplicator = UsageDeduplicator(
+            lastUsageIdentity: checkpoint.lastUsageIdentityHash,
+            cumulativeMetrics: checkpoint.cumulativeMetrics
         )
         var usageCount = 0
         var skippedCount = 0
@@ -101,6 +94,7 @@ public actor IncrementalScanner {
             }
 
             var usageBatch: [NormalizedUsage] = []
+            var agentActivityBatch: [AgentActivityObservation] = []
             var skippedBatch: [SkippedRecord] = []
             usageBatch.reserveCapacity(result.lines.count)
             skippedBatch.reserveCapacity(result.lines.count)
@@ -111,30 +105,18 @@ public actor IncrementalScanner {
                 let adapterResult: AdapterResult = line.data.isEmpty
                     ? .ignored
                     : adapter.consume(line: line.data)
+                let contribution = try await contribution(
+                    of: adapterResult,
+                    deduplicator: &deduplicator,
+                    sourceFingerprint: fingerprint
+                )
+                if let usage = contribution.usage {
+                    usageBatch.append(usage)
+                }
+                if let observation = contribution.agentActivity {
+                    agentActivityBatch.append(observation)
+                }
                 switch adapterResult {
-                case let .usage(parsed):
-                    let repeatsCumulativeSnapshot = !parsed.cumulativeMetrics.isEmpty
-                        && parsed.cumulativeMetrics == checkpoint.cumulativeMetrics
-                    let usageIdentityHash: String?
-                    if let stableUsageID = parsed.usage.stableUsageID {
-                        usageIdentityHash = try await ledger.recordIdentityHash(stableUsageID)
-                    } else {
-                        usageIdentityHash = nil
-                    }
-                    if !repeatsCumulativeSnapshot,
-                       usageIdentityHash == nil || usageIdentityHash != checkpoint.lastUsageIdentityHash {
-                        usageBatch.append(try await storageSafeUsage(
-                            parsed.usage,
-                            sourceFingerprint: fingerprint,
-                            usageIdentityHash: usageIdentityHash
-                        ))
-                    }
-                    if !parsed.cumulativeMetrics.isEmpty {
-                        checkpoint.cumulativeMetrics = parsed.cumulativeMetrics
-                    }
-                    if let usageIdentityHash {
-                        checkpoint.lastUsageIdentityHash = usageIdentityHash
-                    }
                 case let .skipped(diagnostic):
                     skippedBatch.append(SkippedRecord(
                         sourceFingerprint: fingerprint,
@@ -143,7 +125,7 @@ public actor IncrementalScanner {
                         parserVersion: adapter.parserVersion,
                         reason: diagnostic.kind.rawValue
                     ))
-                case .ignored:
+                case .usage, .activity, .ignored:
                     break
                 }
 
@@ -151,11 +133,19 @@ public actor IncrementalScanner {
                 checkpoint.lastCommittedLineHash = lineHash
             }
 
+            checkpoint.lastUsageIdentityHash = deduplicator.lastUsageIdentity
+            checkpoint.cumulativeMetrics = deduplicator.cumulativeMetrics
             checkpoint.parserVersion = adapter.parserVersion
             checkpoint.fileSize = metadata.size
             checkpoint.modificationTime = metadata.modificationTime
             checkpoint.adapterState = try await storageSafeAdapterState(adapter.checkpointState)
-            try await ledger.commit(usageBatch, skipped: skippedBatch, checkpoint: checkpoint, calendar: calendar)
+            try await ledger.commit(
+                usageBatch,
+                agentActivity: agentActivityBatch,
+                skipped: skippedBatch,
+                checkpoint: checkpoint,
+                calendar: calendar
+            )
             try Task.checkCancellation()
             usageCount += usageBatch.count
             skippedCount += skippedBatch.count
@@ -202,8 +192,7 @@ public actor IncrementalScanner {
             stableSourceID: stableSourceID,
             currentModel: nil
         )
-        var cumulativeMetrics: [UsageMetric: Int64] = [:]
-        var lastUsageIdentity: String?
+        var deduplicator = UsageDeduplicator()
         var offset: Int64 = 0
         var activityCount = 0
         var skippedCount = 0
@@ -238,29 +227,20 @@ public actor IncrementalScanner {
                     : adapter.consume(line: line.data)
                 switch adapterResult {
                 case let .usage(parsed):
-                    let repeatsCumulativeSnapshot = !parsed.cumulativeMetrics.isEmpty
-                        && parsed.cumulativeMetrics == cumulativeMetrics
-                    let repeatsUsageIdentity = parsed.usage.stableUsageID != nil
-                        && parsed.usage.stableUsageID == lastUsageIdentity
-                    if !repeatsCumulativeSnapshot,
-                       !repeatsUsageIdentity,
-                       parsed.usage.metrics.contains(where: { metric, quantity in
-                           metric.aggregation == .additive && quantity > 0
-                       }) {
+                    if deduplicator.admit(
+                        identity: parsed.usage.stableUsageID,
+                        cumulativeMetrics: parsed.cumulativeMetrics
+                    ), parsed.usage.metrics.contains(where: { metric, quantity in
+                        metric.aggregation == .additive && quantity > 0
+                    }) {
                         observations.append(ActivityObservation(
                             timestamp: parsed.usage.timestamp,
                             provider: parsed.usage.provider
                         ))
                     }
-                    if !parsed.cumulativeMetrics.isEmpty {
-                        cumulativeMetrics = parsed.cumulativeMetrics
-                    }
-                    if let stableUsageID = parsed.usage.stableUsageID {
-                        lastUsageIdentity = stableUsageID
-                    }
                 case .skipped:
                     skippedCount += 1
-                case .ignored:
+                case .activity, .ignored:
                     break
                 }
                 offset = line.endOffset
@@ -287,6 +267,95 @@ public actor IncrementalScanner {
         )
     }
 
+    /// Counts agent activity in the part of a source that was imported before activity counting existed.
+    ///
+    /// The prefix is re-read from its first byte with a fresh adapter and deduplicator, which reproduces the
+    /// original import, and is committed in one compare-and-swap. A crash, cancellation, or repeat therefore
+    /// never counts it twice, and a source whose bytes changed is left for attention instead of guessed at.
+    public func backfillAgentActivity(
+        file: URL,
+        provider: Provider,
+        calendar: Calendar
+    ) async throws -> ScanOutcome {
+        let source: RetainedSourceFile
+        do {
+            source = try RetainedSourceFile(url: file)
+        } catch RetainedSourceFileError.unsafeSource {
+            return attention(.unsafeSource, offset: 0)
+        }
+        try sourceOperation(.didOpenSource)
+        try Task.checkCancellation()
+        let stableSourceID: String
+        do {
+            stableSourceID = try sourceProbe.stableID(in: source, provider: provider)
+        } catch SourceProbeError.missingStableIdentity {
+            return attention(.missingStableIdentity, offset: 0)
+        }
+
+        let fingerprint = try await ledger.sourceFingerprint(provider: provider, stableID: stableSourceID)
+        guard let countedFrom = try await ledger.agentActivityBackfillOffset(for: fingerprint),
+              countedFrom > 0,
+              let checkpoint = try await ledger.checkpoint(for: fingerprint) else {
+            return ScanOutcome(committedUsageRecords: 0, skippedRecords: 0, finalOffset: 0)
+        }
+        if let reason = try await preflightAttention(for: checkpoint, in: source, size: source.size) {
+            return attention(reason, offset: countedFrom)
+        }
+        guard countedFrom <= checkpoint.byteOffset else {
+            return attention(.replaced, offset: countedFrom)
+        }
+
+        var adapter = ScannerAdapter(provider: provider, stableSourceID: stableSourceID, currentModel: nil)
+        var deduplicator = UsageDeduplicator()
+        var aggregator = AgentActivityAggregator(calendar: calendar)
+        var requestCount = 0
+        var offset: Int64 = 0
+        while offset < countedFrom {
+            try Task.checkCancellation()
+            let result = try reader.batch(
+                from: source,
+                startingAt: offset,
+                maxLines: Self.maximumBatchLines
+            )
+            for line in result.lines where offset < countedFrom {
+                try Task.checkCancellation()
+                guard line.endOffset <= countedFrom else {
+                    return attention(.replaced, offset: offset)
+                }
+                let adapterResult: AdapterResult = line.data.isEmpty
+                    ? .ignored
+                    : adapter.consume(line: line.data)
+                let contribution = try await contribution(
+                    of: adapterResult,
+                    deduplicator: &deduplicator,
+                    sourceFingerprint: fingerprint
+                )
+                if let usage = contribution.usage {
+                    try aggregator.add(usage)
+                    requestCount += 1
+                }
+                if let observation = contribution.agentActivity {
+                    try aggregator.add(observation)
+                }
+                offset = line.endOffset
+            }
+            guard offset < countedFrom else { break }
+            if result.oversizedRecordOffset != nil {
+                return attention(.oversizedRecord, offset: offset)
+            }
+            if result.lines.isEmpty || result.reachedEndOfFile {
+                return attention(.replaced, offset: offset)
+            }
+        }
+
+        try await ledger.commitAgentActivityBackfill(
+            aggregator.rows,
+            fingerprint: fingerprint,
+            expectedOffset: countedFrom
+        )
+        return ScanOutcome(committedUsageRecords: requestCount, skippedRecords: 0, finalOffset: countedFrom)
+    }
+
     private func emptyCheckpoint(
         fingerprint: String,
         provider: Provider,
@@ -302,6 +371,21 @@ public actor IncrementalScanner {
             lastUsageIdentityHash: nil,
             cumulativeMetrics: [:]
         )
+    }
+
+    /// Confirms the source still contains the bytes a checkpoint was taken from before reading past it.
+    private func preflightAttention(
+        for checkpoint: SourceCheckpoint,
+        in source: RetainedSourceFile,
+        size: Int64
+    ) async throws -> ScanOutcome.Attention? {
+        guard size >= checkpoint.byteOffset else { return .truncated }
+        guard checkpoint.byteOffset > 0 else { return nil }
+        guard let previousLine = try reader.lineEnding(at: checkpoint.byteOffset, in: source),
+              let expectedHash = checkpoint.lastCommittedLineHash else {
+            return .replaced
+        }
+        return try await hash(previousLine) == expectedHash ? nil : .replaced
     }
 
     private func attention(_ reason: ScanOutcome.Attention, offset: Int64) -> ScanOutcome {
@@ -333,6 +417,56 @@ public actor IncrementalScanner {
         )
     }
 
+    /// What one adapter result adds to storage once repeated usage is dropped and identifiers are made safe.
+    private func contribution(
+        of result: AdapterResult,
+        deduplicator: inout UsageDeduplicator,
+        sourceFingerprint: String
+    ) async throws -> LineContribution {
+        switch result {
+        case let .usage(parsed):
+            let usageIdentityHash: String?
+            if let stableUsageID = parsed.usage.stableUsageID {
+                usageIdentityHash = try await ledger.recordIdentityHash(stableUsageID)
+            } else {
+                usageIdentityHash = nil
+            }
+            var contribution = LineContribution()
+            if deduplicator.admit(identity: usageIdentityHash, cumulativeMetrics: parsed.cumulativeMetrics) {
+                contribution.usage = try await storageSafeUsage(
+                    parsed.usage,
+                    sourceFingerprint: sourceFingerprint,
+                    usageIdentityHash: usageIdentityHash
+                )
+            }
+            if !parsed.activity.isZero {
+                contribution.agentActivity = try await storageSafeAgentActivity(AgentActivityObservation(
+                    provider: parsed.usage.provider,
+                    observedModelID: parsed.usage.observedModelID,
+                    timestamp: parsed.usage.timestamp,
+                    delta: parsed.activity
+                ))
+            }
+            return contribution
+        case let .activity(observation):
+            guard !observation.delta.isZero else { return LineContribution() }
+            return LineContribution(agentActivity: try await storageSafeAgentActivity(observation))
+        case .ignored, .skipped:
+            return LineContribution()
+        }
+    }
+
+    private func storageSafeAgentActivity(
+        _ observation: AgentActivityObservation
+    ) async throws -> AgentActivityObservation {
+        AgentActivityObservation(
+            provider: observation.provider,
+            observedModelID: try await storageSafeModelID(observation.observedModelID),
+            timestamp: observation.timestamp,
+            delta: observation.delta
+        )
+    }
+
     private func storageSafeAdapterState(_ state: [String: String]) async throws -> [String: String] {
         guard let currentModel = state["current_model"] else { return [:] }
         return ["current_model": try await storageSafeModelID(currentModel)]
@@ -348,6 +482,36 @@ public actor IncrementalScanner {
 private struct FileMetadata {
     let size: Int64
     let modificationTime: Date?
+}
+
+private struct LineContribution {
+    var usage: NormalizedUsage?
+    var agentActivity: AgentActivityObservation?
+}
+
+/// Drops a usage record that repeats the previous one: Claude Code writes one line per content block with the
+/// same message usage, and Codex can repeat an unchanged cumulative snapshot.
+struct UsageDeduplicator {
+    private(set) var lastUsageIdentity: String?
+    private(set) var cumulativeMetrics: [UsageMetric: Int64]
+
+    init(lastUsageIdentity: String? = nil, cumulativeMetrics: [UsageMetric: Int64] = [:]) {
+        self.lastUsageIdentity = lastUsageIdentity
+        self.cumulativeMetrics = cumulativeMetrics
+    }
+
+    /// Returns whether the record is new, and remembers it either way.
+    mutating func admit(identity: String?, cumulativeMetrics snapshot: [UsageMetric: Int64]) -> Bool {
+        let repeatsSnapshot = !snapshot.isEmpty && snapshot == cumulativeMetrics
+        let repeatsIdentity = identity != nil && identity == lastUsageIdentity
+        if !snapshot.isEmpty {
+            cumulativeMetrics = snapshot
+        }
+        if let identity {
+            lastUsageIdentity = identity
+        }
+        return !repeatsSnapshot && !repeatsIdentity
+    }
 }
 
 private enum ScannerAdapter {

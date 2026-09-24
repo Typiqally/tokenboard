@@ -1487,6 +1487,13 @@ private actor SettingsCoordinator: AppIngestionCoordinating {
             scope: .activityBackfill
         )
     }
+    func backfillAgentActivity() -> IngestionBatchResult {
+        sequence += 1
+        return result(
+            providers: lastRoots.map { Set($0.keys) } ?? [],
+            scope: .agentActivityBackfill
+        )
+    }
     func stop() { stopped += 1 }
     func replaceSource(
         _ provider: Provider,

@@ -170,6 +170,58 @@ final class IngestionCoordinatorTests: XCTestCase {
         await coordinator.stop()
     }
 
+    func testAgentActivityBackfillInventoriesEveryRootUsingItsOwnScannerPath() async throws {
+        let setup = try makeSetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let claudeFile = setup.claudeRoot.appending(path: "project/session.jsonl")
+        let codexFile = setup.codexRoot.appending(path: "session.jsonl")
+        try FileManager.default.createDirectory(
+            at: claudeFile.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data().write(to: claudeFile)
+        try Data().write(to: codexFile)
+        let scanner = RecordingScanner()
+        let coordinator = IngestionCoordinator(
+            scanner: scanner,
+            watcher: FakeSourceEventWatcher(),
+            clock: ManualIngestionClock(),
+            calendar: calendar
+        )
+        _ = try await coordinator.start(roots: setup.roots)
+        await scanner.reset()
+
+        let result = await coordinator.backfillAgentActivity()
+
+        XCTAssertEqual(result.scope, .agentActivityBackfill)
+        XCTAssertEqual(result.providers[.claudeCode], .success(discoveredFiles: 1, scannedFiles: 1))
+        XCTAssertEqual(result.providers[.codex], .success(discoveredFiles: 1, scannedFiles: 1))
+        let scannedURLs = await scanner.scannedURLs
+        let activityHistoryURLs = await scanner.activityHistoryURLs
+        let agentActivityURLs = await scanner.agentActivityURLs
+        XCTAssertEqual(scannedURLs, [])
+        XCTAssertEqual(activityHistoryURLs, [])
+        XCTAssertEqual(agentActivityURLs, [claudeFile, codexFile])
+        await coordinator.stop()
+    }
+
+    func testAgentActivityBackfillWithoutAStartedRunReportsFailureForEveryProvider() async {
+        let coordinator = IngestionCoordinator(
+            scanner: RecordingScanner(),
+            watcher: FakeSourceEventWatcher(),
+            clock: ManualIngestionClock(),
+            calendar: calendar
+        )
+
+        let result = await coordinator.backfillAgentActivity()
+
+        XCTAssertEqual(result.scope, .agentActivityBackfill)
+        XCTAssertEqual(
+            result.providers,
+            [.claudeCode: .failure(discoveredFiles: 0, scannedFiles: 0), .codex: .failure(discoveredFiles: 0, scannedFiles: 0)]
+        )
+    }
+
     func testStartMonitoringInventoriesAndWatchesOneApprovedRoot() async throws {
         let setup = try makeSetup()
         defer { try? FileManager.default.removeItem(at: setup.directory) }
@@ -2005,6 +2057,7 @@ private enum RecordingScannerError: Error {
 private actor RecordingScanner: IngestionScanning {
     private(set) var scannedURLs: [URL] = []
     private(set) var activityHistoryURLs: [URL] = []
+    private(set) var agentActivityURLs: [URL] = []
     private(set) var scannedProviders: [Provider] = []
     private(set) var activeScans = 0
     private(set) var maximumConcurrentScans = 0
@@ -2068,6 +2121,20 @@ private actor RecordingScanner: IngestionScanning {
         )
     }
 
+    func backfillAgentActivity(
+        file: URL,
+        provider: Provider,
+        calendar: Calendar
+    ) async throws -> ScanOutcome {
+        agentActivityURLs.append(file)
+        return outcomes[provider] ?? ScanOutcome(
+            committedUsageRecords: 0,
+            skippedRecords: 0,
+            finalOffset: 0,
+            attention: nil
+        )
+    }
+
     func resumeFirstScan() {
         firstScanContinuation?.resume()
         firstScanContinuation = nil
@@ -2110,6 +2177,7 @@ private actor RecordingScanner: IngestionScanning {
     func reset() {
         scannedURLs = []
         activityHistoryURLs = []
+        agentActivityURLs = []
         scannedProviders = []
         activeScans = 0
         maximumConcurrentScans = 0
@@ -2138,6 +2206,14 @@ private actor ChunkCountingScanner: IngestionScanning {
     }
 
     func backfillActivityHistory(
+        file: URL,
+        provider: Provider,
+        calendar: Calendar
+    ) async throws -> ScanOutcome {
+        try await scan(file: file, provider: provider, calendar: calendar)
+    }
+
+    func backfillAgentActivity(
         file: URL,
         provider: Provider,
         calendar: Calendar

@@ -149,6 +149,58 @@ final class UsageQueryServiceTests: XCTestCase {
         XCTAssertEqual(intervalStart, "2026-08-03")
     }
 
+    func testSummaryReportsAgentActivityForThePeriodWithCoverageAgainstStoredTokens() async throws {
+        let calendar = amsterdamCalendar()
+        let ledger = QueryTestLedger(
+            rows: [
+                row(day: "2026-08-05", quantity: 200),
+                row(day: "2026-08-05", quantity: 100, metric: .output),
+                row(day: "2026-08-05", quantity: 400, model: "gpt-uncounted")
+            ],
+            agentActivity: [
+                activity(day: "2026-08-04", counter: .tasks, quantity: 9),
+                activity(day: "2026-08-05", counter: .tasks, quantity: 2),
+                activity(day: "2026-08-05", counter: .toolCalls, quantity: 7),
+                activity(day: "2026-08-05", counter: .requests, quantity: 3),
+                activity(day: "2026-08-05", counter: .contextTokens, quantity: 240),
+                activity(day: "2026-08-05", counter: .contextPeak, quantity: 120),
+                activity(day: "2026-08-05", counter: .activityTokens, quantity: 300)
+            ]
+        )
+
+        let result = try await UsageQueryService(ledger: ledger).summary(
+            period: .today,
+            now: date("2026-08-05T12:00:00Z"),
+            calendar: calendar
+        )
+
+        let activity = result.agentActivity
+        XCTAssertEqual(activity.totals.tasks, 2)
+        XCTAssertEqual(activity.totals.toolCalls, 7)
+        XCTAssertEqual(activity.totals.tokensPerTask, 150)
+        XCTAssertEqual(activity.totals.averageContext, 80)
+        XCTAssertEqual(activity.coverage, AgentActivityCoverage(tokenTotal: 700, activityTokens: 300))
+        XCTAssertEqual(activity.coverage.state, .partial)
+        XCTAssertEqual(activity.models.map(\.observedModelID), ["gpt-uncounted", "gpt-observed"])
+        XCTAssertEqual(activity.models.map(\.coverage.state), [.notCovered, .complete])
+        XCTAssertEqual(activity.models.last?.totals.tokensPerTask, 150)
+    }
+
+    private func activity(
+        day value: String,
+        counter: AgentActivityCounter,
+        quantity: Int64,
+        model: String = "gpt-observed"
+    ) -> AgentActivityRow {
+        AgentActivityRow(
+            localDay: localDay(value, calendar: amsterdamCalendar()),
+            provider: .codex,
+            observedModelID: model,
+            counter: counter,
+            quantity: quantity
+        )
+    }
+
     private func row(
         day value: String,
         quantity: Int64,
@@ -194,21 +246,44 @@ private enum QueryTestLedgerError: Error {
 
 private actor QueryTestLedger: LedgerStore {
     private let rows: [DailyUsageRow]
+    private let agentActivity: [AgentActivityRow]
     private var pricingCalls = 0
     private var queryIntervals: [DateInterval?] = []
     private var queryCalendars: [Calendar] = []
 
-    init(rows: [DailyUsageRow]) {
+    init(rows: [DailyUsageRow], agentActivity: [AgentActivityRow] = []) {
         self.rows = rows
+        self.agentActivity = agentActivity
+    }
+
+    func agentActivityRows(in interval: DateInterval?, calendar: Calendar) async -> [AgentActivityRow] {
+        guard let interval else { return agentActivity }
+        let first = LocalDay(date: interval.start, calendar: calendar).value
+        let lastDate = calendar.date(byAdding: .day, value: -1, to: interval.end)!
+        let last = LocalDay(date: lastDate, calendar: calendar).value
+        return agentActivity.filter { $0.localDay.value >= first && $0.localDay.value <= last }
     }
 
     func migrate() {}
 
     func commit(
         _ usage: [NormalizedUsage],
+        agentActivity: [AgentActivityObservation],
         skipped: [SkippedRecord],
         checkpoint: SourceCheckpoint,
         calendar: Calendar
+    ) throws {
+        throw QueryTestLedgerError.unsupported
+    }
+
+    func agentActivityBackfillOffset(for fingerprint: String) throws -> Int64? {
+        throw QueryTestLedgerError.unsupported
+    }
+
+    func commitAgentActivityBackfill(
+        _ rows: [AgentActivityRow],
+        fingerprint: String,
+        expectedOffset: Int64
     ) throws {
         throw QueryTestLedgerError.unsupported
     }

@@ -220,6 +220,67 @@ final class UsageHistoryQueryServiceTests: XCTestCase {
         XCTAssertEqual(pricingQueries, 1)
     }
 
+    func testHistoryCarriesAgentActivityForTheRangeAndEachDailyPoint() async throws {
+        let calendar = amsterdamCalendar()
+        let ledger = HistoryQueryTestLedger(
+            rows: [
+                row(day: "2026-08-03", provider: .codex, model: "gpt-5", metric: .inputUncached, quantity: 50),
+                row(day: "2026-08-10", provider: .codex, model: "gpt-5", metric: .inputUncached, quantity: 100),
+                row(day: "2026-08-11", provider: .claudeCode, model: "claude-opus-4-1", metric: .output, quantity: 80)
+            ],
+            agentActivity: [
+                agentActivity(day: "2026-08-03", provider: .codex, model: "gpt-5", counter: .tasks, quantity: 4),
+                agentActivity(day: "2026-08-10", provider: .codex, model: "gpt-5", counter: .tasks, quantity: 2),
+                agentActivity(day: "2026-08-10", provider: .codex, model: "gpt-5", counter: .activityTokens, quantity: 100),
+                agentActivity(day: "2026-08-11", provider: .claudeCode, model: "claude-opus-4-1", counter: .tasks, quantity: 1),
+                agentActivity(day: "2026-08-11", provider: .claudeCode, model: "claude-opus-4-1", counter: .activityTokens, quantity: 80)
+            ]
+        )
+        let service = UsageQueryService(ledger: ledger)
+
+        let snapshots = try await service.history(
+            ranges: [.today, .sevenDays],
+            now: date("2026-08-11T20:00:00Z"),
+            calendar: calendar
+        )
+        let codexOnly = try await service.history(
+            range: .sevenDays,
+            now: date("2026-08-11T20:00:00Z"),
+            calendar: calendar,
+            provider: .codex
+        )
+
+        let week = try XCTUnwrap(snapshots[.sevenDays])
+        XCTAssertEqual(week.agentActivity.totals.tasks, 3)
+        XCTAssertEqual(week.agentActivity.coverage.state, .complete)
+        XCTAssertEqual(week.agentActivity.totals.tokensPerTask, 60)
+        let pointTasks = week.points.map { $0.agentActivity?.totals.tasks }
+        XCTAssertEqual(pointTasks, [nil, nil, nil, nil, nil, 2, 1])
+        let today = try XCTUnwrap(snapshots[.today])
+        XCTAssertEqual(today.agentActivity.totals.tasks, 1)
+        XCTAssertTrue(today.points.allSatisfy { $0.agentActivity == nil })
+        XCTAssertEqual(codexOnly.agentActivity.totals.tasks, 2)
+        XCTAssertEqual(codexOnly.agentActivity.models.map(\.provider), [.codex])
+        let queries = await ledger.agentActivityQueries()
+        XCTAssertEqual(queries, 2)
+    }
+
+    private func agentActivity(
+        day value: String,
+        provider: Provider,
+        model: String,
+        counter: AgentActivityCounter,
+        quantity: Int64
+    ) -> AgentActivityRow {
+        AgentActivityRow(
+            localDay: localDay(value),
+            provider: provider,
+            observedModelID: model,
+            counter: counter,
+            quantity: quantity
+        )
+    }
+
     private func row(
         day value: String,
         provider: Provider,
@@ -297,28 +358,56 @@ private actor HistoryQueryTestLedger: LedgerStore {
     private let rows: [DailyUsageRow]
     private let hourlyRows: [HourlyUsageRow]
     private let activityRows: [ActivitySliceRow]
+    private let agentActivity: [AgentActivityRow]
     private var queryIntervals: [DateInterval?] = []
     private var pricingCalls = 0
     private var hourlyQueryCount = 0
     private var activityQueryCount = 0
+    private var agentActivityQueryCount = 0
 
     init(
         rows: [DailyUsageRow],
         hourlyRows: [HourlyUsageRow] = [],
-        activityRows: [ActivitySliceRow] = []
+        activityRows: [ActivitySliceRow] = [],
+        agentActivity: [AgentActivityRow] = []
     ) {
         self.rows = rows
         self.hourlyRows = hourlyRows
         self.activityRows = activityRows
+        self.agentActivity = agentActivity
     }
+
+    func agentActivityRows(in interval: DateInterval?, calendar: Calendar) async -> [AgentActivityRow] {
+        agentActivityQueryCount += 1
+        guard let interval else { return agentActivity }
+        let first = LocalDay(date: interval.start, calendar: calendar).value
+        let lastDate = calendar.date(byAdding: .day, value: -1, to: interval.end)!
+        let last = LocalDay(date: lastDate, calendar: calendar).value
+        return agentActivity.filter { $0.localDay.value >= first && $0.localDay.value <= last }
+    }
+
+    func agentActivityQueries() -> Int { agentActivityQueryCount }
 
     func migrate() {}
 
     func commit(
         _ usage: [NormalizedUsage],
+        agentActivity: [AgentActivityObservation],
         skipped: [SkippedRecord],
         checkpoint: SourceCheckpoint,
         calendar: Calendar
+    ) throws {
+        throw HistoryQueryTestLedgerError.unsupported
+    }
+
+    func agentActivityBackfillOffset(for fingerprint: String) throws -> Int64? {
+        throw HistoryQueryTestLedgerError.unsupported
+    }
+
+    func commitAgentActivityBackfill(
+        _ rows: [AgentActivityRow],
+        fingerprint: String,
+        expectedOffset: Int64
     ) throws {
         throw HistoryQueryTestLedgerError.unsupported
     }

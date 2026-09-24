@@ -20,17 +20,21 @@ public struct UsageHistoryPoint: Equatable, Sendable {
     public let hourStart: Date?
     public let tokenTotal: Int64
     public let breakdown: UsageBreakdown?
+    /// Agent activity for a daily point. Activity is stored per day, so hourly points have none.
+    public let agentActivity: AgentActivitySummary?
 
     public init(
         localDay: LocalDay,
         hourStart: Date? = nil,
         tokenTotal: Int64,
-        breakdown: UsageBreakdown? = nil
+        breakdown: UsageBreakdown? = nil,
+        agentActivity: AgentActivitySummary? = nil
     ) {
         self.localDay = localDay
         self.hourStart = hourStart
         self.tokenTotal = tokenTotal
         self.breakdown = breakdown
+        self.agentActivity = agentActivity
     }
 
     public var selectionID: String {
@@ -130,6 +134,7 @@ public struct UsageHistorySnapshot: Equatable, Sendable {
     public let comparison: UsageComparison
     public let breakdown: UsageBreakdown
     public let workPatterns: WorkPatternSnapshot?
+    public let agentActivity: AgentActivitySummary
 
     public init(
         range: UsageHistoryRange,
@@ -140,7 +145,8 @@ public struct UsageHistorySnapshot: Equatable, Sendable {
         comparison: UsageComparison,
         breakdown: UsageBreakdown,
         workPatterns: WorkPatternSnapshot? = nil,
-        tokenScope: UsageTokenScope = .all
+        tokenScope: UsageTokenScope = .all,
+        agentActivity: AgentActivitySummary = .empty
     ) {
         self.range = range
         self.provider = provider
@@ -151,6 +157,7 @@ public struct UsageHistorySnapshot: Equatable, Sendable {
         self.breakdown = breakdown
         self.tokenScope = tokenScope
         self.workPatterns = workPatterns
+        self.agentActivity = agentActivity
     }
 }
 

@@ -24,7 +24,7 @@ final class DatabaseMigratorTests: XCTestCase {
         let names = try connection.queryStrings(
             "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
         )
-        for required in ["active_catalog_import", "activity_slices", "app_metadata", "daily_usage", "hourly_usage", "source_checkpoints", "skipped_records", "price_rates", "model_aliases", "catalog_imports", "fx_rates", "schema_migrations"] {
+        for required in ["active_catalog_import", "activity_slices", "app_metadata", "daily_agent_activity", "daily_usage", "hourly_usage", "source_checkpoints", "skipped_records", "price_rates", "model_aliases", "catalog_imports", "fx_rates", "schema_migrations"] {
             XCTAssertTrue(names.contains(required), "missing \(required)")
         }
     }
@@ -47,7 +47,7 @@ final class DatabaseMigratorTests: XCTestCase {
             migrations: Migrations.all
         ).migrate()
 
-        XCTAssertEqual(try connection.userVersion, 6)
+        XCTAssertEqual(try connection.userVersion, Int32(Migrations.all.count))
         XCTAssertEqual(
             try connection.queryStrings("SELECT name FROM sqlite_master WHERE type='table' AND name='fx_rates';"),
             ["fx_rates"]
@@ -105,7 +105,7 @@ final class DatabaseMigratorTests: XCTestCase {
                 migrations: Migrations.all
             ).migrate()
 
-            XCTAssertEqual(try connection.userVersion, 6, "starting at v\(startingVersion)")
+            XCTAssertEqual(try connection.userVersion, Int32(Migrations.all.count), "starting at v\(startingVersion)")
             XCTAssertEqual(
                 try connection.queryStrings("SELECT quantity FROM daily_usage;"),
                 ["17"],
@@ -127,6 +127,100 @@ final class DatabaseMigratorTests: XCTestCase {
             )
             try connection.close()
         }
+    }
+
+    func testAgentActivityMigrationMarksEveryImportedPrefixForBackfillWithoutChangingUsage() throws {
+        for startingVersion in 1...6 {
+            let directory = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let connection = try SQLiteConnection(
+                url: directory.appending(path: "ledger.sqlite")
+            )
+            let backups = directory.appending(path: "Backups")
+            try DatabaseMigrator(
+                connection: connection,
+                backupDirectory: backups,
+                migrations: Array(Migrations.all.prefix(startingVersion))
+            ).migrate()
+            try connection.execute(
+                """
+                INSERT INTO daily_usage VALUES(
+                  '2026-08-01', 'Europe/Amsterdam', 'codex', 'gpt-test',
+                  'input_uncached', 'additive', 17
+                );
+                INSERT INTO source_checkpoints VALUES(
+                  '\(String(repeating: "a", count: 64))', 'codex', 1, 4096, 4096, NULL,
+                  NULL, NULL, '{}', '{}'
+                );
+                INSERT INTO source_checkpoints VALUES(
+                  '\(String(repeating: "b", count: 64))', 'claude_code', 1, 0, 0, NULL,
+                  NULL, NULL, '{}', '{}'
+                );
+                """
+            )
+
+            try DatabaseMigrator(
+                connection: connection,
+                backupDirectory: backups,
+                migrations: Migrations.all
+            ).migrate()
+
+            XCTAssertEqual(
+                try connection.userVersion,
+                Int32(Migrations.all.count),
+                "starting at v\(startingVersion)"
+            )
+            XCTAssertEqual(
+                try connection.queryStrings("SELECT quantity FROM daily_usage;"),
+                ["17"],
+                "starting at v\(startingVersion)"
+            )
+            XCTAssertEqual(
+                try connection.queryStrings(
+                    """
+                    SELECT provider || ':' || agent_activity_counted_from_offset
+                    FROM source_checkpoints ORDER BY provider;
+                    """
+                ),
+                ["claude_code:0", "codex:4096"],
+                "starting at v\(startingVersion)"
+            )
+            XCTAssertEqual(
+                try connection.queryStrings("SELECT COUNT(*) FROM daily_agent_activity;"),
+                ["0"],
+                "starting at v\(startingVersion)"
+            )
+            try connection.close()
+        }
+    }
+
+    func testAgentActivitySchemaRejectsNonIntegerAndNegativeQuantities() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let connection = try SQLiteConnection(url: directory.appending(path: "ledger.sqlite"))
+        try DatabaseMigrator(
+            connection: connection,
+            backupDirectory: directory.appending(path: "Backups"),
+            migrations: Migrations.all
+        ).migrate()
+
+        for quantity in ["1.5", "-1", "'many'"] {
+            XCTAssertThrowsError(try connection.execute(
+                """
+                INSERT INTO daily_agent_activity VALUES(
+                  '2026-08-01', 'Europe/Amsterdam', 'codex', 'gpt-test', 'tasks', \(quantity)
+                );
+                """
+            ), "quantity \(quantity)")
+        }
+        XCTAssertThrowsError(try connection.execute(
+            """
+            INSERT INTO source_checkpoints VALUES(
+              '\(String(repeating: "a", count: 64))', 'codex', 1, 0, 0, NULL,
+              NULL, NULL, '{}', '{}', -1
+            );
+            """
+        ))
     }
 
     func testActivitySliceSchemaRejectsNonIntegerTimestamps() throws {
@@ -242,7 +336,7 @@ final class DatabaseMigratorTests: XCTestCase {
             migrations: Migrations.all
         ).migrate()
 
-        XCTAssertEqual(try connection.userVersion, 6)
+        XCTAssertEqual(try connection.userVersion, Int32(Migrations.all.count))
         XCTAssertEqual(
             try connection.queryStrings(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='fx_rates';"

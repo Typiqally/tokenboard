@@ -9,6 +9,8 @@ public enum LedgerError: Error, Equatable {
     case corruptData(String)
     case integrityCheckFailed(String)
     case randomSaltGenerationFailed(Int32)
+    /// The source's uncounted agent-activity prefix changed after a backfill read it.
+    case staleAgentActivityBackfill
 }
 
 public enum LedgerValidationError: Error, Equatable, Sendable {
@@ -141,15 +143,29 @@ public actor SQLiteLedger: LedgerStore {
 
     public func commit(
         _ usage: [NormalizedUsage],
+        agentActivity: [AgentActivityObservation],
         skipped: [SkippedRecord],
         checkpoint: SourceCheckpoint,
         calendar: Calendar
     ) throws {
         let connection = try requiredConnection()
-        try validateStorageBoundary(usage: usage, skipped: skipped, checkpoint: checkpoint)
+        try validateStorageBoundary(
+            usage: usage,
+            agentActivity: agentActivity,
+            skipped: skipped,
+            checkpoint: checkpoint
+        )
         let groupedUsage = try grouped(usage, calendar: calendar)
         let groupedHourlyUsage = try groupedHourly(usage, calendar: calendar)
         let activitySlices = try groupedActivitySlices(usage, calendar: calendar)
+        var agentActivityAggregator = AgentActivityAggregator(calendar: calendar)
+        for entry in usage {
+            try agentActivityAggregator.add(entry)
+        }
+        for observation in agentActivity {
+            try agentActivityAggregator.add(observation)
+        }
+        let agentActivityRows = agentActivityAggregator.rows
         let checkpointMetrics = try encodedJSON(checkpoint.cumulativeMetrics)
         let adapterState = try encodedJSON(checkpoint.adapterState)
 
@@ -163,6 +179,9 @@ public actor SQLiteLedger: LedgerStore {
             }
             for row in activitySlices {
                 try insertActivitySlice(row, using: connection)
+            }
+            for row in agentActivityRows {
+                try upsertAgentActivity(row, using: connection)
             }
             for record in skipped {
                 try insertSkippedRecord(record, using: connection)
@@ -198,15 +217,178 @@ public actor SQLiteLedger: LedgerStore {
         }
     }
 
+    public func agentActivityBackfillOffset(for fingerprint: String) throws -> Int64? {
+        let connection = try requiredConnection()
+        let statement = try prepare(
+            "SELECT agent_activity_counted_from_offset FROM source_checkpoints WHERE fingerprint = ?;",
+            using: connection
+        )
+        defer { sqlite3_finalize(statement) }
+        try bind(fingerprint, to: statement, at: 1, using: connection)
+        switch sqlite3_step(statement) {
+        case SQLITE_ROW:
+            let offset = sqlite3_column_int64(statement, 0)
+            guard offset >= 0 else {
+                throw LedgerError.corruptData("agent activity backfill offset is invalid")
+            }
+            return offset
+        case SQLITE_DONE:
+            return nil
+        default:
+            throw failure(sqlite3_errcode(connection.handle), using: connection)
+        }
+    }
+
+    public func commitAgentActivityBackfill(
+        _ rows: [AgentActivityRow],
+        fingerprint: String,
+        expectedOffset: Int64
+    ) throws {
+        let connection = try requiredConnection()
+        guard isOpaqueDigest(fingerprint) else {
+            throw LedgerValidationError.invalidCheckpointFingerprint
+        }
+        for row in rows {
+            guard ModelIdentifierPolicy.isContentSafe(row.observedModelID) else {
+                throw LedgerValidationError.invalidObservedModelID
+            }
+            guard row.quantity >= 0 else {
+                throw AgentActivityError.negativeQuantity(row.counter)
+            }
+        }
+
+        try connection.beginTransaction()
+        do {
+            for row in rows {
+                try upsertAgentActivity(row, using: connection)
+            }
+            let statement = try prepare(
+                """
+                UPDATE source_checkpoints
+                SET agent_activity_counted_from_offset = 0
+                WHERE fingerprint = ?
+                  AND agent_activity_counted_from_offset = ?
+                  AND agent_activity_counted_from_offset > 0;
+                """,
+                using: connection
+            )
+            defer { sqlite3_finalize(statement) }
+            try bind(fingerprint, to: statement, at: 1, using: connection)
+            try bind(expectedOffset, to: statement, at: 2, using: connection)
+            try stepDone(statement, using: connection)
+            guard sqlite3_changes(connection.handle) == 1 else {
+                throw LedgerError.staleAgentActivityBackfill
+            }
+            try connection.commitTransaction()
+        } catch {
+            try? connection.rollbackTransaction()
+            throw error
+        }
+    }
+
+    /// Stops waiting for a provider's pre-upgrade history that a complete backfill pass could not count, such as
+    /// logs deleted since they were imported. Their usage keeps its tokens and simply reads as not covered.
+    /// Returns the number of sources released.
+    @discardableResult
+    public func releaseUncountedAgentActivity(provider: Provider) async throws -> Int {
+        let connection = try requiredConnection()
+        let statement = try prepare(
+            """
+            UPDATE source_checkpoints
+            SET agent_activity_counted_from_offset = 0
+            WHERE provider = ? AND agent_activity_counted_from_offset > 0;
+            """,
+            using: connection
+        )
+        defer { sqlite3_finalize(statement) }
+        try bind(provider.rawValue, to: statement, at: 1, using: connection)
+        try stepDone(statement, using: connection)
+        return Int(sqlite3_changes(connection.handle))
+    }
+
+    /// Number of sources per provider whose history from before the activity upgrade is not counted yet.
+    public func agentActivityBackfillPendingCountsByProvider() async throws -> [Provider: Int] {
+        let connection = try requiredConnection()
+        let statement = try prepare(
+            """
+            SELECT provider, COUNT(*)
+            FROM source_checkpoints
+            WHERE agent_activity_counted_from_offset > 0
+            GROUP BY provider
+            ORDER BY provider;
+            """,
+            using: connection
+        )
+        defer { sqlite3_finalize(statement) }
+        var counts: [Provider: Int] = [:]
+        while true {
+            let result = sqlite3_step(statement)
+            if result == SQLITE_DONE { return counts }
+            guard result == SQLITE_ROW else {
+                throw failure(result, using: connection)
+            }
+            let rawProvider = try sqliteText(statement, at: 0, using: connection)
+            guard let provider = Provider(rawValue: rawProvider) else {
+                throw LedgerError.corruptData("agent activity backfill provider is invalid")
+            }
+            let rawCount = sqlite3_column_int64(statement, 1)
+            guard rawCount >= 0, let count = Int(exactly: rawCount) else {
+                throw LedgerError.corruptData("agent activity backfill count is invalid")
+            }
+            counts[provider] = count
+        }
+    }
+
+    public func agentActivityRows(
+        in interval: DateInterval?,
+        calendar: Calendar
+    ) async throws -> [AgentActivityRow] {
+        let connection = try requiredConnection()
+        let statement: OpaquePointer
+        if let interval {
+            let days = try localDayBounds(of: interval, calendar: calendar)
+            statement = try prepare(
+                """
+                SELECT local_day, time_zone, provider, observed_model_id, counter, quantity
+                FROM daily_agent_activity
+                WHERE local_day >= ? AND local_day <= ?
+                ORDER BY local_day, time_zone, provider, observed_model_id, counter;
+                """,
+                using: connection
+            )
+            try bind(days.first.value, to: statement, at: 1, using: connection)
+            try bind(days.last.value, to: statement, at: 2, using: connection)
+        } else {
+            statement = try prepare(
+                """
+                SELECT local_day, time_zone, provider, observed_model_id, counter, quantity
+                FROM daily_agent_activity
+                ORDER BY local_day, time_zone, provider, observed_model_id, counter;
+                """,
+                using: connection
+            )
+        }
+        defer { sqlite3_finalize(statement) }
+
+        var rows: [AgentActivityRow] = []
+        while true {
+            let result = sqlite3_step(statement)
+            switch result {
+            case SQLITE_ROW:
+                rows.append(try agentActivityRow(from: statement))
+            case SQLITE_DONE:
+                return rows
+            default:
+                throw failure(result, using: connection)
+            }
+        }
+    }
+
     public func usageRows(in interval: DateInterval?, calendar: Calendar) throws -> [DailyUsageRow] {
         let connection = try requiredConnection()
         let statement: OpaquePointer
         if let interval {
-            let firstDay = LocalDay(date: interval.start, calendar: calendar)
-            guard let lastDate = calendar.date(byAdding: .day, value: -1, to: interval.end) else {
-                throw LedgerError.corruptData("could not calculate interval end day")
-            }
-            let lastDay = LocalDay(date: lastDate, calendar: calendar)
+            let (firstDay, lastDay) = try localDayBounds(of: interval, calendar: calendar)
             statement = try prepare(
                 """
                 SELECT local_day, time_zone, provider, observed_model_id, metric, aggregation, quantity
@@ -958,10 +1140,14 @@ public actor SQLiteLedger: LedgerStore {
 
     private func validateStorageBoundary(
         usage: [NormalizedUsage],
+        agentActivity: [AgentActivityObservation],
         skipped: [SkippedRecord],
         checkpoint: SourceCheckpoint
     ) throws {
         for entry in usage where !ModelIdentifierPolicy.isContentSafe(entry.observedModelID) {
+            throw LedgerValidationError.invalidObservedModelID
+        }
+        for entry in agentActivity where !ModelIdentifierPolicy.isContentSafe(entry.observedModelID) {
             throw LedgerValidationError.invalidObservedModelID
         }
         guard isOpaqueDigest(checkpoint.fingerprint) else {
@@ -1170,6 +1356,34 @@ public actor SQLiteLedger: LedgerStore {
         try stepDone(statement, using: connection)
     }
 
+    private func upsertAgentActivity(
+        _ row: AgentActivityRow,
+        using connection: SQLiteConnection
+    ) throws {
+        let combinedQuantity = switch row.counter.aggregation {
+        case .sum: "quantity + excluded.quantity"
+        case .maximum: "max(quantity, excluded.quantity)"
+        }
+        let statement = try prepare(
+            """
+            INSERT INTO daily_agent_activity(
+              local_day, time_zone, provider, observed_model_id, counter, quantity
+            ) VALUES(?, ?, ?, ?, ?, ?)
+            ON CONFLICT(local_day, time_zone, provider, observed_model_id, counter)
+            DO UPDATE SET quantity = \(combinedQuantity);
+            """,
+            using: connection
+        )
+        defer { sqlite3_finalize(statement) }
+        try bind(row.localDay.value, to: statement, at: 1, using: connection)
+        try bind(row.localDay.timeZoneIdentifier, to: statement, at: 2, using: connection)
+        try bind(row.provider.rawValue, to: statement, at: 3, using: connection)
+        try bind(row.observedModelID, to: statement, at: 4, using: connection)
+        try bind(row.counter.rawValue, to: statement, at: 5, using: connection)
+        try bind(row.quantity, to: statement, at: 6, using: connection)
+        try stepDone(statement, using: connection)
+    }
+
     private func insertSkippedRecord(_ record: SkippedRecord, using connection: SQLiteConnection) throws {
         let statement = try prepare(
             """
@@ -1261,6 +1475,35 @@ public actor SQLiteLedger: LedgerStore {
             metric: metric,
             aggregation: aggregation,
             quantity: sqlite3_column_int64(statement, 7)
+        )
+    }
+
+    private func agentActivityRow(from statement: OpaquePointer) throws -> AgentActivityRow {
+        let localDay = try requiredText(statement, at: 0)
+        let timeZone = try requiredText(statement, at: 1)
+        guard let provider = Provider(rawValue: try requiredText(statement, at: 2)),
+              let counter = AgentActivityCounter(rawValue: try requiredText(statement, at: 4)) else {
+            throw LedgerError.corruptData("agent activity enum value is invalid")
+        }
+        return AgentActivityRow(
+            localDay: try decodedLocalDay(value: localDay, timeZoneIdentifier: timeZone),
+            provider: provider,
+            observedModelID: try requiredText(statement, at: 3),
+            counter: counter,
+            quantity: sqlite3_column_int64(statement, 5)
+        )
+    }
+
+    private func localDayBounds(
+        of interval: DateInterval,
+        calendar: Calendar
+    ) throws -> (first: LocalDay, last: LocalDay) {
+        guard let lastDate = calendar.date(byAdding: .day, value: -1, to: interval.end) else {
+            throw LedgerError.corruptData("could not calculate interval end day")
+        }
+        return (
+            LocalDay(date: interval.start, calendar: calendar),
+            LocalDay(date: lastDate, calendar: calendar)
         )
     }
 

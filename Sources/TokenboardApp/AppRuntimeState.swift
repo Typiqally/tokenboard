@@ -18,6 +18,9 @@ protocol AppLedgerRuntime: Sendable {
     ) async throws -> [DailyUsageRow]
     func skippedRecordCount() async throws -> Int
     func skippedRecordCountsByProvider() async throws -> [Provider: Int]
+    func agentActivityBackfillPendingCountsByProvider() async throws -> [Provider: Int]
+    @discardableResult
+    func releaseUncountedAgentActivity(provider: Provider) async throws -> Int
     func shutdown() async throws
 }
 
@@ -25,6 +28,11 @@ extension AppLedgerRuntime {
     func shutdown() async throws {}
 
     func skippedRecordCountsByProvider() async throws -> [Provider: Int] { [:] }
+
+    func agentActivityBackfillPendingCountsByProvider() async throws -> [Provider: Int] { [:] }
+
+    @discardableResult
+    func releaseUncountedAgentActivity(provider: Provider) async throws -> Int { 0 }
 }
 
 protocol AppUsageQuerying: Sendable {
@@ -96,6 +104,7 @@ protocol AppIngestionCoordinating: Sendable {
     func startMonitoring(roots: [Provider: URL]) async throws -> IngestionBatchResult
     func refreshAll() async -> IngestionBatchResult
     func backfillActivityHistory() async -> IngestionBatchResult
+    func backfillAgentActivity() async -> IngestionBatchResult
     func replaceSource(
         _ provider: Provider,
         with root: URL,

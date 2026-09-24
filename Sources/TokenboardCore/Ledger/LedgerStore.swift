@@ -103,11 +103,24 @@ public struct SkippedRecord: Equatable, Sendable {
 
 public protocol LedgerStore: Sendable {
     func migrate() async throws
+    /// Atomically stores usage, the agent activity observed on the same lines, skipped records, and the
+    /// checkpoint that follows them.
     func commit(
         _ usage: [NormalizedUsage],
+        agentActivity: [AgentActivityObservation],
         skipped: [SkippedRecord],
         checkpoint: SourceCheckpoint,
         calendar: Calendar
+    ) async throws
+    /// The byte offset below which a source's agent activity has not been counted yet, or `nil` when the
+    /// source has no checkpoint. Zero means the whole source is already counted.
+    func agentActivityBackfillOffset(for fingerprint: String) async throws -> Int64?
+    /// Stores backfilled agent activity and marks the source fully counted, only if its uncounted prefix still
+    /// ends at `expectedOffset`. Either both happen or neither does.
+    func commitAgentActivityBackfill(
+        _ rows: [AgentActivityRow],
+        fingerprint: String,
+        expectedOffset: Int64
     ) async throws
     func backfillActivitySlices(
         _ observations: [ActivityObservation],
@@ -124,6 +137,10 @@ public protocol LedgerStore: Sendable {
         calendar: Calendar
     ) async throws -> [ActivitySliceRow]
     func activitySliceCoverageStart() async throws -> Date?
+    func agentActivityRows(
+        in interval: DateInterval?,
+        calendar: Calendar
+    ) async throws -> [AgentActivityRow]
     func checkpoint(for fingerprint: String) async throws -> SourceCheckpoint?
     func sourceFingerprint(provider: Provider, stableID: String) async throws -> String
     func recordIdentityHash(_ value: String) async throws -> String
@@ -138,6 +155,22 @@ public protocol LedgerStore: Sendable {
 }
 
 public extension LedgerStore {
+    func commit(
+        _ usage: [NormalizedUsage],
+        skipped: [SkippedRecord],
+        checkpoint: SourceCheckpoint,
+        calendar: Calendar
+    ) async throws {
+        try await commit(usage, agentActivity: [], skipped: skipped, checkpoint: checkpoint, calendar: calendar)
+    }
+
+    func agentActivityRows(
+        in interval: DateInterval?,
+        calendar: Calendar
+    ) async throws -> [AgentActivityRow] {
+        []
+    }
+
     func hourlyUsageRows(
         in interval: DateInterval?,
         calendar: Calendar
