@@ -83,9 +83,8 @@ public struct UsageQueryService: Sendable {
 
         let queryInterval = DateInterval(start: queryStart, end: today.end)
         let queriedRows = try await ledger.usageRows(in: queryInterval, calendar: calendar)
-        let rows = queriedRows.filter {
-            (provider == nil || $0.provider == provider) && tokenScope.includes($0.metric)
-        }
+        let allTokenRows = queriedRows.filter { provider == nil || $0.provider == provider }
+        let rows = allTokenRows.filter { tokenScope.includes($0.metric) }
         let pricing = try await ledger.pricingSnapshot()
         let priceResolver = try PriceResolver(pricing: pricing)
         let agentActivityRows = try await ledger.agentActivityRows(in: queryInterval, calendar: calendar)
@@ -154,6 +153,7 @@ public struct UsageQueryService: Sendable {
                 range: range,
                 intervals: intervals,
                 currentRows: currentRows,
+                currentAllTokenRows: allTokenRows.filter { $0.localDay.value >= currentStartDay },
                 previousRows: previousRows,
                 currentHourlyRows: currentHourlyRows,
                 currentAgentActivity: currentAgentActivity,
@@ -197,6 +197,7 @@ public struct UsageQueryService: Sendable {
         range: UsageHistoryRange,
         intervals: HistoryIntervals,
         currentRows: [DailyUsageRow],
+        currentAllTokenRows: [DailyUsageRow],
         previousRows: [DailyUsageRow],
         currentHourlyRows: [HourlyUsageRow],
         currentAgentActivity: [AgentActivityRow],
@@ -235,6 +236,7 @@ public struct UsageQueryService: Sendable {
         } else {
             try dailyPoints(
                 rows: currentRows,
+                allTokenRows: currentAllTokenRows,
                 agentActivityRows: currentAgentActivity,
                 interval: intervals.current,
                 calendar: calendar,
@@ -273,7 +275,7 @@ public struct UsageQueryService: Sendable {
             breakdown: breakdown,
             workPatterns: workPatterns,
             tokenScope: tokenScope,
-            agentActivity: try AgentActivitySummary(activityRows: currentAgentActivity, usageRows: currentRows)
+            agentActivity: try AgentActivitySummary(activityRows: currentAgentActivity, usageRows: currentAllTokenRows)
         )
     }
 
@@ -338,6 +340,7 @@ public struct UsageQueryService: Sendable {
 
     private func dailyPoints(
         rows: [DailyUsageRow],
+        allTokenRows: [DailyUsageRow],
         agentActivityRows: [AgentActivityRow],
         interval: DateInterval,
         calendar: Calendar,
@@ -345,6 +348,8 @@ public struct UsageQueryService: Sendable {
         priceResolver: PriceResolver
     ) throws -> [UsageHistoryPoint] {
         let rowsByDay = Dictionary(grouping: rows, by: { $0.localDay.value })
+        // Activity coverage describes all recorded requests, independent of the token display filter.
+        let allTokenRowsByDay = Dictionary(grouping: allTokenRows, by: { $0.localDay.value })
         let agentActivityByDay = Dictionary(grouping: agentActivityRows, by: { $0.localDay.value })
 
         var points: [UsageHistoryPoint] = []
@@ -353,6 +358,7 @@ public struct UsageQueryService: Sendable {
             let day = LocalDay(date: date, calendar: calendar)
             let dayRows = rowsByDay[day.value] ?? []
             let dayActivity = agentActivityByDay[day.value] ?? []
+            let allDayRows = allTokenRowsByDay[day.value] ?? []
             let breakdown = dayRows.isEmpty
                 ? nil
                 : try usageBreakdown(
@@ -364,9 +370,9 @@ public struct UsageQueryService: Sendable {
                 localDay: day,
                 tokenTotal: breakdown?.tokenTotal ?? 0,
                 breakdown: breakdown,
-                agentActivity: dayRows.isEmpty && dayActivity.isEmpty
+                agentActivity: allDayRows.isEmpty && dayActivity.isEmpty
                     ? nil
-                    : try AgentActivitySummary(activityRows: dayActivity, usageRows: dayRows)
+                    : try AgentActivitySummary(activityRows: dayActivity, usageRows: allDayRows)
             ))
             guard let next = calendar.date(byAdding: .day, value: 1, to: date) else {
                 throw UsageHistoryError.calendarArithmeticFailure
